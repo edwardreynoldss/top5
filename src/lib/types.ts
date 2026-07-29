@@ -114,6 +114,8 @@ export interface SfxAsset {
   mediaUrl: string;
   fileName: string;
   duration: number;
+  /** Overall sample gain (persisted) — some uploads are louder than others */
+  volume: number;
 }
 
 /** Where / how an SFX plays in the final video */

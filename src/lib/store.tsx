@@ -240,7 +240,14 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const addSfxAsset = useCallback((asset: Omit<SfxAsset, "id"> & { id?: string }) => {
     const id = asset.id || uuidv4();
-    const next = { ...asset, id };
+    const next: SfxAsset = {
+      ...asset,
+      id,
+      volume:
+        typeof asset.volume === "number" && Number.isFinite(asset.volume)
+          ? Math.max(0, Math.min(2, asset.volume))
+          : 1,
+    };
     upsertSfxLibraryAsset(next);
     setProject((prev) => {
       const existing = (prev.sfxAssets || []).filter(

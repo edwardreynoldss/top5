@@ -14,7 +14,17 @@ export function loadSfxLibrary(): SfxAsset[] {
     const raw = localStorage.getItem(SFX_LIBRARY_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as SfxAsset[];
-    return Array.isArray(parsed) ? parsed.filter((a) => a?.id && a?.mediaId) : [];
+    return Array.isArray(parsed)
+      ? parsed
+          .filter((a) => a?.id && a?.mediaId)
+          .map((a) => ({
+            ...a,
+            volume:
+              typeof a.volume === "number" && Number.isFinite(a.volume)
+                ? Math.max(0, Math.min(2, a.volume))
+                : 1,
+          }))
+      : [];
   } catch {
     return [];
   }
@@ -104,9 +114,22 @@ export async function hydrateSfxAssets(assets: SfxAsset[]): Promise<SfxAsset[]> 
   for (const asset of assets) {
     try {
       const url = await resolveSfxPlayUrl(asset);
-      out.push({ ...asset, mediaUrl: url });
+      out.push({
+        ...asset,
+        mediaUrl: url,
+        volume:
+          typeof asset.volume === "number" && Number.isFinite(asset.volume)
+            ? Math.max(0, Math.min(2, asset.volume))
+            : 1,
+      });
     } catch {
-      out.push(asset);
+      out.push({
+        ...asset,
+        volume:
+          typeof asset.volume === "number" && Number.isFinite(asset.volume)
+            ? Math.max(0, Math.min(2, asset.volume))
+            : 1,
+      });
     }
   }
   return out;

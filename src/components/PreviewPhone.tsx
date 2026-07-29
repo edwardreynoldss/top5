@@ -18,6 +18,7 @@ import {
   absoluteTimeForClipPlayhead,
   findClipAtAbsoluteTime,
   formatTime,
+  effectiveSfxVolume,
 } from "@/lib/defaults";
 import { fontCss, type RankClip } from "@/lib/types";
 
@@ -172,7 +173,7 @@ export function PreviewPhone({
       if (!asset?.mediaUrl) continue;
       firedSfxRef.current.add(p.id);
       const audio = new Audio(asset.mediaUrl);
-      audio.volume = Math.min(1, Math.max(0, p.volume));
+      audio.volume = Math.min(1, Math.max(0, effectiveSfxVolume(asset.volume, p.volume)));
       try {
         audio.currentTime = p.trimStart;
       } catch {

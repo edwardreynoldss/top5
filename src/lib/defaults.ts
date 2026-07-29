@@ -201,6 +201,17 @@ export function resolveSfxStartAt(
   return Math.max(0, placement.startAt);
 }
 
+/** Combined sample gain × hit gain for preview/export */
+export function effectiveSfxVolume(
+  assetVolume: number | undefined,
+  placementVolume: number | undefined
+) {
+  const a = typeof assetVolume === "number" && Number.isFinite(assetVolume) ? assetVolume : 1;
+  const p =
+    typeof placementVolume === "number" && Number.isFinite(placementVolume) ? placementVolume : 1;
+  return Math.max(0, Math.min(3, a * p));
+}
+
 /** How far into a clip's *played* timeline we are (merged segments). */
 export function clipLocalPlayProgress(
   clip: RankClip,

@@ -517,9 +517,34 @@ a {
   background: var(--bg-elevated);
 }
 
-.sfx-asset-meta {
-  flex: 1;
-  min-width: 0;
+.sfx-asset-block {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sfx-asset-block.volume-open {
+  padding-bottom: 0.15rem;
+}
+
+.sfx-asset-volume {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.35rem 0.55rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-input);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.sfx-asset-volume input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.icon-btn.active {
+  border-color: rgba(200, 245, 66, 0.45);
+  color: var(--accent);
 }
 
 .sfx-timeline {

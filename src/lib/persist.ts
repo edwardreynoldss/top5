@@ -67,6 +67,10 @@ export function loadProject(): EditorProject {
       clips,
       sfxAssets: (parsed.sfxAssets || []).map((a) => ({
         ...a,
+        volume:
+          typeof a.volume === "number" && Number.isFinite(a.volume)
+            ? Math.max(0, Math.min(2, a.volume))
+            : 1,
         // Never persist blob: URLs — restore from IndexedDB / server on hydrate
         mediaUrl: a.mediaId ? `/api/media/${a.mediaId}` : a.mediaUrl,
       })),

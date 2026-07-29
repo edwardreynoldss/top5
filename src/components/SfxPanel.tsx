@@ -19,6 +19,7 @@ import {
   totalTimelineDuration,
   resolveSfxStartAt,
   getPlaybackOrder,
+  effectiveSfxVolume,
 } from "@/lib/defaults";
 import {
   cacheSfxFile,
@@ -48,6 +49,7 @@ export function SfxPanel() {
   const [query, setQuery] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [volumeOpenId, setVolumeOpenId] = useState<string | null>(null);
   const previewRef = useRef<HTMLAudioElement | null>(null);
 
   const assets = useMemo(() => project.sfxAssets || [], [project.sfxAssets]);
@@ -110,6 +112,7 @@ export function SfxPanel() {
         mediaUrl: data.mediaUrl,
         fileName: data.fileName || file.name,
         duration: data.duration || 1,
+        volume: 1,
       });
       addSfxPlacement({
         assetId: id,
@@ -182,7 +185,10 @@ export function SfxPanel() {
     const audio = new Audio(asset.mediaUrl);
     previewRef.current = audio;
     audio.currentTime = p.trimStart;
-    audio.volume = Math.min(1, Math.max(0, p.volume));
+    audio.volume = Math.min(
+      1,
+      Math.max(0, effectiveSfxVolume(asset.volume, p.volume))
+    );
     const stopAt = p.trimEnd;
     const onTime = () => {
       if (audio.currentTime >= stopAt - 0.03) {
@@ -198,60 +204,99 @@ export function SfxPanel() {
     }
   }
 
+  function setAssetVolume(assetId: string, volume: number) {
+    const vol = Math.max(0, Math.min(2, volume));
+    if (assets.some((a) => a.id === assetId)) {
+      updateSfxAsset(assetId, { volume: vol });
+    } else {
+      const libItem = library.find((a) => a.id === assetId);
+      if (libItem) {
+        upsertSfxLibraryAsset({ ...libItem, volume: vol });
+        setLibraryTick((n) => n + 1);
+      }
+    }
+  }
+
   function renderAssetRow(a: SfxAsset, mode: "project" | "library") {
     const renaming = renamingId === a.id;
+    const volumeOpen = volumeOpenId === a.id;
+    const sampleVol = typeof a.volume === "number" ? a.volume : 1;
     return (
-      <div key={a.id} className="sfx-asset-row">
-        <Volume2 size={14} className="muted-icon" />
-        <div className="sfx-asset-meta">
-          {renaming ? (
-            <input
-              className="input"
-              value={renameValue}
-              autoFocus
-              onChange={(e) => setRenameValue(e.target.value)}
-              onBlur={() => commitRename(a.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitRename(a.id);
-                if (e.key === "Escape") setRenamingId(null);
-              }}
-            />
-          ) : (
-            <p className="truncate" title={a.fileName}>
-              {a.fileName}
+      <div key={a.id} className={`sfx-asset-block ${volumeOpen ? "volume-open" : ""}`}>
+        <div className="sfx-asset-row">
+          <Volume2 size={14} className="muted-icon" />
+          <div className="sfx-asset-meta">
+            {renaming ? (
+              <input
+                className="input"
+                value={renameValue}
+                autoFocus
+                onChange={(e) => setRenameValue(e.target.value)}
+                onBlur={() => commitRename(a.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRename(a.id);
+                  if (e.key === "Escape") setRenamingId(null);
+                }}
+              />
+            ) : (
+              <p className="truncate" title={a.fileName}>
+                {a.fileName}
+              </p>
+            )}
+            <p className="muted">
+              {formatTime(a.duration)}
+              {mode === "project" ? " · in project" : " · library"}
+              {sampleVol !== 1 ? ` · ${(sampleVol * 100).toFixed(0)}%` : ""}
             </p>
-          )}
-          <p className="muted">
-            {formatTime(a.duration)}
-            {mode === "project" ? " · in project" : " · library"}
-          </p>
-        </div>
-        <button
-          className="icon-btn"
-          type="button"
-          title="Rename"
-          onClick={() => startRename(a)}
-        >
-          <Pencil size={14} />
-        </button>
-        {mode === "library" && (
-          <button className="btn ghost small" type="button" onClick={() => addFromLibrary(a)}>
-            Use
+          </div>
+          <button
+            className="icon-btn"
+            type="button"
+            title="Rename"
+            onClick={() => startRename(a)}
+          >
+            <Pencil size={14} />
           </button>
+          {mode === "library" && (
+            <button className="btn ghost small" type="button" onClick={() => addFromLibrary(a)}>
+              Use
+            </button>
+          )}
+          <button
+            className={`icon-btn ${volumeOpen ? "active" : ""}`}
+            type="button"
+            title="Overall sample volume"
+            onClick={() => setVolumeOpenId((id) => (id === a.id ? null : a.id))}
+          >
+            <Volume2 size={14} />
+          </button>
+          <button
+            className="icon-btn danger"
+            type="button"
+            title={mode === "project" ? "Remove from project" : "Delete from library"}
+            onClick={() => {
+              if (mode === "project") removeSfxAsset(a.id);
+              else {
+                void forgetSfxLocal(a.id, a.mediaId).then(() => setLibraryTick((n) => n + 1));
+              }
+            }}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+        {volumeOpen && (
+          <label className="sfx-asset-volume">
+            <span>Overall volume {(sampleVol * 100).toFixed(0)}%</span>
+            <input
+              type="range"
+              min={0}
+              max={2}
+              step={0.05}
+              value={sampleVol}
+              onChange={(e) => setAssetVolume(a.id, parseFloat(e.target.value))}
+            />
+          </label>
         )}
-        <button
-          className="icon-btn danger"
-          type="button"
-          title={mode === "project" ? "Remove from project" : "Delete from library"}
-          onClick={() => {
-            if (mode === "project") removeSfxAsset(a.id);
-            else {
-              void forgetSfxLocal(a.id, a.mediaId).then(() => setLibraryTick((n) => n + 1));
-            }
-          }}
-        >
-          <Trash2 size={14} />
-        </button>
       </div>
     );
   }
@@ -551,7 +596,7 @@ export function SfxPanel() {
                   />
                 </label>
                 <label className="field">
-                  <span>Volume {(p.volume * 100).toFixed(0)}%</span>
+                  <span>Hit volume {(p.volume * 100).toFixed(0)}%</span>
                   <input
                     type="range"
                     min={0}
@@ -566,7 +611,8 @@ export function SfxPanel() {
               </div>
               <p className="muted">
                 Uses {(Math.max(0, p.trimEnd - p.trimStart)).toFixed(2)}s of sample · plays at{" "}
-                {abs.toFixed(2)}s in the final video
+                {abs.toFixed(2)}s · effective{" "}
+                {(effectiveSfxVolume(asset?.volume, p.volume) * 100).toFixed(0)}%
               </p>
             </div>
           );

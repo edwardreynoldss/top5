@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Play, Pause, RotateCcw } from "lucide-react";
-import { clipPlayDuration, getPlaybackOrder, resolveSfxStartAt } from "@/lib/defaults";
+import { clipPlayDuration, getPlaybackOrder, resolveSfxStartAt, effectiveSfxVolume } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
 import { useEditor } from "@/lib/store";
 
@@ -82,7 +82,7 @@ export function TopBar({
             startAt: resolveSfxStartAt(p, offsets),
             trimStart: p.trimStart,
             trimEnd: p.trimEnd,
-            volume: p.volume,
+            volume: effectiveSfxVolume(asset.volume, p.volume),
           };
         })
         .filter(Boolean);
