@@ -79,6 +79,22 @@ export async function resolveSfxPlayUrl(asset: SfxAsset): Promise<string> {
  * Returns an updated asset with a valid mediaId/mediaUrl.
  */
 export async function ensureSfxOnServer(asset: SfxAsset): Promise<SfxAsset> {
+  // Files dropped into /sfx are already on disk — never re-upload
+  if (
+    asset.mediaId.startsWith("drop__") ||
+    asset.mediaUrl.includes("/api/sfx/file/")
+  ) {
+    const url = asset.mediaUrl.includes("/api/sfx/file/")
+      ? asset.mediaUrl
+      : `/api/sfx/file/${encodeURIComponent(asset.mediaId.replace(/^drop__/, ""))}`;
+    if (await mediaUrlReachable(url)) {
+      return { ...asset, mediaUrl: url };
+    }
+    throw new Error(
+      `Folder SFX "${asset.fileName}" is missing from the sfx/ folder. Put the file back and retry.`
+    );
+  }
+
   const serverUrl = `/api/media/${asset.mediaId}`;
   if (await mediaUrlReachable(serverUrl)) {
     return { ...asset, mediaUrl: serverUrl };

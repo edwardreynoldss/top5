@@ -50,6 +50,9 @@ export function SfxPanel() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [volumeOpenId, setVolumeOpenId] = useState<string | null>(null);
+  const [folderItems, setFolderItems] = useState<SfxAsset[]>([]);
+  const [folderLoading, setFolderLoading] = useState(false);
+  const [folderPath, setFolderPath] = useState("sfx/");
   const previewRef = useRef<HTMLAudioElement | null>(null);
 
   const assets = useMemo(() => project.sfxAssets || [], [project.sfxAssets]);
@@ -86,11 +89,62 @@ export function SfxPanel() {
     () =>
       library
         .filter((a) => !assets.some((x) => x.id === a.id))
+        .filter((a) => !a.mediaId.startsWith("drop__"))
         .filter((a) => !q || a.fileName.toLowerCase().includes(q))
         .slice()
         .sort((a, b) => a.fileName.localeCompare(b.fileName)),
     [library, assets, q]
   );
+
+  const filteredFolder = useMemo(
+    () =>
+      folderItems
+        .filter((a) => !assets.some((x) => x.id === a.id || x.mediaId === a.mediaId))
+        .filter((a) => !q || a.fileName.toLowerCase().includes(q)),
+    [folderItems, assets, q]
+  );
+
+  async function refreshFolder(silent = false) {
+    if (!silent) setFolderLoading(true);
+    try {
+      const res = await fetch("/api/sfx/library", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not read sfx folder");
+      const prefs = loadSfxLibrary();
+      const items: SfxAsset[] = (data.items || []).map(
+        (it: {
+          id: string;
+          fileName: string;
+          mediaId: string;
+          mediaUrl: string;
+          duration: number;
+        }) => {
+          const pref = prefs.find((p) => p.id === it.id || p.mediaId === it.mediaId);
+          return {
+            id: it.id,
+            mediaId: it.mediaId,
+            mediaUrl: it.mediaUrl,
+            fileName: it.fileName,
+            duration: it.duration || 0.5,
+            volume: pref?.volume ?? 1,
+          };
+        }
+      );
+      setFolderItems(items);
+      if (typeof data.folder === "string" && data.folder) {
+        const parts = data.folder.replace(/\\/g, "/").split("/");
+        setFolderPath(parts.slice(-2).join("/") || "sfx/");
+      }
+    } catch (e) {
+      if (!silent) setError(e instanceof Error ? e.message : "Could not read sfx folder");
+    } finally {
+      if (!silent) setFolderLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshFolder(true);
+  }, []);
 
   useEffect(() => {
     if (!selectedSfxPlacementId) return;
@@ -208,25 +262,39 @@ export function SfxPanel() {
     const vol = Math.max(0, Math.min(2, volume));
     if (assets.some((a) => a.id === assetId)) {
       updateSfxAsset(assetId, { volume: vol });
-    } else {
-      const libItem = library.find((a) => a.id === assetId);
-      if (libItem) {
-        upsertSfxLibraryAsset({ ...libItem, volume: vol });
-        setLibraryTick((n) => n + 1);
-      }
+      return;
+    }
+    if (folderItems.some((a) => a.id === assetId)) {
+      setFolderItems((prev) =>
+        prev.map((a) => (a.id === assetId ? { ...a, volume: vol } : a))
+      );
+      // Persist volume preference for folder samples in the browser library
+      const item = folderItems.find((a) => a.id === assetId);
+      if (item) upsertSfxLibraryAsset({ ...item, volume: vol });
+      return;
+    }
+    const libItem = library.find((a) => a.id === assetId);
+    if (libItem) {
+      upsertSfxLibraryAsset({ ...libItem, volume: vol });
+      setLibraryTick((n) => n + 1);
     }
   }
 
-  function renderAssetRow(a: SfxAsset, mode: "project" | "library") {
+  function renderAssetRow(
+    a: SfxAsset,
+    mode: "project" | "library" | "folder"
+  ) {
     const renaming = renamingId === a.id;
     const volumeOpen = volumeOpenId === a.id;
     const sampleVol = typeof a.volume === "number" ? a.volume : 1;
+    const modeLabel =
+      mode === "project" ? "in project" : mode === "folder" ? "folder" : "library";
     return (
       <div key={a.id} className={`sfx-asset-block ${volumeOpen ? "volume-open" : ""}`}>
         <div className="sfx-asset-row">
           <Volume2 size={14} className="muted-icon" />
           <div className="sfx-asset-meta">
-            {renaming ? (
+            {renaming && mode !== "folder" ? (
               <input
                 className="input"
                 value={renameValue}
@@ -244,20 +312,22 @@ export function SfxPanel() {
               </p>
             )}
             <p className="muted">
-              {formatTime(a.duration)}
-              {mode === "project" ? " · in project" : " · library"}
+              {a.duration > 0 ? formatTime(a.duration) : "…"}
+              {` · ${modeLabel}`}
               {sampleVol !== 1 ? ` · ${(sampleVol * 100).toFixed(0)}%` : ""}
             </p>
           </div>
-          <button
-            className="icon-btn"
-            type="button"
-            title="Rename"
-            onClick={() => startRename(a)}
-          >
-            <Pencil size={14} />
-          </button>
-          {mode === "library" && (
+          {mode !== "folder" && (
+            <button
+              className="icon-btn"
+              type="button"
+              title="Rename"
+              onClick={() => startRename(a)}
+            >
+              <Pencil size={14} />
+            </button>
+          )}
+          {(mode === "library" || mode === "folder") && (
             <button className="btn ghost small" type="button" onClick={() => addFromLibrary(a)}>
               Use
             </button>
@@ -270,19 +340,21 @@ export function SfxPanel() {
           >
             <Volume2 size={14} />
           </button>
-          <button
-            className="icon-btn danger"
-            type="button"
-            title={mode === "project" ? "Remove from project" : "Delete from library"}
-            onClick={() => {
-              if (mode === "project") removeSfxAsset(a.id);
-              else {
-                void forgetSfxLocal(a.id, a.mediaId).then(() => setLibraryTick((n) => n + 1));
-              }
-            }}
-          >
-            <Trash2 size={14} />
-          </button>
+          {mode !== "folder" && (
+            <button
+              className="icon-btn danger"
+              type="button"
+              title={mode === "project" ? "Remove from project" : "Delete from library"}
+              onClick={() => {
+                if (mode === "project") removeSfxAsset(a.id);
+                else {
+                  void forgetSfxLocal(a.id, a.mediaId).then(() => setLibraryTick((n) => n + 1));
+                }
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
         {volumeOpen && (
           <label className="sfx-asset-volume">
@@ -306,7 +378,8 @@ export function SfxPanel() {
       <div className="panel-header compact">
         <h2>Sound effects</h2>
         <p className="muted">
-          Preview plays hits in the middle viewer. Drop SFX from the playhead, then edit here.
+          Drop files into the project <code>sfx/</code> folder, or upload here. Preview plays
+          hits in the middle viewer.
         </p>
       </div>
 
@@ -348,6 +421,16 @@ export function SfxPanel() {
         >
           <Dices size={14} /> Randomize all
         </button>
+        <button
+          className="btn ghost small"
+          type="button"
+          disabled={folderLoading}
+          onClick={() => void refreshFolder()}
+          title="Re-scan the sfx/ folder"
+        >
+          {folderLoading ? <Loader2 size={14} className="spin" /> : null}
+          Refresh folder
+        </button>
       </div>
 
       {error && <p className="error-text">{error}</p>}
@@ -363,6 +446,31 @@ export function SfxPanel() {
       </label>
 
       <div className="sfx-library-scroll">
+        <div className="sfx-library">
+          <p className="field-label">
+            Folder ({folderPath}) · {filteredFolder.length}
+            {folderItems.length !== filteredFolder.length
+              ? ` shown / ${folderItems.length} total`
+              : " files"}
+            {q ? " matching" : ""}
+          </p>
+          <p className="muted sfx-folder-hint">
+            Drop audio into <code>sfx/</code> then Refresh — listing is cached so the page stays
+            fast.
+          </p>
+          {folderLoading && folderItems.length === 0 ? (
+            <p className="muted">Scanning folder…</p>
+          ) : filteredFolder.length === 0 ? (
+            <p className="muted">
+              {q
+                ? "No folder files match that search."
+                : "Empty — add .mp3 / .wav / .m4a files to sfx/"}
+            </p>
+          ) : (
+            filteredFolder.map((a) => renderAssetRow(a, "folder"))
+          )}
+        </div>
+
         {filteredAssets.length > 0 && (
           <div className="sfx-library">
             <p className="field-label">
@@ -381,12 +489,6 @@ export function SfxPanel() {
             </p>
             {unusedLibrary.map((a) => renderAssetRow(a, "library"))}
           </div>
-        )}
-
-        {filteredAssets.length === 0 && unusedLibrary.length === 0 && (
-          <p className="muted">
-            {q ? "No sound effects match that search." : "Upload sound effects to build your library."}
-          </p>
         )}
       </div>
 

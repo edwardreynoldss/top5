@@ -961,9 +961,14 @@ a {
   margin-top: 0.75rem;
 }
 
+.sfx-folder-hint {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+}
+
 .sfx-library-scroll {
   margin-top: 0.65rem;
-  max-height: 260px;
+  max-height: 320px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 0.25rem;

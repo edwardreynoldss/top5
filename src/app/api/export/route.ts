@@ -5,6 +5,7 @@ import path from "path";
 import { ensureDirs, EXPORT_DIR, UPLOAD_DIR, exportPath } from "@/lib/paths";
 import { runCommand } from "@/lib/ffmpeg";
 import { whichTools } from "@/lib/bins";
+import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
 import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -53,10 +54,25 @@ interface ExportBody {
 }
 
 function resolveMedia(mediaId: string) {
-  const clean = mediaId.replace(/^\/api\/media\//, "");
+  const clean = mediaId
+    .replace(/^\/api\/media\//, "")
+    .replace(/^\/api\/sfx\/file\//, "");
+  if (isDropSfxMediaId(clean) || mediaId.includes("/api/sfx/file/")) {
+    const name = isDropSfxMediaId(clean)
+      ? clean
+      : decodeURIComponent(clean);
+    const drop = resolveSfxDropFile(name);
+    if (drop) return drop;
+  }
+  // Plain filename that lives in sfx/
+  const dropDirect = resolveSfxDropFile(clean);
+  if (dropDirect) return dropDirect;
+
   const p = path.join(UPLOAD_DIR, clean);
-  if (!existsSync(p)) throw new Error(`Missing media: ${clean}`);
-  return p;
+  if (existsSync(p)) return p;
+  const exp = path.join(EXPORT_DIR, clean);
+  if (existsSync(exp)) return exp;
+  throw new Error(`Missing media: ${clean}`);
 }
 
 /** Cut multiple ranges from one source and concat into a single file */
