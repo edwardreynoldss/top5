@@ -1,0 +1,274 @@
+"use client";
+
+import { useRef, useState } from "react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  GripVertical,
+  Link2,
+  Upload,
+  Scissors,
+  Trash2,
+  Loader2,
+} from "lucide-react";
+import { useEditor } from "@/lib/store";
+import type { RankClip } from "@/lib/types";
+import { TrimModal } from "./TrimModal";
+import { DEFAULT_CLIP_DURATION } from "@/lib/types";
+
+export function ClipCard({ clip }: { clip: RankClip }) {
+  const { updateClip, selectedClipId, setSelectedClipId, project } = useEditor();
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: clip.id });
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [url, setUrl] = useState(clip.sourceUrl || "");
+  const [trimOpen, setTrimOpen] = useState(false);
+  const [pendingSrc, setPendingSrc] = useState<string | null>(null);
+  const [pendingMeta, setPendingMeta] = useState<{
+    mediaId: string;
+    mediaUrl: string;
+    duration: number;
+    fileName: string;
+    sourceUrl?: string | null;
+  } | null>(null);
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.7 : 1,
+  };
+
+  const color = project.settings.rankColors[clip.rank] || "#fff";
+
+  async function ingestUpload(file: File) {
+    updateClip(clip.id, { status: "loading", error: undefined });
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      setPendingMeta({
+        mediaId: data.mediaId,
+        mediaUrl: data.mediaUrl,
+        duration: data.duration,
+        fileName: data.fileName,
+      });
+      setPendingSrc(data.mediaUrl);
+      setTrimOpen(true);
+      updateClip(clip.id, { status: "empty" });
+    } catch (e) {
+      updateClip(clip.id, {
+        status: "error",
+        error: e instanceof Error ? e.message : "Upload failed",
+      });
+    }
+  }
+
+  async function ingestUrl() {
+    if (!url.trim()) return;
+    updateClip(clip.id, { status: "loading", error: undefined, sourceUrl: url.trim() });
+    try {
+      const res = await fetch("/api/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Download failed");
+      setPendingMeta({
+        mediaId: data.mediaId,
+        mediaUrl: data.mediaUrl,
+        duration: data.duration,
+        fileName: data.fileName,
+        sourceUrl: data.sourceUrl,
+      });
+      setPendingSrc(data.mediaUrl);
+      setTrimOpen(true);
+      updateClip(clip.id, { status: "empty" });
+    } catch (e) {
+      updateClip(clip.id, {
+        status: "error",
+        error: e instanceof Error ? e.message : "Download failed",
+      });
+    }
+  }
+
+  function confirmTrim(start: number, end: number) {
+    if (!pendingMeta && !clip.mediaUrl) return;
+    const meta = pendingMeta;
+    updateClip(clip.id, {
+      status: "ready",
+      mediaId: meta?.mediaId ?? clip.mediaId,
+      mediaUrl: meta?.mediaUrl ?? clip.mediaUrl,
+      fileName: meta?.fileName ?? clip.fileName,
+      sourceUrl: meta?.sourceUrl ?? clip.sourceUrl,
+      duration: meta?.duration ?? clip.duration,
+      trimStart: start,
+      trimEnd: end,
+      error: undefined,
+    });
+    setTrimOpen(false);
+    setPendingSrc(null);
+    setPendingMeta(null);
+    setSelectedClipId(clip.id);
+  }
+
+  function clearClip() {
+    updateClip(clip.id, {
+      status: "empty",
+      mediaId: null,
+      mediaUrl: null,
+      fileName: null,
+      sourceUrl: null,
+      duration: 0,
+      trimStart: 0,
+      trimEnd: DEFAULT_CLIP_DURATION,
+      error: undefined,
+    });
+    setUrl("");
+  }
+
+  return (
+    <>
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`clip-card ${selectedClipId === clip.id ? "selected" : ""}`}
+        onClick={() => setSelectedClipId(clip.id)}
+      >
+        <button className="drag-handle" {...attributes} {...listeners} aria-label="Reorder">
+          <GripVertical size={16} />
+        </button>
+
+        <div className="clip-rank" style={{ color }}>
+          {clip.rank}
+        </div>
+
+        <div className="clip-body">
+          <div className="clip-top">
+            <input
+              className="input label-input"
+              placeholder="Label (e.g. WEEE)"
+              value={clip.label}
+              onChange={(e) => updateClip(clip.id, { label: e.target.value })}
+              onClick={(e) => e.stopPropagation()}
+            />
+            {clip.status === "ready" && (
+              <div className="clip-actions">
+                <button
+                  className="icon-btn"
+                  title="Re-trim"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPendingSrc(clip.mediaUrl);
+                    setPendingMeta(
+                      clip.mediaId
+                        ? {
+                            mediaId: clip.mediaId,
+                            mediaUrl: clip.mediaUrl!,
+                            duration: clip.duration,
+                            fileName: clip.fileName || "clip",
+                            sourceUrl: clip.sourceUrl,
+                          }
+                        : null
+                    );
+                    setTrimOpen(true);
+                  }}
+                >
+                  <Scissors size={14} />
+                </button>
+                <button
+                  className="icon-btn danger"
+                  title="Clear"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    clearClip();
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {clip.status === "ready" ? (
+            <div className="clip-ready">
+              <div className="thumb">
+                <video src={clip.mediaUrl!} muted playsInline preload="metadata" />
+              </div>
+              <div className="clip-meta">
+                <p className="truncate">{clip.fileName || "Clip ready"}</p>
+                <p className="muted">
+                  {clip.trimStart.toFixed(1)}s → {clip.trimEnd.toFixed(1)}s (
+                  {(clip.trimEnd - clip.trimStart).toFixed(1)}s)
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="clip-import" onClick={(e) => e.stopPropagation()}>
+              <div className="url-row">
+                <Link2 size={14} className="muted-icon" />
+                <input
+                  className="input"
+                  placeholder="YouTube / TikTok / Instagram URL"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  disabled={clip.status === "loading"}
+                />
+                <button
+                  className="btn small"
+                  onClick={ingestUrl}
+                  disabled={clip.status === "loading" || !url.trim()}
+                >
+                  {clip.status === "loading" ? <Loader2 size={14} className="spin" /> : "Fetch"}
+                </button>
+              </div>
+              <div className="or-row">
+                <span>or</span>
+                <button
+                  className="btn ghost small"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={clip.status === "loading"}
+                >
+                  <Upload size={14} /> Upload file
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="video/*"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void ingestUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+              {clip.error && <p className="error-text">{clip.error}</p>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <TrimModal
+        open={trimOpen && !!pendingSrc}
+        src={pendingSrc || ""}
+        fileName={pendingMeta?.fileName || clip.fileName}
+        initialStart={pendingMeta ? 0 : clip.trimStart}
+        initialEnd={
+          pendingMeta
+            ? Math.min(DEFAULT_CLIP_DURATION, pendingMeta.duration || DEFAULT_CLIP_DURATION)
+            : clip.trimEnd
+        }
+        duration={pendingMeta?.duration || clip.duration || 0}
+        onClose={() => {
+          setTrimOpen(false);
+          setPendingSrc(null);
+          setPendingMeta(null);
+        }}
+        onConfirm={confirmTrim}
+      />
+    </>
+  );
+}
