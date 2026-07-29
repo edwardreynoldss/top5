@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { resolveBinary, toolEnv } from "./bins";
 
 export function runCommand(
   command: string,
@@ -6,9 +7,19 @@ export function runCommand(
   opts?: { cwd?: string; env?: NodeJS.ProcessEnv }
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    let bin = command;
+    try {
+      if (["ffmpeg", "ffprobe", "yt-dlp", "python3"].includes(command)) {
+        bin = resolveBinary(command);
+      }
+    } catch (e) {
+      reject(e);
+      return;
+    }
+
+    const child = spawn(bin, args, {
       cwd: opts?.cwd,
-      env: { ...process.env, ...opts?.env, PATH: `${process.env.HOME}/.local/bin:${process.env.PATH}` },
+      env: toolEnv(opts?.env),
     });
     let stdout = "";
     let stderr = "";
@@ -18,10 +29,16 @@ export function runCommand(
     child.stderr.on("data", (d) => {
       stderr += d.toString();
     });
-    child.on("error", reject);
+    child.on("error", (err) => {
+      reject(
+        new Error(
+          `Failed to start ${bin}: ${err.message}. If this is ENOENT, install ffmpeg/yt-dlp or set FFMPEG_PATH / YT_DLP_PATH.`
+        )
+      );
+    });
     child.on("close", (code) => {
       if (code === 0) resolve({ stdout, stderr });
-      else reject(new Error(`${command} failed (${code}): ${stderr || stdout}`));
+      else reject(new Error(`${bin} failed (${code}): ${(stderr || stdout).slice(-2000)}`));
     });
   });
 }

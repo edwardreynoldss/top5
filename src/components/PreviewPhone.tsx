@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor } from "@/lib/store";
-import { getPlaybackOrder, clipPlayDuration } from "@/lib/defaults";
-import type { RankClip } from "@/lib/types";
+import { getPlaybackOrder, clipPlayDuration, displayWord } from "@/lib/defaults";
+import { fontCss, type RankClip } from "@/lib/types";
 
 export function PreviewPhone({
   previewClip,
@@ -28,7 +28,6 @@ export function PreviewPhone({
 
   const activeClip = previewClip ?? sequence[activeIndex] ?? null;
 
-  // Keep bg and fg videos in sync
   useEffect(() => {
     const fg = videoRef.current;
     const bg = bgRef.current;
@@ -75,7 +74,6 @@ export function PreviewPhone({
           fg.currentTime = activeClip.trimStart;
           return;
         }
-        // Advance sequence
         const next = activeIndex + 1;
         if (next < sequence.length) {
           setActiveIndex(next);
@@ -87,19 +85,14 @@ export function PreviewPhone({
     };
     fg.addEventListener("timeupdate", onTime);
     return () => fg.removeEventListener("timeupdate", onTime);
-  }, [
-    activeClip,
-    activeIndex,
-    sequence.length,
-    previewClip,
-    onPlayingChange,
-  ]);
+  }, [activeClip, activeIndex, sequence.length, previewClip, onPlayingChange]);
 
   useEffect(() => {
     if (!previewClip) setActiveIndex(0);
   }, [previewClip, sequence]);
 
   const title = settings.title;
+  const ranksLayout = settings.ranksLayout;
   const ranksToShow = useMemo(() => {
     const ordered =
       settings.playOrder === "countdown"
@@ -107,6 +100,17 @@ export function PreviewPhone({
         : [...project.clips].sort((a, b) => a.rank - b.rank);
     return ordered;
   }, [project.clips, settings.playOrder]);
+
+  const titleJustify =
+    title.align === "left" ? "flex-start" : title.align === "right" ? "flex-end" : "center";
+
+  // Preview phone is ~360px wide vs 1080 canvas → scale fonts
+  const previewScale = 360 / 1080;
+  const titleFontPx = title.fontSize * previewScale;
+  const rankFontPx = ranksLayout.fontSize * previewScale;
+  const rankGapPx = ranksLayout.gap * previewScale;
+  const labelFontPx = ranksLayout.labelSize * previewScale;
+  const barHeightPx = title.barHeight * previewScale;
 
   return (
     <div className="preview-shell">
@@ -142,35 +146,76 @@ export function PreviewPhone({
             </div>
           )}
 
+          {title.showBar && (
+            <div
+              className="title-bar-bg"
+              style={{
+                background: `rgba(0,0,0,${title.barOpacity})`,
+                height: `${barHeightPx}px`,
+              }}
+            />
+          )}
+
           <div
-            className="title-bar"
-            style={{ background: `rgba(0,0,0,${title.barOpacity})` }}
+            className="title-overlay"
+            style={{
+              top: `${title.y}%`,
+              left: `${title.x}%`,
+              transform:
+                title.align === "left"
+                  ? "translate(0, 0)"
+                  : title.align === "right"
+                    ? "translate(-100%, 0)"
+                    : "translate(-50%, 0)",
+              alignItems: titleJustify,
+              fontFamily: fontCss(title.fontId),
+              fontSize: `${titleFontPx}px`,
+              gap: `${title.lineGap * previewScale}px`,
+            }}
           >
-            <span className="title-text">
-              {title.prefix && <span>{title.prefix.toUpperCase()} </span>}
-              {title.highlight && (
-                <span style={{ color: title.highlightColor }}>
-                  {title.highlight.toUpperCase()}
-                </span>
-              )}
-              {title.suffix && <span> {title.suffix.toUpperCase()}</span>}
-            </span>
+            {title.lines.slice(0, 2).map((line) => (
+              <div key={line.id} className="title-line" style={{ justifyContent: titleJustify }}>
+                {line.words.map((word, i) => (
+                  <span key={word.id} style={{ color: word.color }}>
+                    {i > 0 ? " " : ""}
+                    {displayWord(word.text, title.uppercase)}
+                  </span>
+                ))}
+              </div>
+            ))}
           </div>
 
           {settings.showRankList && (
-            <div className="rank-list">
+            <div
+              className="rank-list"
+              style={{
+                left: `${ranksLayout.x}%`,
+                top: `${ranksLayout.y}%`,
+                gap: `${rankGapPx * 0.15}px`,
+                fontFamily: fontCss(ranksLayout.fontId),
+              }}
+            >
               {ranksToShow.map((clip) => {
                 const isActive = activeClip?.rank === clip.rank;
                 return (
-                  <div key={clip.id} className={`rank-row ${isActive ? "active" : ""}`}>
+                  <div
+                    key={clip.id}
+                    className={`rank-row ${isActive ? "active" : ""}`}
+                    style={{ minHeight: `${rankGapPx * 0.7}px` }}
+                  >
                     <span
                       className="rank-num"
-                      style={{ color: settings.rankColors[clip.rank] || "#fff" }}
+                      style={{
+                        color: settings.rankColors[clip.rank] || "#fff",
+                        fontSize: `${rankFontPx}px`,
+                      }}
                     >
                       {clip.rank}.
                     </span>
                     {settings.showActiveLabel && isActive && clip.label ? (
-                      <span className="rank-label">{clip.label.toUpperCase()}</span>
+                      <span className="rank-label" style={{ fontSize: `${labelFontPx}px` }}>
+                        {clip.label.toUpperCase()}
+                      </span>
                     ) : null}
                   </div>
                 );

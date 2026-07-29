@@ -3,12 +3,25 @@ import { randomUUID } from "crypto";
 import { writeFile } from "fs/promises";
 import { ensureDirs, mediaPath } from "@/lib/paths";
 import { probeDuration, runCommand } from "@/lib/ffmpeg";
+import { whichTools } from "@/lib/bins";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
+    const tools = whichTools();
+    if (!tools.ffmpeg?.ok) {
+      return NextResponse.json(
+        {
+          error:
+            "ffmpeg was not found (spawn ENOENT). Install it and restart the app.\nmacOS: brew install ffmpeg\nUbuntu: sudo apt install ffmpeg\nOr set FFMPEG_PATH to the full binary path.",
+          tools,
+        },
+        { status: 500 }
+      );
+    }
+
     ensureDirs();
     const form = await req.formData();
     const file = form.get("file");
@@ -24,32 +37,51 @@ export async function POST(req: NextRequest) {
     const originalName = file.name || "upload.mp4";
     const buf = Buffer.from(await file.arrayBuffer());
     const rawExt = (originalName.split(".").pop() || "mp4").toLowerCase();
-    const safeExt = ["mp4", "mov", "webm", "mkv", "m4v"].includes(rawExt) ? rawExt : "mp4";
+    const safeExt = ["mp4", "mov", "webm", "mkv", "m4v", "mp3", "wav", "m4a", "aac"].includes(
+      rawExt
+    )
+      ? rawExt
+      : "mp4";
     const rawPath = mediaPath(id, `raw.${safeExt}`);
     await writeFile(rawPath, buf);
 
-    const outPath = mediaPath(id, "mp4");
-    await runCommand("ffmpeg", [
-      "-y",
-      "-i",
-      rawPath,
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-crf",
-      "22",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "160k",
-      "-movflags",
-      "+faststart",
-      outPath,
-    ]);
+    const isAudio = ["mp3", "wav", "m4a", "aac"].includes(safeExt);
+    const outPath = mediaPath(id, isAudio ? (safeExt === "mp3" ? "mp3" : "m4a") : "mp4");
+
+    if (isAudio) {
+      await runCommand("ffmpeg", [
+        "-y",
+        "-i",
+        rawPath,
+        "-c:a",
+        safeExt === "mp3" ? "libmp3lame" : "aac",
+        "-b:a",
+        "192k",
+        outPath,
+      ]);
+    } else {
+      await runCommand("ffmpeg", [
+        "-y",
+        "-i",
+        rawPath,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "22",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-movflags",
+        "+faststart",
+        outPath,
+      ]);
+    }
 
     const duration = await probeDuration(outPath);
-    const mediaId = `${id}.mp4`;
+    const mediaId = pathBasename(outPath);
 
     return NextResponse.json({
       mediaId,
@@ -60,6 +92,10 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Upload failed";
     console.error("upload error", message);
-    return NextResponse.json({ error: message.slice(0, 400) }, { status: 500 });
+    return NextResponse.json({ error: message.slice(0, 800) }, { status: 500 });
   }
+}
+
+function pathBasename(p: string) {
+  return p.split(/[/\\]/).pop() || p;
 }

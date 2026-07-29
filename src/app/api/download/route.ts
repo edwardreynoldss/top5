@@ -4,6 +4,7 @@ import { existsSync, readdirSync, renameSync } from "fs";
 import path from "path";
 import { ensureDirs, mediaPath, UPLOAD_DIR } from "@/lib/paths";
 import { probeDuration, runCommand } from "@/lib/ffmpeg";
+import { whichTools } from "@/lib/bins";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -17,6 +18,28 @@ function findDownloadedFile(dir: string, id: string) {
 
 export async function POST(req: NextRequest) {
   try {
+    const tools = whichTools();
+    if (!tools["yt-dlp"]?.ok) {
+      return NextResponse.json(
+        {
+          error:
+            "yt-dlp is not installed. Install it (macOS: brew install yt-dlp) or upload the video file instead.",
+          tools,
+        },
+        { status: 500 }
+      );
+    }
+    if (!tools.ffmpeg?.ok) {
+      return NextResponse.json(
+        {
+          error:
+            "ffmpeg is not installed. Install it (macOS: brew install ffmpeg) then retry, or upload after converting to mp4.",
+          tools,
+        },
+        { status: 500 }
+      );
+    }
+
     ensureDirs();
     const body = await req.json();
     const url = typeof body.url === "string" ? body.url.trim() : "";
@@ -36,8 +59,10 @@ export async function POST(req: NextRequest) {
       "youtube.com",
       "youtu.be",
       "m.youtube.com",
+      "music.youtube.com",
       "tiktok.com",
       "vm.tiktok.com",
+      "vt.tiktok.com",
       "instagram.com",
       "instagr.am",
     ];
@@ -54,23 +79,78 @@ export async function POST(req: NextRequest) {
     const id = randomUUID();
     const outTemplate = path.join(UPLOAD_DIR, `${id}.%(ext)s`);
 
-    await runCommand("yt-dlp", [
-      "-f",
-      "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
-      "--merge-output-format",
-      "mp4",
+    const commonArgs = [
       "--no-playlist",
       "--max-filesize",
-      "200M",
+      "250M",
       "-o",
       outTemplate,
       "--no-warnings",
-      url,
-    ]);
+      "--newline",
+      "--retries",
+      "3",
+    ];
 
-    const downloaded = findDownloadedFile(UPLOAD_DIR, id);
+    let lastError = "";
+    const browser = process.env.YT_DLP_COOKIES_FROM_BROWSER || "chrome";
+    const attempts: string[][] = [
+      [
+        "-f",
+        "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+        "--merge-output-format",
+        "mp4",
+        ...commonArgs,
+        url,
+      ],
+      [
+        "-f",
+        "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+        "--merge-output-format",
+        "mp4",
+        "--cookies-from-browser",
+        browser,
+        ...commonArgs,
+        url,
+      ],
+      ["-f", "best", "--merge-output-format", "mp4", ...commonArgs, url],
+      [
+        "-f",
+        "best",
+        "--merge-output-format",
+        "mp4",
+        "--cookies-from-browser",
+        browser,
+        ...commonArgs,
+        url,
+      ],
+      [...commonArgs, url],
+    ];
+
+    let downloaded: string | null = null;
+    for (const args of attempts) {
+      try {
+        await runCommand("yt-dlp", args);
+        downloaded = findDownloadedFile(UPLOAD_DIR, id);
+        if (downloaded) break;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
     if (!downloaded) {
-      return NextResponse.json({ error: "Download completed but file not found" }, { status: 500 });
+      const botBlocked = /sign in|not a bot|cookies/i.test(lastError);
+      const tip = botBlocked
+        ? ` YouTube/TikTok may require browser cookies. Set YT_DLP_COOKIES_FROM_BROWSER=chrome (or safari/firefox) and restart, or upload the MP4 instead.`
+        : host.includes("tiktok") || host.includes("instagram")
+          ? " TikTok/Instagram often block anonymous downloads — upload the MP4 instead."
+          : " Try `brew upgrade yt-dlp`, set YT_DLP_COOKIES_FROM_BROWSER=chrome, or upload the file.";
+      return NextResponse.json(
+        {
+          error: `Could not download that link.${tip}`,
+          detail: lastError.slice(0, 800),
+        },
+        { status: 502 }
+      );
     }
 
     const ext = path.extname(downloaded).replace(".", "") || "mp4";
@@ -79,7 +159,6 @@ export async function POST(req: NextRequest) {
       renameSync(downloaded, finalPath);
     }
 
-    // Normalize to mp4 if needed
     let mediaExt = ext;
     if (ext !== "mp4") {
       const mp4Path = mediaPath(id, "mp4");
@@ -117,9 +196,10 @@ export async function POST(req: NextRequest) {
     console.error("download error", message);
     return NextResponse.json(
       {
-        error:
-          "Could not download that link. Some TikTok/Instagram videos need login cookies. Try uploading the video file instead.",
-        detail: message.slice(0, 400),
+        error: message.includes("ENOENT") || message.includes("Could not find")
+          ? message
+          : `Download failed: ${message.slice(0, 400)}`,
+        detail: message.slice(0, 800),
       },
       { status: 502 }
     );

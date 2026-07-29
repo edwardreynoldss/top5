@@ -75,7 +75,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
         body: JSON.stringify({ url: url.trim() }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Download failed");
+      if (!res.ok) throw new Error(data.detail ? `${data.error}\n${data.detail}` : data.error || "Download failed");
       setPendingMeta({
         mediaId: data.mediaId,
         mediaUrl: data.mediaUrl,

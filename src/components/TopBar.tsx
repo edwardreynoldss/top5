@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Play, Pause, RotateCcw } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import { clipPlayDuration, getPlaybackOrder } from "@/lib/defaults";
@@ -17,6 +17,8 @@ export function TopBar({
   const [progress, setProgress] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toolsOk, setToolsOk] = useState<boolean | null>(null);
+  const [toolsHint, setToolsHint] = useState<string | null>(null);
 
   const readyClips = useMemo(
     () => getPlaybackOrder(project.clips, project.settings.playOrder),
@@ -24,6 +26,27 @@ export function TopBar({
   );
 
   const totalDuration = readyClips.reduce((sum, c) => sum + clipPlayDuration(c), 0);
+
+  useEffect(() => {
+    void fetch("/api/health")
+      .then((r) => r.json())
+      .then((data) => {
+        setToolsOk(Boolean(data.ok));
+        if (!data.ok) {
+          const missing = Object.entries(data.tools || {})
+            .filter(([, v]) => !(v as { ok?: boolean }).ok)
+            .map(([k]) => k);
+          setToolsHint(
+            `Missing tools: ${missing.join(", ")}. macOS: brew install ffmpeg yt-dlp && pip install pillow`
+          );
+        } else {
+          setToolsHint(null);
+        }
+      })
+      .catch(() => {
+        setToolsOk(null);
+      });
+  }, []);
 
   async function exportVideo() {
     if (readyClips.length === 0) {
@@ -48,6 +71,7 @@ export function TopBar({
             trimEnd: c.trimEnd,
           })),
           title: settings.title,
+          ranksLayout: settings.ranksLayout,
           playOrder: settings.playOrder,
           transition: settings.transition,
           transitionDuration: settings.transitionDuration,
@@ -89,6 +113,12 @@ export function TopBar({
       </div>
 
       <div className="topbar-meta">
+        <span
+          className={`tool-pill ${toolsOk === false ? "bad" : toolsOk ? "good" : ""}`}
+          title={toolsHint || "Checking ffmpeg / yt-dlp"}
+        >
+          {toolsOk === false ? "Tools missing" : toolsOk ? "Tools OK" : "Checking tools…"}
+        </span>
         <span>{readyClips.length}/5 clips</span>
         <span>{totalDuration.toFixed(1)}s</span>
         <span>1080×1920</span>
@@ -108,8 +138,9 @@ export function TopBar({
         </button>
       </div>
 
-      {(progress || error || downloadUrl) && (
+      {(progress || error || downloadUrl || toolsHint) && (
         <div className="export-toast">
+          {toolsHint && !error && <p className="error-text">{toolsHint}</p>}
           {error && <p className="error-text">{error}</p>}
           {progress && !error && <p>{progress}</p>}
           {downloadUrl && (

@@ -1,69 +1,291 @@
 "use client";
 
+import { Plus, Trash2 } from "lucide-react";
 import { useEditor } from "@/lib/store";
+import { createLine } from "@/lib/defaults";
+import { TITLE_FONTS, type TextAlign, type TitleFontId } from "@/lib/types";
 
 export function TitleEditor() {
-  const { project, updateTitle, updateSettings } = useEditor();
-  const { title, rankColors } = project.settings;
+  const {
+    project,
+    updateTitle,
+    updateRanksLayout,
+    updateTitleWord,
+    addTitleWord,
+    removeTitleWord,
+    setTitleLines,
+    updateSettings,
+  } = useEditor();
+  const { title, ranksLayout, rankColors } = project.settings;
+
+  function ensureTwoLines() {
+    if (title.lines.length >= 2) return;
+    setTitleLines([
+      ...title.lines,
+      createLine([{ text: "LINE TWO", color: "#39FF14" }]),
+    ]);
+  }
+
+  function removeSecondLine() {
+    if (title.lines.length < 2) return;
+    setTitleLines(title.lines.slice(0, 1));
+  }
 
   return (
     <section className="panel">
       <div className="panel-header">
         <h2>Title & ranks</h2>
-        <p className="muted">Customize the header — nothing is locked to a theme</p>
+        <p className="muted">Fonts, multi-color words, 2 lines, drag placement</p>
       </div>
 
       <div className="field-grid">
         <label className="field">
-          <span>Before highlight</span>
-          <input
+          <span>Font</span>
+          <select
             className="input"
-            value={title.prefix}
-            onChange={(e) => updateTitle({ prefix: e.target.value })}
-            placeholder="RANKING BEST"
-          />
+            value={title.fontId}
+            onChange={(e) => updateTitle({ fontId: e.target.value as TitleFontId })}
+          >
+            {TITLE_FONTS.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.label}
+              </option>
+            ))}
+          </select>
         </label>
+
         <label className="field">
-          <span>Highlight word</span>
-          <input
-            className="input"
-            value={title.highlight}
-            onChange={(e) => updateTitle({ highlight: e.target.value })}
-            placeholder="FALLING"
-          />
-        </label>
-        <label className="field">
-          <span>After highlight</span>
-          <input
-            className="input"
-            value={title.suffix}
-            onChange={(e) => updateTitle({ suffix: e.target.value })}
-            placeholder="MOMENTS"
-          />
-        </label>
-        <label className="field">
-          <span>Highlight color</span>
-          <input
-            type="color"
-            className="color-input"
-            value={title.highlightColor}
-            onChange={(e) => updateTitle({ highlightColor: e.target.value })}
-          />
-        </label>
-        <label className="field">
-          <span>Title bar opacity</span>
+          <span>Title size ({title.fontSize}px)</span>
           <input
             type="range"
-            min={0.3}
-            max={0.95}
-            step={0.01}
-            value={title.barOpacity}
-            onChange={(e) => updateTitle({ barOpacity: parseFloat(e.target.value) })}
+            min={28}
+            max={96}
+            step={1}
+            value={title.fontSize}
+            onChange={(e) => updateTitle({ fontSize: parseInt(e.target.value, 10) })}
+          />
+        </label>
+
+        <label className="field">
+          <span>Align</span>
+          <select
+            className="input"
+            value={title.align}
+            onChange={(e) => updateTitle({ align: e.target.value as TextAlign })}
+          >
+            <option value="left">Left</option>
+            <option value="center">Center</option>
+            <option value="right">Right</option>
+          </select>
+        </label>
+
+        <label className="field check">
+          <input
+            type="checkbox"
+            checked={title.uppercase}
+            onChange={(e) => updateTitle({ uppercase: e.target.checked })}
+          />
+          <span>Uppercase</span>
+        </label>
+
+        <label className="field check">
+          <input
+            type="checkbox"
+            checked={title.showBar}
+            onChange={(e) => updateTitle({ showBar: e.target.checked })}
+          />
+          <span>Show title bar background</span>
+        </label>
+
+        {title.showBar && (
+          <>
+            <label className="field">
+              <span>Bar opacity</span>
+              <input
+                type="range"
+                min={0.15}
+                max={0.95}
+                step={0.01}
+                value={title.barOpacity}
+                onChange={(e) => updateTitle({ barOpacity: parseFloat(e.target.value) })}
+              />
+            </label>
+            <label className="field">
+              <span>Bar height ({title.barHeight}px)</span>
+              <input
+                type="range"
+                min={60}
+                max={280}
+                step={2}
+                value={title.barHeight}
+                onChange={(e) => updateTitle({ barHeight: parseInt(e.target.value, 10) })}
+              />
+            </label>
+          </>
+        )}
+
+        <label className="field">
+          <span>Title X ({title.x.toFixed(0)}%)</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={0.5}
+            value={title.x}
+            onChange={(e) => updateTitle({ x: parseFloat(e.target.value) })}
+          />
+        </label>
+        <label className="field">
+          <span>Title Y ({title.y.toFixed(1)}%)</span>
+          <input
+            type="range"
+            min={0}
+            max={40}
+            step={0.1}
+            value={title.y}
+            onChange={(e) => updateTitle({ y: parseFloat(e.target.value) })}
+          />
+        </label>
+        <label className="field">
+          <span>Line gap ({title.lineGap}px)</span>
+          <input
+            type="range"
+            min={0}
+            max={40}
+            step={1}
+            value={title.lineGap}
+            onChange={(e) => updateTitle({ lineGap: parseInt(e.target.value, 10) })}
           />
         </label>
       </div>
 
-      <div className="rank-colors">
+      <div className="title-lines">
+        {title.lines.slice(0, 2).map((line, lineIndex) => (
+          <div key={line.id} className="title-line-block">
+            <div className="title-line-head">
+              <strong>Line {lineIndex + 1}</strong>
+              <button
+                className="btn ghost small"
+                type="button"
+                onClick={() => addTitleWord(line.id, "NEW", "#39FF14")}
+              >
+                <Plus size={14} /> Add word
+              </button>
+            </div>
+            <div className="word-list">
+              {line.words.map((word) => (
+                <div key={word.id} className="word-row">
+                  <input
+                    className="input"
+                    value={word.text}
+                    onChange={(e) =>
+                      updateTitleWord(line.id, word.id, { text: e.target.value })
+                    }
+                    placeholder="Word"
+                  />
+                  <input
+                    type="color"
+                    title="Word color"
+                    value={word.color}
+                    onChange={(e) =>
+                      updateTitleWord(line.id, word.id, { color: e.target.value })
+                    }
+                  />
+                  <button
+                    className="icon-btn danger"
+                    type="button"
+                    disabled={line.words.length <= 1}
+                    onClick={() => removeTitleWord(line.id, word.id)}
+                    aria-label="Remove word"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <div className="line-actions">
+          {title.lines.length < 2 ? (
+            <button className="btn ghost small" type="button" onClick={ensureTwoLines}>
+              <Plus size={14} /> Add second title line
+            </button>
+          ) : (
+            <button className="btn ghost small" type="button" onClick={removeSecondLine}>
+              Remove second line
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="rank-layout">
+        <p className="field-label">Rank numbers placement</p>
+        <div className="field-grid">
+          <label className="field">
+            <span>Ranks X ({ranksLayout.x.toFixed(1)}%)</span>
+            <input
+              type="range"
+              min={0}
+              max={70}
+              step={0.5}
+              value={ranksLayout.x}
+              onChange={(e) => updateRanksLayout({ x: parseFloat(e.target.value) })}
+            />
+          </label>
+          <label className="field">
+            <span>Ranks Y ({ranksLayout.y.toFixed(1)}%)</span>
+            <input
+              type="range"
+              min={5}
+              max={60}
+              step={0.5}
+              value={ranksLayout.y}
+              onChange={(e) => updateRanksLayout({ y: parseFloat(e.target.value) })}
+            />
+          </label>
+          <label className="field">
+            <span>Number size ({ranksLayout.fontSize}px)</span>
+            <input
+              type="range"
+              min={40}
+              max={140}
+              step={2}
+              value={ranksLayout.fontSize}
+              onChange={(e) =>
+                updateRanksLayout({ fontSize: parseInt(e.target.value, 10) })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Number spacing ({ranksLayout.gap}px)</span>
+            <input
+              type="range"
+              min={60}
+              max={180}
+              step={2}
+              value={ranksLayout.gap}
+              onChange={(e) => updateRanksLayout({ gap: parseInt(e.target.value, 10) })}
+            />
+          </label>
+          <label className="field">
+            <span>Rank font</span>
+            <select
+              className="input"
+              value={ranksLayout.fontId}
+              onChange={(e) =>
+                updateRanksLayout({ fontId: e.target.value as TitleFontId })
+              }
+            >
+              {TITLE_FONTS.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
         <p className="field-label">Rank colors</p>
         <div className="rank-color-row">
           {[1, 2, 3, 4, 5].map((r) => (

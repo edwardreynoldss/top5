@@ -4,6 +4,7 @@ import { existsSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
 import { ensureDirs, EXPORT_DIR, UPLOAD_DIR, exportPath } from "@/lib/paths";
 import { runCommand } from "@/lib/ffmpeg";
+import { whichTools } from "@/lib/bins";
 import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -19,13 +20,8 @@ interface ExportClip {
 
 interface ExportBody {
   clips: ExportClip[];
-  title: {
-    prefix: string;
-    highlight: string;
-    suffix: string;
-    highlightColor: string;
-    barOpacity: number;
-  };
+  title: Record<string, unknown>;
+  ranksLayout?: Record<string, unknown>;
   playOrder: PlayOrder;
   transition: TransitionType;
   transitionDuration: number;
@@ -168,6 +164,18 @@ async function renderClipSegment(opts: {
 
 export async function POST(req: NextRequest) {
   try {
+    const tools = whichTools();
+    if (!tools.ffmpeg?.ok || !tools.python3?.ok) {
+      return NextResponse.json(
+        {
+          error:
+            "Export needs ffmpeg and python3 (Pillow). macOS: brew install ffmpeg && pip3 install pillow",
+          tools,
+        },
+        { status: 500 }
+      );
+    }
+
     ensureDirs();
     const body = (await req.json()) as ExportBody;
     if (!body.clips?.length) {
@@ -187,6 +195,7 @@ export async function POST(req: NextRequest) {
 
     const titleCfg = {
       title: body.title,
+      ranksLayout: body.ranksLayout || {},
       ranks: ordered.map((c) => ({ rank: c.rank, label: c.label })),
       activeRank: ordered[0]?.rank,
       rankColors: Object.fromEntries(

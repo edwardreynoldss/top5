@@ -1,6 +1,17 @@
 import { v4 as uuidv4 } from "uuid";
-import type { EditorProject, RankClip } from "./types";
+import type { EditorProject, RankClip, TitleLine, TitleWord } from "./types";
 import { DEFAULT_CLIP_DURATION, OUTPUT_HEIGHT, OUTPUT_WIDTH } from "./types";
+
+export function createWord(text: string, color = "#FFFFFF"): TitleWord {
+  return { id: uuidv4(), text, color };
+}
+
+export function createLine(words: Array<{ text: string; color?: string }>): TitleLine {
+  return {
+    id: uuidv4(),
+    words: words.map((w) => createWord(w.text, w.color || "#FFFFFF")),
+  };
+}
 
 export function createEmptyClip(rank: number): RankClip {
   return {
@@ -23,11 +34,34 @@ export function createDefaultProject(): EditorProject {
     clips: [5, 4, 3, 2, 1].map((rank) => createEmptyClip(rank)),
     settings: {
       title: {
-        prefix: "RANKING BEST",
-        highlight: "FALLING",
-        suffix: "MOMENTS",
-        highlightColor: "#39FF14",
+        lines: [
+          createLine([
+            { text: "RANKING", color: "#FFFFFF" },
+            { text: "BEST", color: "#FFFFFF" },
+          ]),
+          createLine([
+            { text: "FALLING", color: "#39FF14" },
+            { text: "MOMENTS", color: "#FFFFFF" },
+          ]),
+        ],
+        fontId: "display",
+        fontSize: 54,
+        lineGap: 8,
         barOpacity: 0.72,
+        showBar: true,
+        barHeight: 150,
+        x: 50,
+        y: 2.2,
+        align: "center",
+        uppercase: true,
+      },
+      ranksLayout: {
+        x: 3.5,
+        y: 11,
+        fontSize: 92,
+        gap: 120,
+        fontId: "display",
+        labelSize: 42,
       },
       playOrder: "countdown",
       transition: "flash",
@@ -71,4 +105,8 @@ export function formatTime(seconds: number) {
   const s = Math.floor(seconds % 60);
   const ms = Math.floor((seconds % 1) * 10);
   return `${m}:${s.toString().padStart(2, "0")}.${ms}`;
+}
+
+export function displayWord(text: string, uppercase: boolean) {
+  return uppercase ? text.toUpperCase() : text;
 }

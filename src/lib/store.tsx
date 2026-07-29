@@ -8,13 +8,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createDefaultProject } from "./defaults";
+import { createDefaultProject, createWord } from "./defaults";
 import type {
   EditorProject,
   PlayOrder,
   ProjectSettings,
   RankClip,
+  RankLayout,
   TitleConfig,
+  TitleLine,
   TransitionType,
 } from "./types";
 
@@ -23,6 +25,15 @@ interface EditorContextValue {
   selectedClipId: string | null;
   setSelectedClipId: (id: string | null) => void;
   updateTitle: (patch: Partial<TitleConfig>) => void;
+  updateRanksLayout: (patch: Partial<RankLayout>) => void;
+  setTitleLines: (lines: TitleLine[]) => void;
+  updateTitleWord: (
+    lineId: string,
+    wordId: string,
+    patch: Partial<{ text: string; color: string }>
+  ) => void;
+  addTitleWord: (lineId: string, text?: string, color?: string) => void;
+  removeTitleWord: (lineId: string, wordId: string) => void;
   updateSettings: (patch: Partial<ProjectSettings>) => void;
   updateClip: (id: string, patch: Partial<RankClip>) => void;
   reorderClips: (activeId: string, overId: string) => void;
@@ -43,6 +54,85 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       settings: {
         ...prev.settings,
         title: { ...prev.settings.title, ...patch },
+      },
+    }));
+  }, []);
+
+  const updateRanksLayout = useCallback((patch: Partial<RankLayout>) => {
+    setProject((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        ranksLayout: { ...prev.settings.ranksLayout, ...patch },
+      },
+    }));
+  }, []);
+
+  const setTitleLines = useCallback((lines: TitleLine[]) => {
+    setProject((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        title: { ...prev.settings.title, lines },
+      },
+    }));
+  }, []);
+
+  const updateTitleWord = useCallback(
+    (lineId: string, wordId: string, patch: Partial<{ text: string; color: string }>) => {
+      setProject((prev) => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          title: {
+            ...prev.settings.title,
+            lines: prev.settings.title.lines.map((line) =>
+              line.id !== lineId
+                ? line
+                : {
+                    ...line,
+                    words: line.words.map((w) =>
+                      w.id === wordId ? { ...w, ...patch } : w
+                    ),
+                  }
+            ),
+          },
+        },
+      }));
+    },
+    []
+  );
+
+  const addTitleWord = useCallback((lineId: string, text = "WORD", color = "#39FF14") => {
+    setProject((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        title: {
+          ...prev.settings.title,
+          lines: prev.settings.title.lines.map((line) =>
+            line.id !== lineId
+              ? line
+              : { ...line, words: [...line.words, createWord(text, color)] }
+          ),
+        },
+      },
+    }));
+  }, []);
+
+  const removeTitleWord = useCallback((lineId: string, wordId: string) => {
+    setProject((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        title: {
+          ...prev.settings.title,
+          lines: prev.settings.title.lines.map((line) =>
+            line.id !== lineId
+              ? line
+              : { ...line, words: line.words.filter((w) => w.id !== wordId) }
+          ),
+        },
       },
     }));
   }, []);
@@ -71,9 +161,6 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       const [moved] = next.splice(oldIndex, 1);
       next.splice(newIndex, 0, moved);
 
-      // Reassign ranks based on play-order semantics:
-      // list index 0 is first on screen in editor list; ranks stay 5→1 visually
-      // when playOrder is countdown. We map position → rank number from settings.
       const ranks =
         prev.settings.playOrder === "countdown" ? [5, 4, 3, 2, 1] : [1, 2, 3, 4, 5];
       return {
@@ -112,6 +199,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       selectedClipId,
       setSelectedClipId,
       updateTitle,
+      updateRanksLayout,
+      setTitleLines,
+      updateTitleWord,
+      addTitleWord,
+      removeTitleWord,
       updateSettings,
       updateClip,
       reorderClips,
@@ -123,6 +215,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       project,
       selectedClipId,
       updateTitle,
+      updateRanksLayout,
+      setTitleLines,
+      updateTitleWord,
+      addTitleWord,
+      removeTitleWord,
       updateSettings,
       updateClip,
       reorderClips,

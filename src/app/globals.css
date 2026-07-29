@@ -104,6 +104,24 @@ a {
   color: var(--muted);
   font-size: 0.82rem;
   margin-left: auto;
+  align-items: center;
+}
+
+.tool-pill {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.tool-pill.good {
+  color: #b8f56d;
+  border-color: rgba(184, 245, 109, 0.35);
+}
+
+.tool-pill.bad {
+  color: var(--danger);
+  border-color: rgba(255, 92, 92, 0.4);
 }
 
 .topbar-actions {
@@ -404,6 +422,35 @@ a {
   padding: 0.55rem 0.75rem;
 }
 
+.title-bar-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.title-overlay {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  max-width: 92%;
+  pointer-events: none;
+}
+
+.title-line {
+  display: flex;
+  flex-wrap: wrap;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 1.05;
+  text-shadow: 0 2px 0 #000, 0 0 8px rgba(0, 0, 0, 0.65);
+  -webkit-text-stroke: 1.5px #000;
+  paint-order: stroke fill;
+}
+
 .title-text {
   font-family: var(--font-display);
   font-weight: 800;
@@ -416,11 +463,58 @@ a {
 
 .rank-list {
   position: absolute;
-  left: 0.65rem;
-  top: 4.2rem;
   z-index: 5;
   display: grid;
-  gap: 0.55rem;
+}
+
+.title-lines {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.title-line-block {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.7rem;
+  background: var(--bg-elevated);
+}
+
+.title-line-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.55rem;
+}
+
+.word-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.word-row {
+  display: grid;
+  grid-template-columns: 1fr 42px auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.word-row input[type="color"] {
+  width: 42px;
+  height: 36px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+}
+
+.line-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.rank-layout {
+  margin-top: 0.5rem;
 }
 
 .rank-row {
@@ -437,9 +531,7 @@ a {
 }
 
 .rank-num {
-  font-family: var(--font-display);
   font-weight: 900;
-  font-size: 1.55rem;
   line-height: 1;
   -webkit-text-stroke: 3px #000;
   paint-order: stroke fill;
@@ -447,9 +539,7 @@ a {
 }
 
 .rank-label {
-  font-family: var(--font-display);
   font-weight: 800;
-  font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-shadow: 0 2px 0 #000;
 }
