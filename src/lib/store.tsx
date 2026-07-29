@@ -48,10 +48,15 @@ interface EditorContextValue {
   updateClip: (id: string, patch: Partial<RankClip>) => void;
   reorderClips: (activeId: string, overId: string) => void;
   addSfxAsset: (asset: Omit<SfxAsset, "id"> & { id?: string }) => string;
+  updateSfxAsset: (id: string, patch: Partial<Omit<SfxAsset, "id">>) => void;
   removeSfxAsset: (id: string) => void;
-  addSfxPlacement: (placement?: Partial<SfxPlacement>) => void;
+  addSfxPlacement: (placement?: Partial<SfxPlacement>) => string | null;
   updateSfxPlacement: (id: string, patch: Partial<SfxPlacement>) => void;
   removeSfxPlacement: (id: string) => void;
+  selectedSfxPlacementId: string | null;
+  setSelectedSfxPlacementId: (id: string | null) => void;
+  sfxTabNonce: number;
+  requestSfxTab: () => void;
   resetProject: () => void;
   setPlayOrder: (order: PlayOrder) => void;
   setTransition: (t: TransitionType) => void;
@@ -63,8 +68,14 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [project, setProject] = useState<EditorProject>(() => createDefaultProject());
   const [hydrated, setHydrated] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [selectedSfxPlacementId, setSelectedSfxPlacementId] = useState<string | null>(null);
+  const [sfxTabNonce, setSfxTabNonce] = useState(0);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const requestSfxTab = useCallback(() => {
+    setSfxTabNonce((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -243,16 +254,28 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     return id;
   }, []);
 
+  const updateSfxAsset = useCallback((id: string, patch: Partial<Omit<SfxAsset, "id">>) => {
+    setProject((prev) => {
+      const sfxAssets = (prev.sfxAssets || []).map((a) =>
+        a.id === id ? { ...a, ...patch } : a
+      );
+      const updated = sfxAssets.find((a) => a.id === id);
+      if (updated) upsertSfxLibraryAsset(updated);
+      return { ...prev, sfxAssets };
+    });
+  }, []);
+
   const removeSfxAsset = useCallback((id: string) => {
     setProject((prev) => ({
       ...prev,
       sfxAssets: (prev.sfxAssets || []).filter((a) => a.id !== id),
       sfxPlacements: (prev.sfxPlacements || []).filter((p) => p.assetId !== id),
     }));
-    // Keep file in the durable library so it can be re-added; library removal is explicit in UI
   }, []);
 
   const addSfxPlacement = useCallback((placement?: Partial<SfxPlacement>) => {
+    const id = uuidv4();
+    let created: string | null = null;
     setProject((prev) => {
       const assets = prev.sfxAssets || [];
       const assetId = placement?.assetId || assets[0]?.id;
@@ -263,7 +286,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         placement?.trimEnd ?? Math.min(1.5, asset?.duration || 1.5)
       );
       const next: SfxPlacement = {
-        id: uuidv4(),
+        id,
         assetId,
         startAt: placement?.startAt ?? 0,
         clipId: placement?.clipId ?? null,
@@ -272,11 +295,14 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         trimEnd,
         volume: placement?.volume ?? 1,
       };
+      created = id;
       return {
         ...prev,
         sfxPlacements: [...(prev.sfxPlacements || []), next],
       };
     });
+    if (created) setSelectedSfxPlacementId(created);
+    return created;
   }, []);
 
   const updateSfxPlacement = useCallback((id: string, patch: Partial<SfxPlacement>) => {
@@ -293,6 +319,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       ...prev,
       sfxPlacements: (prev.sfxPlacements || []).filter((p) => p.id !== id),
     }));
+    setSelectedSfxPlacementId((cur) => (cur === id ? null : cur));
   }, []);
 
   const resetProject = useCallback(() => {
@@ -324,8 +351,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     () => ({
       project,
       selectedClipId,
+      selectedSfxPlacementId,
+      sfxTabNonce,
       saveStatus,
       setSelectedClipId,
+      setSelectedSfxPlacementId,
+      requestSfxTab,
       updateTitle,
       updateRanksLayout,
       setTitleLines,
@@ -336,6 +367,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateClip,
       reorderClips,
       addSfxAsset,
+      updateSfxAsset,
       removeSfxAsset,
       addSfxPlacement,
       updateSfxPlacement,
@@ -347,7 +379,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     [
       project,
       selectedClipId,
+      selectedSfxPlacementId,
+      sfxTabNonce,
       saveStatus,
+      requestSfxTab,
       updateTitle,
       updateRanksLayout,
       setTitleLines,
@@ -358,6 +393,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateClip,
       reorderClips,
       addSfxAsset,
+      updateSfxAsset,
       removeSfxAsset,
       addSfxPlacement,
       updateSfxPlacement,

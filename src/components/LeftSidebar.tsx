@@ -14,7 +14,7 @@ const TABS: { id: LeftUiState["activeTab"]; label: string; hint: string }[] = [
 ];
 
 export function LeftSidebar() {
-  const { saveStatus } = useEditor();
+  const { saveStatus, sfxTabNonce } = useEditor();
   const [ui, setUi] = useState<LeftUiState>(defaultLeftUi);
 
   useEffect(() => {
@@ -24,6 +24,12 @@ export function LeftSidebar() {
   useEffect(() => {
     saveLeftUi(ui);
   }, [ui]);
+
+  useEffect(() => {
+    if (sfxTabNonce > 0) {
+      setUi((u) => ({ ...u, activeTab: "sfx" }));
+    }
+  }, [sfxTabNonce]);
 
   return (
     <aside className="left-col">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload,
   Plus,
@@ -9,6 +9,8 @@ import {
   Play,
   Loader2,
   Volume2,
+  Pencil,
+  Search,
 } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import {
@@ -22,6 +24,7 @@ import {
   cacheSfxFile,
   forgetSfxLocal,
   loadSfxLibrary,
+  upsertSfxLibraryAsset,
 } from "@/lib/sfxLibrary";
 import type { SfxAsset } from "@/lib/types";
 
@@ -29,25 +32,32 @@ export function SfxPanel() {
   const {
     project,
     addSfxAsset,
+    updateSfxAsset,
     removeSfxAsset,
     addSfxPlacement,
     updateSfxPlacement,
     removeSfxPlacement,
+    selectedSfxPlacementId,
+    setSelectedSfxPlacementId,
   } = useEditor();
   const fileRef = useRef<HTMLInputElement>(null);
+  const selectedRef = useRef<HTMLDivElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [libraryTick, setLibraryTick] = useState(0);
+  const [query, setQuery] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const previewRef = useRef<HTMLAudioElement | null>(null);
 
-  const assets = project.sfxAssets || [];
-  const placements = project.sfxPlacements || [];
+  const assets = useMemo(() => project.sfxAssets || [], [project.sfxAssets]);
+  const placements = useMemo(() => project.sfxPlacements || [], [project.sfxPlacements]);
   const library = useMemo(() => {
     void libraryTick;
     return loadSfxLibrary();
-    // refresh when assets change or libraryTick bumps
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [libraryTick, assets.length]);
+  }, [libraryTick, assets]);
+
   const readyClips = useMemo(
     () => getPlaybackOrder(project.clips, project.settings.playOrder),
     [project.clips, project.settings.playOrder]
@@ -60,6 +70,30 @@ export function SfxPanel() {
     () => totalTimelineDuration(project.clips, project.settings.playOrder),
     [project.clips, project.settings.playOrder]
   );
+
+  const q = query.trim().toLowerCase();
+  const filteredAssets = useMemo(
+    () =>
+      assets
+        .filter((a) => !q || a.fileName.toLowerCase().includes(q))
+        .slice()
+        .sort((a, b) => a.fileName.localeCompare(b.fileName)),
+    [assets, q]
+  );
+  const unusedLibrary = useMemo(
+    () =>
+      library
+        .filter((a) => !assets.some((x) => x.id === a.id))
+        .filter((a) => !q || a.fileName.toLowerCase().includes(q))
+        .slice()
+        .sort((a, b) => a.fileName.localeCompare(b.fileName)),
+    [library, assets, q]
+  );
+
+  useEffect(() => {
+    if (!selectedSfxPlacementId) return;
+    selectedRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedSfxPlacementId]);
 
   async function uploadSfx(file: File) {
     setUploading(true);
@@ -77,7 +111,6 @@ export function SfxPanel() {
         fileName: data.fileName || file.name,
         duration: data.duration || 1,
       });
-      // Place on the whole timeline at 0s — can move anywhere
       addSfxPlacement({
         assetId: id,
         startAt: 0,
@@ -106,6 +139,26 @@ export function SfxPanel() {
       trimEnd: Math.min(1.5, asset.duration || 1.5),
       volume: 1,
     });
+  }
+
+  function startRename(asset: SfxAsset) {
+    setRenamingId(asset.id);
+    setRenameValue(asset.fileName);
+  }
+
+  function commitRename(assetId: string) {
+    const name = renameValue.trim();
+    setRenamingId(null);
+    if (!name) return;
+    if (assets.some((a) => a.id === assetId)) {
+      updateSfxAsset(assetId, { fileName: name });
+    } else {
+      const libItem = library.find((a) => a.id === assetId);
+      if (libItem) {
+        upsertSfxLibraryAsset({ ...libItem, fileName: name });
+        setLibraryTick((n) => n + 1);
+      }
+    }
   }
 
   function randomize(id: string) {
@@ -145,14 +198,70 @@ export function SfxPanel() {
     }
   }
 
-  const unusedLibrary = library.filter((a) => !assets.some((x) => x.id === a.id));
+  function renderAssetRow(a: SfxAsset, mode: "project" | "library") {
+    const renaming = renamingId === a.id;
+    return (
+      <div key={a.id} className="sfx-asset-row">
+        <Volume2 size={14} className="muted-icon" />
+        <div className="sfx-asset-meta">
+          {renaming ? (
+            <input
+              className="input"
+              value={renameValue}
+              autoFocus
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={() => commitRename(a.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename(a.id);
+                if (e.key === "Escape") setRenamingId(null);
+              }}
+            />
+          ) : (
+            <p className="truncate" title={a.fileName}>
+              {a.fileName}
+            </p>
+          )}
+          <p className="muted">
+            {formatTime(a.duration)}
+            {mode === "project" ? " · in project" : " · library"}
+          </p>
+        </div>
+        <button
+          className="icon-btn"
+          type="button"
+          title="Rename"
+          onClick={() => startRename(a)}
+        >
+          <Pencil size={14} />
+        </button>
+        {mode === "library" && (
+          <button className="btn ghost small" type="button" onClick={() => addFromLibrary(a)}>
+            Use
+          </button>
+        )}
+        <button
+          className="icon-btn danger"
+          type="button"
+          title={mode === "project" ? "Remove from project" : "Delete from library"}
+          onClick={() => {
+            if (mode === "project") removeSfxAsset(a.id);
+            else {
+              void forgetSfxLocal(a.id, a.mediaId).then(() => setLibraryTick((n) => n + 1));
+            }
+          }}
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <section className="panel tab-panel">
       <div className="panel-header compact">
         <h2>Sound effects</h2>
         <p className="muted">
-          Samples save in this browser. Place hits anywhere on the timeline.
+          Preview plays hits in the middle viewer. Drop SFX from the playhead, then edit here.
         </p>
       </div>
 
@@ -198,6 +307,44 @@ export function SfxPanel() {
 
       {error && <p className="error-text">{error}</p>}
 
+      <label className="sfx-search">
+        <Search size={14} />
+        <input
+          className="input"
+          placeholder="Search saved sound effects…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </label>
+
+      <div className="sfx-library-scroll">
+        {filteredAssets.length > 0 && (
+          <div className="sfx-library">
+            <p className="field-label">
+              In this project ({filteredAssets.length}
+              {q ? ` matching` : ""})
+            </p>
+            {filteredAssets.map((a) => renderAssetRow(a, "project"))}
+          </div>
+        )}
+
+        {unusedLibrary.length > 0 && (
+          <div className="sfx-library">
+            <p className="field-label">
+              Saved library ({unusedLibrary.length}
+              {q ? ` matching` : ""})
+            </p>
+            {unusedLibrary.map((a) => renderAssetRow(a, "library"))}
+          </div>
+        )}
+
+        {filteredAssets.length === 0 && unusedLibrary.length === 0 && (
+          <p className="muted">
+            {q ? "No sound effects match that search." : "Upload sound effects to build your library."}
+          </p>
+        )}
+      </div>
+
       {totalDur > 0 && placements.length > 0 && (
         <div className="sfx-timeline" aria-hidden>
           <div className="sfx-timeline-track">
@@ -207,7 +354,7 @@ export function SfxPanel() {
               return (
                 <span
                   key={p.id}
-                  className="sfx-timeline-mark"
+                  className={`sfx-timeline-mark ${p.id === selectedSfxPlacementId ? "active" : ""}`}
                   style={{ left: `${left}%` }}
                   title={`Hit ${idx + 1} @ ${abs.toFixed(2)}s`}
                 />
@@ -221,79 +368,27 @@ export function SfxPanel() {
         </div>
       )}
 
-      {assets.length > 0 && (
-        <div className="sfx-library">
-          <p className="field-label">In this project</p>
-          {assets.map((a) => (
-            <div key={a.id} className="sfx-asset-row">
-              <Volume2 size={14} className="muted-icon" />
-              <div className="sfx-asset-meta">
-                <p className="truncate">{a.fileName}</p>
-                <p className="muted">{formatTime(a.duration)} · saved locally</p>
-              </div>
-              <button
-                className="icon-btn danger"
-                type="button"
-                title="Remove from project (keeps local library)"
-                onClick={() => removeSfxAsset(a.id)}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {unusedLibrary.length > 0 && (
-        <div className="sfx-library">
-          <p className="field-label">Saved library (reuse)</p>
-          {unusedLibrary.map((a) => (
-            <div key={a.id} className="sfx-asset-row">
-              <Volume2 size={14} className="muted-icon" />
-              <div className="sfx-asset-meta">
-                <p className="truncate">{a.fileName}</p>
-                <p className="muted">{formatTime(a.duration)}</p>
-              </div>
-              <button
-                className="btn ghost small"
-                type="button"
-                onClick={() => addFromLibrary(a)}
-              >
-                Use
-              </button>
-              <button
-                className="icon-btn danger"
-                type="button"
-                title="Delete from local library"
-                onClick={() => {
-                  void forgetSfxLocal(a.id, a.mediaId).then(() =>
-                    setLibraryTick((n) => n + 1)
-                  );
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="sfx-placements">
         <p className="field-label">
           Hits on timeline {totalDur > 0 ? `(video ${totalDur.toFixed(1)}s)` : ""}
         </p>
         {placements.length === 0 && (
           <p className="muted">
-            Upload a sound effect, then set Whole video timeline + start time to place it
-            anywhere.
+            Use <strong>Add at …</strong> under the middle preview, or place manually below.
           </p>
         )}
         {placements.map((p, idx) => {
           const asset = assets.find((a) => a.id === p.assetId);
           const abs = resolveSfxStartAt(p, offsets);
           const maxTrim = asset?.duration || p.trimEnd || 1;
+          const selected = p.id === selectedSfxPlacementId;
           return (
-            <div key={p.id} className="sfx-placement">
+            <div
+              key={p.id}
+              ref={selected ? selectedRef : undefined}
+              className={`sfx-placement ${selected ? "selected" : ""}`}
+              onClick={() => setSelectedSfxPlacementId(p.id)}
+            >
               <div className="sfx-placement-head">
                 <strong>Hit {idx + 1}</strong>
                 <span className="muted">@ {abs.toFixed(2)}s</span>
@@ -302,7 +397,10 @@ export function SfxPanel() {
                     className="icon-btn"
                     type="button"
                     title="Preview trimmed sample"
-                    onClick={() => void previewPlacement(p.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void previewPlacement(p.id);
+                    }}
                   >
                     <Play size={14} />
                   </button>
@@ -310,14 +408,20 @@ export function SfxPanel() {
                     className="icon-btn"
                     type="button"
                     title="Randomize position on full timeline"
-                    onClick={() => randomize(p.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      randomize(p.id);
+                    }}
                   >
                     <Dices size={14} />
                   </button>
                   <button
                     className="icon-btn danger"
                     type="button"
-                    onClick={() => removeSfxPlacement(p.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeSfxPlacement(p.id);
+                    }}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -393,7 +497,7 @@ export function SfxPanel() {
                       type="range"
                       min={0}
                       max={Math.max(0.1, totalDur || 30)}
-                      step={0.05}
+                      step={0.01}
                       value={p.startAt}
                       onChange={(e) =>
                         updateSfxPlacement(p.id, { startAt: parseFloat(e.target.value) })
@@ -407,7 +511,7 @@ export function SfxPanel() {
                       type="number"
                       min={0}
                       max={Math.max(0.1, totalDur || 600)}
-                      step={0.05}
+                      step={0.01}
                       value={Number(p.startAt.toFixed(2))}
                       onChange={(e) =>
                         updateSfxPlacement(p.id, {

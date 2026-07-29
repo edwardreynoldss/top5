@@ -607,7 +607,9 @@ a {
 .preview-shell {
   width: 100%;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .preview-phone {
@@ -861,6 +863,97 @@ a {
   font-size: 0.8rem;
   text-align: center;
   margin: 0.25rem 0 0;
+}
+
+.preview-transport {
+  width: min(100%, 360px);
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-panel);
+}
+
+.preview-transport-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.preview-clock {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.preview-scrub {
+  position: relative;
+}
+
+.preview-scrub input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.preview-scrub-marks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 0;
+  pointer-events: none;
+}
+
+.preview-scrub-mark {
+  position: absolute;
+  top: -6px;
+  width: 2px;
+  height: 12px;
+  margin-left: -1px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+
+.preview-sfx-drop {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.preview-sfx-hint {
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+.sfx-search {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+.sfx-library-scroll {
+  margin-top: 0.65rem;
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.25rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.sfx-placement.selected {
+  border-color: rgba(200, 245, 66, 0.55);
+  box-shadow: 0 0 0 1px rgba(200, 245, 66, 0.2);
+}
+
+.sfx-timeline-mark.active {
+  width: 4px;
+  background: #fff;
 }
 
 .clip-list {

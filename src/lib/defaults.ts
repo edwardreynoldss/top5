@@ -201,3 +201,63 @@ export function resolveSfxStartAt(
   return Math.max(0, placement.startAt);
 }
 
+/** How far into a clip's *played* timeline we are (merged segments). */
+export function clipLocalPlayProgress(
+  clip: RankClip,
+  segIndex: number,
+  sourceTime: number
+) {
+  const segs = getClipSegments(clip);
+  let t = 0;
+  for (let i = 0; i < segIndex; i++) {
+    const s = segs[i];
+    if (s) t += Math.max(0, s.end - s.start);
+  }
+  const seg = segs[segIndex];
+  if (seg) {
+    t += Math.max(0, Math.min(sourceTime, seg.end) - seg.start);
+  }
+  return t;
+}
+
+/** Map a local play offset back to source seek + segment index. */
+export function sourceSeekFromLocalPlay(clip: RankClip, localPlay: number) {
+  const segs = getClipSegments(clip);
+  if (segs.length === 0) return { segIndex: 0, sourceTime: 0 };
+  let remaining = Math.max(0, localPlay);
+  for (let i = 0; i < segs.length; i++) {
+    const len = Math.max(0.05, segs[i].end - segs[i].start);
+    if (remaining <= len || i === segs.length - 1) {
+      return {
+        segIndex: i,
+        sourceTime: segs[i].start + Math.min(remaining, len),
+      };
+    }
+    remaining -= len;
+  }
+  const last = segs[segs.length - 1];
+  return { segIndex: segs.length - 1, sourceTime: last.start };
+}
+
+export function absoluteTimeForClipPlayhead(
+  clipId: string,
+  localPlay: number,
+  offsets: { clipId: string; start: number; duration: number }[]
+) {
+  const hit = offsets.find((o) => o.clipId === clipId);
+  if (!hit) return Math.max(0, localPlay);
+  return hit.start + Math.max(0, Math.min(localPlay, hit.duration));
+}
+
+export function findClipAtAbsoluteTime(
+  absTime: number,
+  offsets: { clipId: string; start: number; duration: number }[]
+) {
+  if (offsets.length === 0) return null;
+  const t = Math.max(0, absTime);
+  for (const o of offsets) {
+    if (t >= o.start && t < o.start + o.duration) return o;
+  }
+  return offsets[offsets.length - 1];
+}
+
