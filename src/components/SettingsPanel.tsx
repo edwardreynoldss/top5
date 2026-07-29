@@ -78,8 +78,8 @@ export function SettingsPanel() {
               updateSettings({ aspectMode: e.target.value as AspectMode })
             }
           >
-            <option value="blur-pad">Blurred background (ranking classic)</option>
-            <option value="crop-fill">Crop to fill</option>
+            <option value="crop-fill">Fit to screen (fill / crop)</option>
+            <option value="blur-pad">Blurred background (letterbox fill)</option>
           </select>
         </label>
 

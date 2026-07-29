@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor } from "@/lib/store";
-import { getPlaybackOrder, clipPlayDuration, displayWord } from "@/lib/defaults";
+import {
+  getPlaybackOrder,
+  clipPlayDuration,
+  displayWord,
+  getClipSegments,
+} from "@/lib/defaults";
 import { fontCss, type RankClip } from "@/lib/types";
 
 export function PreviewPhone({
@@ -19,7 +24,9 @@ export function PreviewPhone({
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgRef = useRef<HTMLVideoElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [segIndex, setSegIndex] = useState(0);
   const [localTime, setLocalTime] = useState(0);
+  const [mediaReady, setMediaReady] = useState(false);
 
   const sequence = useMemo(
     () => getPlaybackOrder(project.clips, settings.playOrder),
@@ -27,68 +34,131 @@ export function PreviewPhone({
   );
 
   const activeClip = previewClip ?? sequence[activeIndex] ?? null;
+  const segments = useMemo(
+    () => (activeClip ? getClipSegments(activeClip) : []),
+    [activeClip]
+  );
+  const activeSeg = segments[segIndex] || segments[0];
+
+  // Load / reload media when clip changes
+  useEffect(() => {
+    const fg = videoRef.current;
+    const bg = bgRef.current;
+    if (!fg || !activeClip?.mediaUrl) {
+      setMediaReady(false);
+      return;
+    }
+
+    setMediaReady(false);
+    setSegIndex(0);
+    const url = activeClip.mediaUrl;
+    const start = getClipSegments(activeClip)[0]?.start || 0;
+
+    const syncSrc = (el: HTMLVideoElement | null) => {
+      if (!el) return;
+      if (el.getAttribute("src") !== url) {
+        el.src = url;
+        el.load();
+      }
+    };
+    syncSrc(fg);
+    syncSrc(bg);
+
+    const onReady = () => {
+      setMediaReady(true);
+      try {
+        fg.currentTime = start;
+        if (bg) bg.currentTime = start;
+      } catch {
+        // ignore seek until more data
+      }
+    };
+
+    fg.addEventListener("loadeddata", onReady);
+    if (fg.readyState >= 2) onReady();
+    return () => fg.removeEventListener("loadeddata", onReady);
+  }, [activeClip]);
 
   useEffect(() => {
     const fg = videoRef.current;
     const bg = bgRef.current;
-    if (!fg || !activeClip?.mediaUrl) return;
+    if (!fg || !activeSeg) return;
 
-    const onMeta = () => {
-      fg.currentTime = activeClip.trimStart;
-      if (bg) bg.currentTime = activeClip.trimStart;
+    const seekBoth = () => {
+      fg.currentTime = activeSeg.start;
+      if (bg) bg.currentTime = activeSeg.start;
     };
-    fg.addEventListener("loadedmetadata", onMeta);
-    if (fg.readyState >= 1) onMeta();
-    return () => fg.removeEventListener("loadedmetadata", onMeta);
-  }, [activeClip?.id, activeClip?.mediaUrl, activeClip?.trimStart]);
+
+    if (mediaReady) seekBoth();
+  }, [activeSeg, segIndex, mediaReady]);
 
   useEffect(() => {
     const fg = videoRef.current;
     const bg = bgRef.current;
     if (!fg) return;
 
-    if (isPlaying && activeClip?.mediaUrl) {
+    if (isPlaying && activeClip?.mediaUrl && mediaReady) {
       void fg.play().catch(() => onPlayingChange(false));
       void bg?.play().catch(() => undefined);
     } else {
       fg.pause();
       bg?.pause();
     }
-  }, [isPlaying, activeClip?.id, activeClip?.mediaUrl, onPlayingChange]);
+  }, [isPlaying, activeClip?.id, activeClip?.mediaUrl, mediaReady, onPlayingChange, segIndex]);
 
   useEffect(() => {
     const fg = videoRef.current;
     const bg = bgRef.current;
-    if (!fg || !activeClip) return;
+    if (!fg || !activeClip || !activeSeg) return;
 
     const onTime = () => {
       setLocalTime(fg.currentTime);
-      if (bg && Math.abs(bg.currentTime - fg.currentTime) > 0.12) {
+      if (bg && Math.abs(bg.currentTime - fg.currentTime) > 0.15) {
         bg.currentTime = fg.currentTime;
       }
-      if (fg.currentTime >= activeClip.trimEnd - 0.05) {
+      if (fg.currentTime >= activeSeg.end - 0.05) {
+        // Next segment in this clip?
+        if (segIndex < segments.length - 1) {
+          setSegIndex(segIndex + 1);
+          return;
+        }
         if (previewClip) {
           fg.pause();
           bg?.pause();
           onPlayingChange(false);
-          fg.currentTime = activeClip.trimStart;
+          setSegIndex(0);
+          fg.currentTime = segments[0]?.start || 0;
           return;
         }
         const next = activeIndex + 1;
         if (next < sequence.length) {
           setActiveIndex(next);
+          setSegIndex(0);
         } else {
           setActiveIndex(0);
+          setSegIndex(0);
           onPlayingChange(false);
         }
       }
     };
     fg.addEventListener("timeupdate", onTime);
     return () => fg.removeEventListener("timeupdate", onTime);
-  }, [activeClip, activeIndex, sequence.length, previewClip, onPlayingChange]);
+  }, [
+    activeClip,
+    activeSeg,
+    activeIndex,
+    segIndex,
+    segments,
+    sequence.length,
+    previewClip,
+    onPlayingChange,
+  ]);
 
   useEffect(() => {
-    if (!previewClip) setActiveIndex(0);
+    if (!previewClip) {
+      setActiveIndex(0);
+      setSegIndex(0);
+    }
   }, [previewClip, sequence]);
 
   const title = settings.title;
@@ -104,13 +174,13 @@ export function PreviewPhone({
   const titleJustify =
     title.align === "left" ? "flex-start" : title.align === "right" ? "flex-end" : "center";
 
-  // Preview phone is ~360px wide vs 1080 canvas → scale fonts
   const previewScale = 360 / 1080;
   const titleFontPx = title.fontSize * previewScale;
   const rankFontPx = ranksLayout.fontSize * previewScale;
   const rankGapPx = ranksLayout.gap * previewScale;
   const labelFontPx = ranksLayout.labelSize * previewScale;
   const barHeightPx = title.barHeight * previewScale;
+  const fitFill = settings.aspectMode === "crop-fill";
 
   return (
     <div className="preview-shell">
@@ -118,27 +188,26 @@ export function PreviewPhone({
         <div className="preview-stage">
           {activeClip?.mediaUrl ? (
             <>
-              {settings.aspectMode === "blur-pad" && (
+              {!fitFill && (
                 <video
                   ref={bgRef}
                   className="preview-bg"
-                  src={activeClip.mediaUrl}
                   muted
                   playsInline
+                  preload="auto"
                   style={{ filter: `blur(${settings.blurAmount}px) saturate(1.1)` }}
                 />
               )}
               <video
                 ref={videoRef}
-                className={
-                  settings.aspectMode === "blur-pad" ? "preview-fg" : "preview-fg fill"
-                }
-                src={activeClip.mediaUrl}
+                className={fitFill ? "preview-fg fill" : "preview-fg"}
                 playsInline
+                preload="auto"
                 onLoadedData={(e) => {
                   e.currentTarget.volume = settings.clipVolume;
                 }}
               />
+              {!mediaReady && <div className="preview-loading">Loading clip…</div>}
             </>
           ) : (
             <div className="preview-empty">
@@ -176,8 +245,8 @@ export function PreviewPhone({
             {title.lines.slice(0, 2).map((line) => (
               <div key={line.id} className="title-line" style={{ justifyContent: titleJustify }}>
                 {line.words.map((word, i) => (
-                  <span key={word.id} style={{ color: word.color }}>
-                    {i > 0 ? " " : ""}
+                  <span key={word.id} className="title-word" style={{ color: word.color }}>
+                    {i > 0 ? "\u00A0" : ""}
                     {displayWord(word.text, title.uppercase)}
                   </span>
                 ))}
@@ -195,26 +264,26 @@ export function PreviewPhone({
                 fontFamily: fontCss(ranksLayout.fontId),
               }}
             >
-              {ranksToShow.map((clip) => {
-                const isActive = activeClip?.rank === clip.rank;
+              {ranksToShow.map((c) => {
+                const isActive = activeClip?.rank === c.rank;
                 return (
                   <div
-                    key={clip.id}
+                    key={c.id}
                     className={`rank-row ${isActive ? "active" : ""}`}
                     style={{ minHeight: `${rankGapPx * 0.7}px` }}
                   >
                     <span
                       className="rank-num"
                       style={{
-                        color: settings.rankColors[clip.rank] || "#fff",
+                        color: settings.rankColors[c.rank] || "#fff",
                         fontSize: `${rankFontPx}px`,
                       }}
                     >
-                      {clip.rank}.
+                      {c.rank}.
                     </span>
-                    {settings.showActiveLabel && isActive && clip.label ? (
+                    {settings.showActiveLabel && isActive && c.label ? (
                       <span className="rank-label" style={{ fontSize: `${labelFontPx}px` }}>
-                        {clip.label.toUpperCase()}
+                        {c.label.toUpperCase()}
                       </span>
                     ) : null}
                   </div>
@@ -227,8 +296,9 @@ export function PreviewPhone({
             <div className="preview-meta">
               <span>#{activeClip.rank}</span>
               <span>
-                {clipPlayDuration(activeClip).toFixed(1)}s ·{" "}
-                {localTime > 0 ? localTime.toFixed(1) : activeClip.trimStart.toFixed(1)}s
+                {clipPlayDuration(activeClip).toFixed(1)}s
+                {segments.length > 1 ? ` · part ${segIndex + 1}/${segments.length}` : ""}
+                {localTime > 0 ? ` · ${localTime.toFixed(1)}s` : ""}
               </span>
             </div>
           )}

@@ -3,6 +3,12 @@ export type PlayOrder = "countdown" | "ascending";
 export type AspectMode = "blur-pad" | "crop-fill";
 export type TextAlign = "left" | "center" | "right";
 
+export interface TrimSegment {
+  id: string;
+  start: number;
+  end: number;
+}
+
 export interface RankClip {
   id: string;
   rank: number;
@@ -12,13 +18,15 @@ export interface RankClip {
   fileName: string | null;
   sourceUrl: string | null;
   duration: number;
+  /** @deprecated derived from segments[0] — kept for compatibility */
   trimStart: number;
   trimEnd: number;
+  /** One or more ranges that are merged in playback/export */
+  segments: TrimSegment[];
   status: "empty" | "loading" | "ready" | "error";
   error?: string;
 }
 
-/** One colored word/token in the title */
 export interface TitleWord {
   id: string;
   text: string;
@@ -46,9 +54,7 @@ export interface TitleConfig {
   barOpacity: number;
   showBar: boolean;
   barHeight: number;
-  /** Horizontal position 0–100 (% of canvas width). 50 = center */
   x: number;
-  /** Vertical position 0–100 (% of canvas height). 0 = top */
   y: number;
   align: TextAlign;
   uppercase: boolean;
@@ -91,6 +97,7 @@ export interface EditorProject {
 export const OUTPUT_WIDTH = 1080;
 export const OUTPUT_HEIGHT = 1920;
 export const DEFAULT_CLIP_DURATION = 4;
+export const MAX_CLIP_DURATION = 60;
 
 export const TITLE_FONTS: {
   id: TitleFontId;

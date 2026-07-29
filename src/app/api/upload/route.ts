@@ -59,7 +59,42 @@ export async function POST(req: NextRequest) {
         "192k",
         outPath,
       ]);
+    } else if (safeExt === "mp4") {
+      // Fast path: remux only (no re-encode) — much faster for large uploads
+      try {
+        await runCommand("ffmpeg", [
+          "-y",
+          "-i",
+          rawPath,
+          "-c",
+          "copy",
+          "-movflags",
+          "+faststart",
+          outPath,
+        ]);
+      } catch {
+        // Fallback if codecs aren't browser-friendly
+        await runCommand("ffmpeg", [
+          "-y",
+          "-i",
+          rawPath,
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-crf",
+          "23",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "128k",
+          "-movflags",
+          "+faststart",
+          outPath,
+        ]);
+      }
     } else {
+      // Non-mp4: ultrafast transcode
       await runCommand("ffmpeg", [
         "-y",
         "-i",
@@ -67,13 +102,13 @@ export async function POST(req: NextRequest) {
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        "ultrafast",
         "-crf",
-        "22",
+        "23",
         "-c:a",
         "aac",
         "-b:a",
-        "160k",
+        "128k",
         "-movflags",
         "+faststart",
         outPath,

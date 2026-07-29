@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
-import type { EditorProject, RankClip, TitleLine, TitleWord } from "./types";
-import { DEFAULT_CLIP_DURATION, OUTPUT_HEIGHT, OUTPUT_WIDTH } from "./types";
+import type { EditorProject, RankClip, TitleLine, TitleWord, TrimSegment } from "./types";
+import { DEFAULT_CLIP_DURATION, MAX_CLIP_DURATION, OUTPUT_HEIGHT, OUTPUT_WIDTH } from "./types";
 
 export function createWord(text: string, color = "#FFFFFF"): TitleWord {
   return { id: uuidv4(), text, color };
@@ -13,7 +13,26 @@ export function createLine(words: Array<{ text: string; color?: string }>): Titl
   };
 }
 
+export function createSegment(start: number, end: number): TrimSegment {
+  return { id: uuidv4(), start, end };
+}
+
+export function normalizeSegments(segments: TrimSegment[]): TrimSegment[] {
+  return segments
+    .map((s) => ({
+      ...s,
+      start: Math.max(0, s.start),
+      end: Math.max(s.start + 0.2, s.end),
+    }))
+    .filter((s) => s.end > s.start);
+}
+
+export function segmentsDuration(segments: TrimSegment[]) {
+  return normalizeSegments(segments).reduce((sum, s) => sum + (s.end - s.start), 0);
+}
+
 export function createEmptyClip(rank: number): RankClip {
+  const seg = createSegment(0, DEFAULT_CLIP_DURATION);
   return {
     id: uuidv4(),
     rank,
@@ -23,8 +42,9 @@ export function createEmptyClip(rank: number): RankClip {
     fileName: null,
     sourceUrl: null,
     duration: 0,
-    trimStart: 0,
-    trimEnd: DEFAULT_CLIP_DURATION,
+    trimStart: seg.start,
+    trimEnd: seg.end,
+    segments: [seg],
     status: "empty",
   };
 }
@@ -66,7 +86,7 @@ export function createDefaultProject(): EditorProject {
       playOrder: "countdown",
       transition: "flash",
       transitionDuration: 0.25,
-      aspectMode: "blur-pad",
+      aspectMode: "crop-fill",
       blurAmount: 28,
       showRankList: true,
       showActiveLabel: true,
@@ -95,8 +115,13 @@ export function getPlaybackOrder(clips: RankClip[], playOrder: "countdown" | "as
   return sorted.filter((c) => c.status === "ready" && c.mediaUrl);
 }
 
+export function getClipSegments(clip: RankClip): TrimSegment[] {
+  if (clip.segments?.length) return normalizeSegments(clip.segments);
+  return [createSegment(clip.trimStart, clip.trimEnd)];
+}
+
 export function clipPlayDuration(clip: RankClip) {
-  return Math.max(0.2, clip.trimEnd - clip.trimStart);
+  return Math.max(0.2, Math.min(MAX_CLIP_DURATION, segmentsDuration(getClipSegments(clip))));
 }
 
 export function formatTime(seconds: number) {

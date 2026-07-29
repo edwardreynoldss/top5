@@ -69,6 +69,10 @@ export function TopBar({
             label: c.label,
             trimStart: c.trimStart,
             trimEnd: c.trimEnd,
+            segments: (c.segments?.length
+              ? c.segments
+              : [{ start: c.trimStart, end: c.trimEnd }]
+            ).map((s) => ({ start: s.start, end: s.end })),
           })),
           title: settings.title,
           ranksLayout: settings.ranksLayout,

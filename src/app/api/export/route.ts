@@ -16,6 +16,7 @@ interface ExportClip {
   label: string;
   trimStart: number;
   trimEnd: number;
+  segments?: { start: number; end: number }[];
 }
 
 interface ExportBody {
@@ -43,6 +44,65 @@ function resolveMedia(mediaId: string) {
   const p = path.join(UPLOAD_DIR, clean);
   if (!existsSync(p)) throw new Error(`Missing media: ${clean}`);
   return p;
+}
+
+/** Cut multiple ranges from one source and concat into a single file */
+async function buildMergedSource(
+  input: string,
+  segments: { start: number; end: number }[],
+  outPath: string,
+  fps: number
+) {
+  const parts: string[] = [];
+  const dir = path.dirname(outPath);
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const dur = Math.max(0.2, seg.end - seg.start);
+    const part = path.join(dir, `merge-part-${path.basename(outPath)}-${i}.mp4`);
+    await runCommand("ffmpeg", [
+      "-y",
+      "-ss",
+      String(Math.max(0, seg.start)),
+      "-t",
+      String(dur),
+      "-i",
+      input,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-crf",
+      "22",
+      "-r",
+      String(fps),
+      "-c:a",
+      "aac",
+      "-ar",
+      "44100",
+      "-ac",
+      "2",
+      part,
+    ]);
+    parts.push(part);
+  }
+  if (parts.length === 1) {
+    await runCommand("ffmpeg", ["-y", "-i", parts[0], "-c", "copy", outPath]);
+    return;
+  }
+  const list = path.join(dir, `merge-list-${path.basename(outPath)}.txt`);
+  writeFileSync(list, parts.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n"));
+  await runCommand("ffmpeg", [
+    "-y",
+    "-f",
+    "concat",
+    "-safe",
+    "0",
+    "-i",
+    list,
+    "-c",
+    "copy",
+    outPath,
+  ]);
 }
 
 async function renderClipSegment(opts: {
@@ -214,8 +274,32 @@ export async function POST(req: NextRequest) {
 
     for (let i = 0; i < ordered.length; i++) {
       const clip = ordered[i];
-      const duration = Math.max(0.2, clip.trimEnd - clip.trimStart);
-      const input = resolveMedia(clip.mediaId);
+      const ranges =
+        clip.segments && clip.segments.length > 0
+          ? clip.segments
+          : [{ start: clip.trimStart, end: clip.trimEnd }];
+      const duration = Math.max(
+        0.2,
+        ranges.reduce((sum, s) => sum + Math.max(0.2, s.end - s.start), 0)
+      );
+      const source = resolveMedia(clip.mediaId);
+      let input = source;
+      let trimStart = ranges[0].start;
+
+      if (ranges.length > 1) {
+        const merged = path.join(jobDir, `merged-src-${i}.mp4`);
+        await buildMergedSource(source, ranges, merged, fps);
+        input = merged;
+        trimStart = 0;
+      } else {
+        // single range — still use seek in renderClipSegment
+        trimStart = ranges[0].start;
+      }
+
+      const renderDuration =
+        ranges.length > 1
+          ? duration
+          : Math.max(0.2, ranges[0].end - ranges[0].start);
 
       // Per-clip ranks overlay with this clip's label emphasized
       const ranksOverlay = body.showRankList ? path.join(jobDir, `ranks-${i}.png`) : null;
@@ -244,12 +328,12 @@ export async function POST(req: NextRequest) {
       await renderClipSegment({
         input,
         output: seg,
-        trimStart: clip.trimStart,
-        duration,
+        trimStart: ranges.length > 1 ? 0 : trimStart,
+        duration: renderDuration,
         width,
         height,
         blurAmount: body.blurAmount ?? 28,
-        aspectMode: body.aspectMode || "blur-pad",
+        aspectMode: body.aspectMode || "crop-fill",
         titleOverlay,
         ranksOverlay: body.showRankList ? ranksOverlay : null,
         fps,
@@ -265,7 +349,7 @@ export async function POST(req: NextRequest) {
           "-i",
           seg,
           "-vf",
-          `fade=t=out:st=${Math.max(0, duration - td)}:d=${td}:color=white`,
+          `fade=t=out:st=${Math.max(0, renderDuration - td)}:d=${td}:color=white`,
           "-c:v",
           "libx264",
           "-preset",
@@ -285,7 +369,7 @@ export async function POST(req: NextRequest) {
           "-i",
           seg,
           "-vf",
-          `zoompan=z='if(gte(time,${Math.max(0, duration - td)}),1+0.35*(time-(${Math.max(0, duration - td)}))/${td},1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps}`,
+          `zoompan=z='if(gte(time,${Math.max(0, renderDuration - td)}),1+0.35*(time-(${Math.max(0, renderDuration - td)}))/${td},1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps}`,
           "-c:v",
           "libx264",
           "-preset",

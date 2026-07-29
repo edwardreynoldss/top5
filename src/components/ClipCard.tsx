@@ -10,17 +10,20 @@ import {
   Scissors,
   Trash2,
   Loader2,
+  X,
 } from "lucide-react";
 import { useEditor } from "@/lib/store";
-import type { RankClip } from "@/lib/types";
+import type { RankClip, TrimSegment } from "@/lib/types";
 import { TrimModal } from "./TrimModal";
-import { DEFAULT_CLIP_DURATION } from "@/lib/types";
+import { DEFAULT_CLIP_DURATION, MAX_CLIP_DURATION } from "@/lib/types";
+import { createSegment, getClipSegments, clipPlayDuration } from "@/lib/defaults";
 
 export function ClipCard({ clip }: { clip: RankClip }) {
   const { updateClip, selectedClipId, setSelectedClipId, project } = useEditor();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: clip.id });
   const fileRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [url, setUrl] = useState(clip.sourceUrl || "");
   const [trimOpen, setTrimOpen] = useState(false);
   const [pendingSrc, setPendingSrc] = useState<string | null>(null);
@@ -31,6 +34,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
     fileName: string;
     sourceUrl?: string | null;
   } | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -40,12 +44,23 @@ export function ClipCard({ clip }: { clip: RankClip }) {
 
   const color = project.settings.rankColors[clip.rank] || "#fff";
 
+  function cancelIngest() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setProgress(null);
+    updateClip(clip.id, { status: "empty", error: undefined });
+  }
+
   async function ingestUpload(file: File) {
+    cancelIngest();
+    const ac = new AbortController();
+    abortRef.current = ac;
     updateClip(clip.id, { status: "loading", error: undefined });
+    setProgress(`Uploading ${Math.round(file.size / 1024 / 1024)}MB…`);
     const fd = new FormData();
     fd.append("file", file);
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const res = await fetch("/api/upload", { method: "POST", body: fd, signal: ac.signal });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
       setPendingMeta({
@@ -57,25 +72,41 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       setPendingSrc(data.mediaUrl);
       setTrimOpen(true);
       updateClip(clip.id, { status: "empty" });
+      setProgress(null);
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        updateClip(clip.id, { status: "empty", error: undefined });
+        setProgress(null);
+        return;
+      }
       updateClip(clip.id, {
         status: "error",
         error: e instanceof Error ? e.message : "Upload failed",
       });
+      setProgress(null);
+    } finally {
+      abortRef.current = null;
     }
   }
 
   async function ingestUrl() {
     if (!url.trim()) return;
+    cancelIngest();
+    const ac = new AbortController();
+    abortRef.current = ac;
     updateClip(clip.id, { status: "loading", error: undefined, sourceUrl: url.trim() });
+    setProgress("Fetching link…");
     try {
       const res = await fetch("/api/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: url.trim() }),
+        signal: ac.signal,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail ? `${data.error}\n${data.detail}` : data.error || "Download failed");
+      if (!res.ok) {
+        throw new Error(data.detail ? `${data.error}\n${data.detail}` : data.error || "Download failed");
+      }
       setPendingMeta({
         mediaId: data.mediaId,
         mediaUrl: data.mediaUrl,
@@ -86,17 +117,28 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       setPendingSrc(data.mediaUrl);
       setTrimOpen(true);
       updateClip(clip.id, { status: "empty" });
+      setProgress(null);
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        updateClip(clip.id, { status: "empty", error: undefined });
+        setProgress(null);
+        return;
+      }
       updateClip(clip.id, {
         status: "error",
         error: e instanceof Error ? e.message : "Download failed",
       });
+      setProgress(null);
+    } finally {
+      abortRef.current = null;
     }
   }
 
-  function confirmTrim(start: number, end: number) {
+  function confirmTrim(segments: TrimSegment[]) {
     if (!pendingMeta && !clip.mediaUrl) return;
     const meta = pendingMeta;
+    const first = segments[0];
+    const last = segments[segments.length - 1];
     updateClip(clip.id, {
       status: "ready",
       mediaId: meta?.mediaId ?? clip.mediaId,
@@ -104,8 +146,9 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       fileName: meta?.fileName ?? clip.fileName,
       sourceUrl: meta?.sourceUrl ?? clip.sourceUrl,
       duration: meta?.duration ?? clip.duration,
-      trimStart: start,
-      trimEnd: end,
+      segments,
+      trimStart: first?.start ?? 0,
+      trimEnd: last?.end ?? DEFAULT_CLIP_DURATION,
       error: undefined,
     });
     setTrimOpen(false);
@@ -115,6 +158,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
   }
 
   function clearClip() {
+    cancelIngest();
     updateClip(clip.id, {
       status: "empty",
       mediaId: null,
@@ -124,10 +168,13 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       duration: 0,
       trimStart: 0,
       trimEnd: DEFAULT_CLIP_DURATION,
+      segments: [createSegment(0, DEFAULT_CLIP_DURATION)],
       error: undefined,
     });
     setUrl("");
   }
+
+  const segs = getClipSegments(clip);
 
   return (
     <>
@@ -195,13 +242,19 @@ export function ClipCard({ clip }: { clip: RankClip }) {
           {clip.status === "ready" ? (
             <div className="clip-ready">
               <div className="thumb">
-                <video src={clip.mediaUrl!} muted playsInline preload="metadata" />
+                <video
+                  key={clip.mediaUrl || clip.id}
+                  src={`${clip.mediaUrl!}#t=${segs[0]?.start || 0}`}
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
               </div>
               <div className="clip-meta">
                 <p className="truncate">{clip.fileName || "Clip ready"}</p>
                 <p className="muted">
-                  {clip.trimStart.toFixed(1)}s → {clip.trimEnd.toFixed(1)}s (
-                  {(clip.trimEnd - clip.trimStart).toFixed(1)}s)
+                  {segs.length} part{segs.length > 1 ? "s" : ""} · {clipPlayDuration(clip).toFixed(1)}s
+                  (max {MAX_CLIP_DURATION}s)
                 </p>
               </div>
             </div>
@@ -216,23 +269,32 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                   onChange={(e) => setUrl(e.target.value)}
                   disabled={clip.status === "loading"}
                 />
-                <button
-                  className="btn small"
-                  onClick={ingestUrl}
-                  disabled={clip.status === "loading" || !url.trim()}
-                >
-                  {clip.status === "loading" ? <Loader2 size={14} className="spin" /> : "Fetch"}
-                </button>
+                {clip.status === "loading" ? (
+                  <button className="btn small danger-btn" onClick={cancelIngest}>
+                    <X size={14} /> Cancel
+                  </button>
+                ) : (
+                  <button
+                    className="btn small"
+                    onClick={ingestUrl}
+                    disabled={!url.trim()}
+                  >
+                    Fetch
+                  </button>
+                )}
               </div>
               <div className="or-row">
                 <span>or</span>
-                <button
-                  className="btn ghost small"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={clip.status === "loading"}
-                >
-                  <Upload size={14} /> Upload file
-                </button>
+                {clip.status === "loading" ? (
+                  <span className="muted">{progress || "Working…"}</span>
+                ) : (
+                  <button
+                    className="btn ghost small"
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    <Upload size={14} /> Upload file
+                  </button>
+                )}
                 <input
                   ref={fileRef}
                   type="file"
@@ -245,6 +307,11 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                   }}
                 />
               </div>
+              {clip.status === "loading" && (
+                <p className="muted">
+                  <Loader2 size={12} className="spin inline" /> {progress || "Processing…"} — you can cancel
+                </p>
+              )}
               {clip.error && <p className="error-text">{clip.error}</p>}
             </div>
           )}
@@ -255,11 +322,15 @@ export function ClipCard({ clip }: { clip: RankClip }) {
         open={trimOpen && !!pendingSrc}
         src={pendingSrc || ""}
         fileName={pendingMeta?.fileName || clip.fileName}
-        initialStart={pendingMeta ? 0 : clip.trimStart}
-        initialEnd={
+        initialSegments={
           pendingMeta
-            ? Math.min(DEFAULT_CLIP_DURATION, pendingMeta.duration || DEFAULT_CLIP_DURATION)
-            : clip.trimEnd
+            ? [
+                createSegment(
+                  0,
+                  Math.min(DEFAULT_CLIP_DURATION, pendingMeta.duration || DEFAULT_CLIP_DURATION)
+                ),
+              ]
+            : getClipSegments(clip)
         }
         duration={pendingMeta?.duration || clip.duration || 0}
         onClose={() => {
