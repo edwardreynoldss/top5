@@ -5,9 +5,7 @@ import { EditorProvider, useEditor } from "@/lib/store";
 import { TopBar } from "./TopBar";
 import { PreviewPhone } from "./PreviewPhone";
 import { ClipList } from "./ClipList";
-import { TitleEditor } from "./TitleEditor";
-import { SettingsPanel } from "./SettingsPanel";
-import { SfxPanel } from "./SfxPanel";
+import { LeftSidebar } from "./LeftSidebar";
 
 function EditorInner() {
   const { project, selectedClipId } = useEditor();
@@ -25,11 +23,7 @@ function EditorInner() {
         onTogglePlay={() => setIsPlaying((p) => !p)}
       />
       <main className="editor-grid">
-        <aside className="left-col">
-          <TitleEditor />
-          <SettingsPanel />
-          <SfxPanel />
-        </aside>
+        <LeftSidebar />
         <section className="center-col">
           <PreviewPhone
             previewClip={isPlaying ? null : selectedClip}
@@ -37,7 +31,7 @@ function EditorInner() {
             onPlayingChange={setIsPlaying}
           />
           <p className="preview-hint">
-            Live 9:16 preview · blurred fill · persistent ranks · export burns the same layout
+            Live 9:16 preview · layout autosaves in this browser
           </p>
         </section>
         <aside className="right-col">

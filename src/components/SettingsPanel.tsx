@@ -23,10 +23,10 @@ export function SettingsPanel() {
   }
 
   return (
-    <section className="panel">
-      <div className="panel-header">
+    <section className="panel tab-panel">
+      <div className="panel-header compact">
         <h2>Playback & look</h2>
-        <p className="muted">Match CapCut-style ranking Shorts conventions</p>
+        <p className="muted">Order, transitions, fit, music</p>
       </div>
 
       <div className="field-grid">

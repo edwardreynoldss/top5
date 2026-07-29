@@ -124,12 +124,10 @@ export function SfxPanel() {
   }
 
   return (
-    <section className="panel">
-      <div className="panel-header">
+    <section className="panel tab-panel">
+      <div className="panel-header compact">
         <h2>Sound effects</h2>
-        <p className="muted">
-          Vine booms, GET OUT, punch-ins — trim samples & drop them on the timeline
-        </p>
+        <p className="muted">Upload, trim, place, or randomize hits</p>
       </div>
 
       <div className="sfx-actions">

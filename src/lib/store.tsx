@@ -4,11 +4,14 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { createDefaultProject, createWord } from "./defaults";
+import { clearSavedProject, loadProject, saveProject } from "./persist";
 import type {
   EditorProject,
   PlayOrder,
@@ -23,9 +26,12 @@ import type {
 } from "./types";
 import { v4 as uuidv4 } from "uuid";
 
+type SaveStatus = "idle" | "saving" | "saved" | "error";
+
 interface EditorContextValue {
   project: EditorProject;
   selectedClipId: string | null;
+  saveStatus: SaveStatus;
   setSelectedClipId: (id: string | null) => void;
   updateTitle: (patch: Partial<TitleConfig>) => void;
   updateRanksLayout: (patch: Partial<RankLayout>) => void;
@@ -54,7 +60,32 @@ const EditorContext = createContext<EditorContextValue | null>(null);
 
 export function EditorProvider({ children }: { children: ReactNode }) {
   const [project, setProject] = useState<EditorProject>(() => createDefaultProject());
+  const [hydrated, setHydrated] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setProject(loadProject());
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    setSaveStatus("saving");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      try {
+        saveProject(project);
+        setSaveStatus("saved");
+      } catch {
+        setSaveStatus("error");
+      }
+    }, 350);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [project, hydrated]);
 
   const updateTitle = useCallback((patch: Partial<TitleConfig>) => {
     setProject((prev) => ({
@@ -201,7 +232,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       const assetId = placement?.assetId || assets[0]?.id;
       if (!assetId) return prev;
       const asset = assets.find((a) => a.id === assetId);
-      const trimEnd = Math.min(asset?.duration || 1, placement?.trimEnd ?? Math.min(1.5, asset?.duration || 1.5));
+      const trimEnd = Math.min(
+        asset?.duration || 1,
+        placement?.trimEnd ?? Math.min(1.5, asset?.duration || 1.5)
+      );
       const next: SfxPlacement = {
         id: uuidv4(),
         assetId,
@@ -236,8 +270,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resetProject = useCallback(() => {
+    clearSavedProject();
     setProject(createDefaultProject());
     setSelectedClipId(null);
+    setSaveStatus("saved");
   }, []);
 
   const setPlayOrder = useCallback((order: PlayOrder) => {
@@ -262,6 +298,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     () => ({
       project,
       selectedClipId,
+      saveStatus,
       setSelectedClipId,
       updateTitle,
       updateRanksLayout,
@@ -284,6 +321,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     [
       project,
       selectedClipId,
+      saveStatus,
       updateTitle,
       updateRanksLayout,
       setTitleLines,
