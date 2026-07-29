@@ -64,6 +64,8 @@ export function createEmptyClip(rank: number): RankClip {
 export function createDefaultProject(): EditorProject {
   return {
     clips: [5, 4, 3, 2, 1].map((rank) => createEmptyClip(rank)),
+    sfxAssets: [],
+    sfxPlacements: [],
     settings: {
       title: {
         lines: [
@@ -162,3 +164,39 @@ export function cropPreviewStyle(crop: ClipCrop) {
     transformOrigin: `${crop.panX}% ${crop.panY}%`,
   };
 }
+
+/** Absolute timeline start for each ready clip in playback order */
+export function clipTimelineOffsets(
+  clips: RankClip[],
+  playOrder: "countdown" | "ascending"
+): { clipId: string; start: number; duration: number }[] {
+  const order = getPlaybackOrder(clips, playOrder);
+  let t = 0;
+  return order.map((c) => {
+    const duration = clipPlayDuration(c);
+    const row = { clipId: c.id, start: t, duration };
+    t += duration;
+    return row;
+  });
+}
+
+export function totalTimelineDuration(
+  clips: RankClip[],
+  playOrder: "countdown" | "ascending"
+) {
+  return getPlaybackOrder(clips, playOrder).reduce((s, c) => s + clipPlayDuration(c), 0);
+}
+
+export function resolveSfxStartAt(
+  placement: { clipId: string | null; offsetInClip: number; startAt: number },
+  offsets: { clipId: string; start: number; duration: number }[]
+) {
+  if (placement.clipId) {
+    const hit = offsets.find((o) => o.clipId === placement.clipId);
+    if (hit) {
+      return hit.start + Math.max(0, Math.min(placement.offsetInClip, Math.max(0, hit.duration - 0.05)));
+    }
+  }
+  return Math.max(0, placement.startAt);
+}
+

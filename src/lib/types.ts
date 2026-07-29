@@ -105,9 +105,35 @@ export interface ProjectSettings {
   clipVolume: number;
 }
 
+/** Uploaded sound-effect sample (vine boom, GET OUT, etc.) */
+export interface SfxAsset {
+  id: string;
+  mediaId: string;
+  mediaUrl: string;
+  fileName: string;
+  duration: number;
+}
+
+/** Where / how an SFX plays in the final video */
+export interface SfxPlacement {
+  id: string;
+  assetId: string;
+  /** Absolute time on final timeline (seconds) when not pinned to a clip */
+  startAt: number;
+  /** Pin to a rank clip — uses offsetInClip instead of startAt */
+  clipId: string | null;
+  /** Seconds from the start of that clip’s playback */
+  offsetInClip: number;
+  trimStart: number;
+  trimEnd: number;
+  volume: number;
+}
+
 export interface EditorProject {
   clips: RankClip[];
   settings: ProjectSettings;
+  sfxAssets: SfxAsset[];
+  sfxPlacements: SfxPlacement[];
 }
 
 export const OUTPUT_WIDTH = 1080;

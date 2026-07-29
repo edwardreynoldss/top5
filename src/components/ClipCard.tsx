@@ -15,7 +15,7 @@ import {
 import { useEditor } from "@/lib/store";
 import type { ClipCrop, RankClip, TrimSegment } from "@/lib/types";
 import { TrimModal } from "./TrimModal";
-import { DEFAULT_CLIP_DURATION, MAX_CLIP_DURATION } from "@/lib/types";
+import { DEFAULT_CLIP_DURATION } from "@/lib/types";
 import {
   createSegment,
   getClipSegments,

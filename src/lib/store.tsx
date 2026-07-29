@@ -15,10 +15,13 @@ import type {
   ProjectSettings,
   RankClip,
   RankLayout,
+  SfxAsset,
+  SfxPlacement,
   TitleConfig,
   TitleLine,
   TransitionType,
 } from "./types";
+import { v4 as uuidv4 } from "uuid";
 
 interface EditorContextValue {
   project: EditorProject;
@@ -37,6 +40,11 @@ interface EditorContextValue {
   updateSettings: (patch: Partial<ProjectSettings>) => void;
   updateClip: (id: string, patch: Partial<RankClip>) => void;
   reorderClips: (activeId: string, overId: string) => void;
+  addSfxAsset: (asset: Omit<SfxAsset, "id"> & { id?: string }) => string;
+  removeSfxAsset: (id: string) => void;
+  addSfxPlacement: (placement?: Partial<SfxPlacement>) => void;
+  updateSfxPlacement: (id: string, patch: Partial<SfxPlacement>) => void;
+  removeSfxPlacement: (id: string) => void;
   resetProject: () => void;
   setPlayOrder: (order: PlayOrder) => void;
   setTransition: (t: TransitionType) => void;
@@ -170,6 +178,63 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const addSfxAsset = useCallback((asset: Omit<SfxAsset, "id"> & { id?: string }) => {
+    const id = asset.id || uuidv4();
+    setProject((prev) => ({
+      ...prev,
+      sfxAssets: [...(prev.sfxAssets || []), { ...asset, id }],
+    }));
+    return id;
+  }, []);
+
+  const removeSfxAsset = useCallback((id: string) => {
+    setProject((prev) => ({
+      ...prev,
+      sfxAssets: (prev.sfxAssets || []).filter((a) => a.id !== id),
+      sfxPlacements: (prev.sfxPlacements || []).filter((p) => p.assetId !== id),
+    }));
+  }, []);
+
+  const addSfxPlacement = useCallback((placement?: Partial<SfxPlacement>) => {
+    setProject((prev) => {
+      const assets = prev.sfxAssets || [];
+      const assetId = placement?.assetId || assets[0]?.id;
+      if (!assetId) return prev;
+      const asset = assets.find((a) => a.id === assetId);
+      const trimEnd = Math.min(asset?.duration || 1, placement?.trimEnd ?? Math.min(1.5, asset?.duration || 1.5));
+      const next: SfxPlacement = {
+        id: uuidv4(),
+        assetId,
+        startAt: placement?.startAt ?? 0,
+        clipId: placement?.clipId ?? null,
+        offsetInClip: placement?.offsetInClip ?? 0,
+        trimStart: placement?.trimStart ?? 0,
+        trimEnd,
+        volume: placement?.volume ?? 1,
+      };
+      return {
+        ...prev,
+        sfxPlacements: [...(prev.sfxPlacements || []), next],
+      };
+    });
+  }, []);
+
+  const updateSfxPlacement = useCallback((id: string, patch: Partial<SfxPlacement>) => {
+    setProject((prev) => ({
+      ...prev,
+      sfxPlacements: (prev.sfxPlacements || []).map((p) =>
+        p.id === id ? { ...p, ...patch } : p
+      ),
+    }));
+  }, []);
+
+  const removeSfxPlacement = useCallback((id: string) => {
+    setProject((prev) => ({
+      ...prev,
+      sfxPlacements: (prev.sfxPlacements || []).filter((p) => p.id !== id),
+    }));
+  }, []);
+
   const resetProject = useCallback(() => {
     setProject(createDefaultProject());
     setSelectedClipId(null);
@@ -207,6 +272,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateSettings,
       updateClip,
       reorderClips,
+      addSfxAsset,
+      removeSfxAsset,
+      addSfxPlacement,
+      updateSfxPlacement,
+      removeSfxPlacement,
       resetProject,
       setPlayOrder,
       setTransition,
@@ -223,6 +293,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateSettings,
       updateClip,
       reorderClips,
+      addSfxAsset,
+      removeSfxAsset,
+      addSfxPlacement,
+      updateSfxPlacement,
+      removeSfxPlacement,
       resetProject,
       setPlayOrder,
       setTransition,

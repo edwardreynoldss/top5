@@ -39,6 +39,13 @@ interface ExportBody {
   width?: number;
   height?: number;
   fps?: number;
+  sfx?: {
+    mediaId: string;
+    startAt: number;
+    trimStart: number;
+    trimEnd: number;
+    volume: number;
+  }[];
 }
 
 function resolveMedia(mediaId: string) {
@@ -443,33 +450,13 @@ export async function POST(req: NextRequest) {
     ]);
 
     const finalOut = exportPath(jobId);
-    if (body.musicMediaId) {
-      const music = resolveMedia(body.musicMediaId);
-      const vol = body.musicVolume ?? 0.35;
-      await runCommand("ffmpeg", [
-        "-y",
-        "-i",
-        concatOut,
-        "-stream_loop",
-        "-1",
-        "-i",
-        music,
-        "-filter_complex",
-        `[0:a]volume=1[a0];[1:a]volume=${vol}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]`,
-        "-map",
-        "0:v",
-        "-map",
-        "[aout]",
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-shortest",
-        "-movflags",
-        "+faststart",
-        finalOut,
-      ]);
-    } else {
+    const sfxList = (body.sfx || []).filter(
+      (s) => s.mediaId && s.trimEnd > s.trimStart && s.startAt >= 0
+    );
+    const hasMusic = Boolean(body.musicMediaId);
+    const needsMix = hasMusic || sfxList.length > 0;
+
+    if (!needsMix) {
       await runCommand("ffmpeg", [
         "-y",
         "-i",
@@ -480,6 +467,119 @@ export async function POST(req: NextRequest) {
         "+faststart",
         finalOut,
       ]);
+    } else {
+      const args: string[] = ["-y", "-i", concatOut];
+      let inputIdx = 1;
+      const filterParts: string[] = [];
+      const mixInputs: string[] = ["[a0]"];
+
+      filterParts.push(`[0:a]volume=1,aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a0]`);
+
+      if (hasMusic && body.musicMediaId) {
+        const music = resolveMedia(body.musicMediaId);
+        const vol = body.musicVolume ?? 0.35;
+        args.push("-stream_loop", "-1", "-i", music);
+        filterParts.push(
+          `[${inputIdx}:a]volume=${vol},aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[am]`
+        );
+        mixInputs.push("[am]");
+        inputIdx += 1;
+      }
+
+      for (const sfx of sfxList) {
+        const pathSfx = resolveMedia(sfx.mediaId);
+        const trimDur = Math.max(0.05, sfx.trimEnd - sfx.trimStart);
+        const delayMs = Math.max(0, Math.round(sfx.startAt * 1000));
+        const vol = Math.max(0, Math.min(3, sfx.volume ?? 1));
+        args.push("-i", pathSfx);
+        filterParts.push(
+          `[${inputIdx}:a]atrim=start=${sfx.trimStart}:duration=${trimDur},asetpts=PTS-STARTPTS,volume=${vol},aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=${delayMs}|${delayMs}[s${inputIdx}]`
+        );
+        mixInputs.push(`[s${inputIdx}]`);
+        inputIdx += 1;
+      }
+
+      const n = mixInputs.length;
+      filterParts.push(
+        `${mixInputs.join("")}amix=inputs=${n}:duration=first:dropout_transition=0:normalize=0[aout]`
+      );
+
+      args.push(
+        "-filter_complex",
+        filterParts.join(";"),
+        "-map",
+        "0:v",
+        "-map",
+        "[aout]",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-shortest",
+        "-movflags",
+        "+faststart",
+        finalOut
+      );
+
+      try {
+        await runCommand("ffmpeg", args);
+      } catch {
+        // If base has no audio, synthesize silence bed then mix
+        const silentArgs: string[] = [
+          "-y",
+          "-i",
+          concatOut,
+          "-f",
+          "lavfi",
+          "-i",
+          "anullsrc=r=44100:cl=stereo",
+        ];
+        let idx = 2;
+        const parts: string[] = [
+          `[1:a]atrim=0:3600,asetpts=PTS-STARTPTS,volume=0.001[a0]`,
+        ];
+        const mixes = ["[a0]"];
+        if (hasMusic && body.musicMediaId) {
+          silentArgs.push("-stream_loop", "-1", "-i", resolveMedia(body.musicMediaId));
+          parts.push(
+            `[${idx}:a]volume=${body.musicVolume ?? 0.35},aresample=44100[am]`
+          );
+          mixes.push("[am]");
+          idx += 1;
+        }
+        for (const sfx of sfxList) {
+          silentArgs.push("-i", resolveMedia(sfx.mediaId));
+          const trimDur = Math.max(0.05, sfx.trimEnd - sfx.trimStart);
+          const delayMs = Math.max(0, Math.round(sfx.startAt * 1000));
+          parts.push(
+            `[${idx}:a]atrim=start=${sfx.trimStart}:duration=${trimDur},asetpts=PTS-STARTPTS,volume=${sfx.volume ?? 1},adelay=${delayMs}|${delayMs}[s${idx}]`
+          );
+          mixes.push(`[s${idx}]`);
+          idx += 1;
+        }
+        parts.push(
+          `${mixes.join("")}amix=inputs=${mixes.length}:duration=first:dropout_transition=0:normalize=0[aout]`
+        );
+        silentArgs.push(
+          "-filter_complex",
+          parts.join(";"),
+          "-map",
+          "0:v",
+          "-map",
+          "[aout]",
+          "-c:v",
+          "copy",
+          "-c:a",
+          "aac",
+          "-shortest",
+          "-movflags",
+          "+faststart",
+          finalOut
+        );
+        await runCommand("ffmpeg", silentArgs);
+      }
     }
 
     return NextResponse.json({

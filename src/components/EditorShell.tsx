@@ -7,6 +7,7 @@ import { PreviewPhone } from "./PreviewPhone";
 import { ClipList } from "./ClipList";
 import { TitleEditor } from "./TitleEditor";
 import { SettingsPanel } from "./SettingsPanel";
+import { SfxPanel } from "./SfxPanel";
 
 function EditorInner() {
   const { project, selectedClipId } = useEditor();
@@ -27,6 +28,7 @@ function EditorInner() {
         <aside className="left-col">
           <TitleEditor />
           <SettingsPanel />
+          <SfxPanel />
         </aside>
         <section className="center-col">
           <PreviewPhone

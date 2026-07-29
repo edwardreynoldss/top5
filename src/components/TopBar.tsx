@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Play, Pause, RotateCcw } from "lucide-react";
 import { useEditor } from "@/lib/store";
-import { clipPlayDuration, getPlaybackOrder } from "@/lib/defaults";
+import { clipPlayDuration, getPlaybackOrder, resolveSfxStartAt } from "@/lib/defaults";
 
 export function TopBar({
   isPlaying,
@@ -26,6 +26,32 @@ export function TopBar({
   );
 
   const totalDuration = readyClips.reduce((sum, c) => sum + clipPlayDuration(c), 0);
+
+  // Build absolute SFX times for export
+  const sfxPayload = useMemo(() => {
+    const assets = project.sfxAssets || [];
+    const placements = project.sfxPlacements || [];
+    let t = 0;
+    const offsets = readyClips.map((c) => {
+      const duration = clipPlayDuration(c);
+      const row = { clipId: c.id, start: t, duration };
+      t += duration;
+      return row;
+    });
+    return placements
+      .map((p) => {
+        const asset = assets.find((a) => a.id === p.assetId);
+        if (!asset) return null;
+        return {
+          mediaId: asset.mediaId,
+          startAt: resolveSfxStartAt(p, offsets),
+          trimStart: p.trimStart,
+          trimEnd: p.trimEnd,
+          volume: p.volume,
+        };
+      })
+      .filter(Boolean);
+  }, [project.sfxAssets, project.sfxPlacements, readyClips]);
 
   useEffect(() => {
     void fetch("/api/health")
@@ -94,6 +120,7 @@ export function TopBar({
           width: settings.width,
           height: settings.height,
           fps: settings.fps,
+          sfx: sfxPayload,
         }),
       });
       const data = await res.json();
