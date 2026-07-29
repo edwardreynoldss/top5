@@ -84,6 +84,7 @@ export function createDefaultProject(): EditorProject {
         barOpacity: 0.72,
         showBar: true,
         barHeight: 150,
+        enabled: true,
         x: 50,
         y: 2.2,
         align: "center",

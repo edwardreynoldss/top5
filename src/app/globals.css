@@ -325,6 +325,10 @@ a {
 
 .center-col {
   align-items: center;
+  align-self: start;
+  position: sticky;
+  top: 76px;
+  z-index: 5;
 }
 
 .panel {
@@ -503,14 +507,54 @@ a {
 }
 
 .sfx-asset-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.45rem;
   align-items: center;
   padding: 0.45rem 0.55rem;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-elevated);
+}
+
+.sfx-asset-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.sfx-timeline {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.sfx-timeline-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.sfx-timeline-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.sfx-timeline-labels {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.title-enable {
+  margin: 0.65rem 0 0.35rem;
 }
 
 .sfx-asset-meta p {
@@ -1249,6 +1293,7 @@ a {
 
   .center-col {
     order: 1;
+    position: static;
   }
 
   .right-col {

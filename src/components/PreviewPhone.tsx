@@ -185,8 +185,13 @@ export function PreviewPhone({
   const fitFill = settings.aspectMode === "crop-fill";
   const crop = activeClip ? getClipCrop(activeClip) : null;
   const titleOverlap = settings.titleOverlap !== false;
-  const previewBarH = title.showBar ? barHeightPx : titleFontPx * title.lines.length + 16;
-  const videoTop = titleOverlap ? 0 : previewBarH;
+  const titleEnabled = title.enabled !== false;
+  const previewBarH = !titleEnabled
+    ? 0
+    : title.showBar
+      ? barHeightPx
+      : titleFontPx * title.lines.length + 16;
+  const videoTop = titleOverlap || !titleEnabled ? 0 : previewBarH;
 
   return (
     <div className="preview-shell">
@@ -233,7 +238,7 @@ export function PreviewPhone({
             </div>
           )}
 
-          {title.showBar && (
+          {titleEnabled && title.showBar && (
             <div
               className="title-bar-bg"
               style={{
@@ -243,6 +248,7 @@ export function PreviewPhone({
             />
           )}
 
+          {titleEnabled && (
           <div
             className="title-overlay"
             style={{
@@ -271,6 +277,7 @@ export function PreviewPhone({
               </div>
             ))}
           </div>
+          )}
 
           {settings.showRankList && (
             <div

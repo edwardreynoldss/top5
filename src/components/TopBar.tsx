@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Play, Pause, RotateCcw } from "lucide-react";
-import { useEditor } from "@/lib/store";
 import { clipPlayDuration, getPlaybackOrder, resolveSfxStartAt } from "@/lib/defaults";
+import { ensureSfxOnServer } from "@/lib/sfxLibrary";
+import { useEditor } from "@/lib/store";
 
 export function TopBar({
   isPlaying,
@@ -26,32 +27,6 @@ export function TopBar({
   );
 
   const totalDuration = readyClips.reduce((sum, c) => sum + clipPlayDuration(c), 0);
-
-  // Build absolute SFX times for export
-  const sfxPayload = useMemo(() => {
-    const assets = project.sfxAssets || [];
-    const placements = project.sfxPlacements || [];
-    let t = 0;
-    const offsets = readyClips.map((c) => {
-      const duration = clipPlayDuration(c);
-      const row = { clipId: c.id, start: t, duration };
-      t += duration;
-      return row;
-    });
-    return placements
-      .map((p) => {
-        const asset = assets.find((a) => a.id === p.assetId);
-        if (!asset) return null;
-        return {
-          mediaId: asset.mediaId,
-          startAt: resolveSfxStartAt(p, offsets),
-          trimStart: p.trimStart,
-          trimEnd: p.trimEnd,
-          volume: p.volume,
-        };
-      })
-      .filter(Boolean);
-  }, [project.sfxAssets, project.sfxPlacements, readyClips]);
 
   useEffect(() => {
     void fetch("/api/health")
@@ -82,9 +57,42 @@ export function TopBar({
     setExporting(true);
     setError(null);
     setDownloadUrl(null);
-    setProgress("Rendering vertical segments…");
+    setProgress("Preparing sound effects…");
     try {
+      // Re-upload any SFX that vanished from tmp/ but still live in IndexedDB
+      const restoredAssets = [];
+      for (const asset of project.sfxAssets || []) {
+        restoredAssets.push(await ensureSfxOnServer(asset));
+      }
+      const assetById = new Map(restoredAssets.map((a) => [a.id, a]));
+
+      let t = 0;
+      const offsets = readyClips.map((c) => {
+        const duration = clipPlayDuration(c);
+        const row = { clipId: c.id, start: t, duration };
+        t += duration;
+        return row;
+      });
+      const sfxForExport = (project.sfxPlacements || [])
+        .map((p) => {
+          const asset = assetById.get(p.assetId);
+          if (!asset) return null;
+          return {
+            mediaId: asset.mediaId,
+            startAt: resolveSfxStartAt(p, offsets),
+            trimStart: p.trimStart,
+            trimEnd: p.trimEnd,
+            volume: p.volume,
+          };
+        })
+        .filter(Boolean);
+
+      setProgress("Rendering vertical segments…");
       const { settings } = project;
+      const titlePayload =
+        settings.title.enabled === false
+          ? { ...settings.title, showBar: false, lines: [], enabled: false }
+          : settings.title;
       const res = await fetch("/api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -101,14 +109,14 @@ export function TopBar({
             ).map((s) => ({ start: s.start, end: s.end })),
             crop: c.crop || { zoom: 1, panX: 50, panY: 50 },
           })),
-          title: settings.title,
+          title: titlePayload,
           ranksLayout: settings.ranksLayout,
           playOrder: settings.playOrder,
           transition: settings.transition,
           transitionDuration: settings.transitionDuration,
           aspectMode: settings.aspectMode,
           blurAmount: settings.blurAmount,
-          titleOverlap: settings.titleOverlap,
+          titleOverlap: settings.title.enabled === false ? true : settings.titleOverlap,
           showRankList: settings.showRankList,
           showActiveLabel: settings.showActiveLabel,
           rankColors: Object.fromEntries(
@@ -120,7 +128,7 @@ export function TopBar({
           width: settings.width,
           height: settings.height,
           fps: settings.fps,
-          sfx: sfxPayload,
+          sfx: sfxForExport,
         }),
       });
       const data = await res.json();

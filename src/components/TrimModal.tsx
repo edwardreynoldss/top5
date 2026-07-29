@@ -52,7 +52,14 @@ export function TrimModal({
   const [ready, setReady] = useState(false);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const segmentsRef = useRef(segments);
+  const activeIdxRef = useRef(activeIdx);
+  const previewAllRef = useRef(previewAll);
+  const playingRef = useRef(playing);
+  const seekingRef = useRef(false);
   segmentsRef.current = segments;
+  activeIdxRef.current = activeIdx;
+  previewAllRef.current = previewAll;
+  playingRef.current = playing;
 
   const active = segments[activeIdx] || segments[0];
   const totalSelected = useMemo(() => segmentsDuration(segments), [segments]);
@@ -82,6 +89,9 @@ export function TrimModal({
     setPortrait(false);
     setLoadError(null);
     setReady(false);
+    playingRef.current = false;
+    previewAllRef.current = false;
+    activeIdxRef.current = 0;
   }, [open, src, duration, initialSegments, initialCrop]);
 
   // Lock page scroll while modal is open; backdrop/modal handle scrolling.
@@ -156,76 +166,152 @@ export function TrimModal({
     };
   }, [open, src, duration]);
 
+  // Stable playback loop — refs avoid stale closures when trimming while playing
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !playing) return;
+
+    const onSeeking = () => {
+      seekingRef.current = true;
+    };
+    const onSeeked = () => {
+      seekingRef.current = false;
+    };
+
     const onTime = () => {
-      setCurrent(v.currentTime);
-      const seg = segments[activeIdx];
+      if (seekingRef.current) return;
+      const t = v.currentTime;
+      setCurrent(t);
+      if (!playingRef.current) return;
+
+      const segs = segmentsRef.current;
+      const idx = activeIdxRef.current;
+      const seg = segs[idx];
       if (!seg) return;
-      if (v.currentTime >= seg.end - 0.05) {
-        if (previewAll && activeIdx < segments.length - 1) {
-          const next = activeIdx + 1;
+
+      // Ignore end checks until we're actually inside the active range
+      // (prevents pause right after seeking to the next merged part)
+      if (t < seg.start - 0.02) return;
+
+      if (t >= seg.end - 0.04) {
+        if (previewAllRef.current && idx < segs.length - 1) {
+          const next = idx + 1;
+          const nextSeg = segs[next];
+          activeIdxRef.current = next;
           setActiveIdx(next);
-          v.currentTime = segments[next].start;
+          seekingRef.current = true;
+          try {
+            v.currentTime = nextSeg.start;
+          } catch {
+            seekingRef.current = false;
+          }
           return;
         }
         v.pause();
+        playingRef.current = false;
+        previewAllRef.current = false;
         setPlaying(false);
         setPreviewAll(false);
-        v.currentTime = seg.start;
+        try {
+          v.currentTime = seg.start;
+        } catch {
+          // ignore
+        }
       }
     };
+
     v.addEventListener("timeupdate", onTime);
-    return () => v.removeEventListener("timeupdate", onTime);
-  }, [playing, previewAll, activeIdx, segments]);
+    v.addEventListener("seeking", onSeeking);
+    v.addEventListener("seeked", onSeeked);
+    return () => {
+      v.removeEventListener("timeupdate", onTime);
+      v.removeEventListener("seeking", onSeeking);
+      v.removeEventListener("seeked", onSeeked);
+    };
+  }, [playing]);
 
   if (!open) return null;
 
   function updateActive(patch: Partial<TrimSegment>) {
     setSegments((prev) => {
-      const next = prev.map((s, i) => (i === activeIdx ? { ...s, ...patch } : s));
+      const next = prev.map((s, i) =>
+        i === activeIdxRef.current ? { ...s, ...patch } : s
+      );
       const total = segmentsDuration(next);
       if (total > MAX_CLIP_DURATION) return prev;
+      segmentsRef.current = next;
       return next;
     });
   }
 
-  const clampStart = (v: number) => {
+  const clampStart = (value: number) => {
     if (!active) return;
-    const next = Math.max(0, Math.min(v, active.end - 0.2));
+    const next = Math.max(0, Math.min(value, active.end - 0.2));
     updateActive({ start: next });
-    if (videoRef.current) videoRef.current.currentTime = next;
+    const v = videoRef.current;
+    if (!v) return;
+    // Scrub the frame to the new in-point without stopping playback intent
+    seekingRef.current = true;
+    try {
+      v.currentTime = next;
+    } catch {
+      seekingRef.current = false;
+    }
   };
 
-  const clampEnd = (v: number) => {
+  const clampEnd = (value: number) => {
     if (!active) return;
     const maxEnd = Math.min(
-      dur || v,
+      dur || value,
       active.start + (MAX_CLIP_DURATION - (totalSelected - (active.end - active.start)))
     );
-    const next = Math.max(active.start + 0.2, Math.min(v, maxEnd));
+    const next = Math.max(active.start + 0.2, Math.min(value, maxEnd));
     updateActive({ end: next });
+    // Don't seek/pause when adjusting out-point — let playback continue
   };
 
   const playSegment = async (all: boolean) => {
     const v = videoRef.current;
     if (!v || !active) return;
-    if (playing) {
+
+    // Toggle pause only when the same mode is already playing
+    if (playingRef.current && previewAllRef.current === all) {
       v.pause();
+      playingRef.current = false;
+      previewAllRef.current = false;
       setPlaying(false);
       setPreviewAll(false);
       return;
     }
+
+    // Switching modes or starting fresh
+    if (playingRef.current) {
+      v.pause();
+    }
+
+    const startIdx = all ? 0 : activeIdxRef.current;
+    const segs = segmentsRef.current;
+    const startAt = segs[startIdx]?.start ?? 0;
+
+    activeIdxRef.current = startIdx;
+    previewAllRef.current = all;
+    setActiveIdx(startIdx);
     setPreviewAll(all);
-    if (all) setActiveIdx(0);
-    const startAt = all ? segments[0].start : active.start;
+
     try {
+      seekingRef.current = true;
       v.currentTime = startAt;
       await v.play();
+      playingRef.current = true;
       setPlaying(true);
       setLoadError(null);
+      // Clear seek guard shortly after play starts
+      window.setTimeout(() => {
+        seekingRef.current = false;
+      }, 80);
     } catch {
+      playingRef.current = false;
+      setPlaying(false);
       setLoadError("Browser blocked playback — click Preview again.");
     }
   };
@@ -238,14 +324,27 @@ export function TrimModal({
     const end = Math.min(dur || start + 3, start + Math.min(3, room));
     if (end - start < 0.2) return;
     const seg = createSegment(start, end);
-    setSegments((p) => [...p, seg]);
+    setSegments((p) => {
+      const next = [...p, seg];
+      segmentsRef.current = next;
+      return next;
+    });
     setActiveIdx(segments.length);
+    activeIdxRef.current = segments.length;
   };
 
   const removeSegment = (idx: number) => {
     if (segments.length <= 1) return;
-    setSegments((p) => p.filter((_, i) => i !== idx));
-    setActiveIdx((i) => Math.max(0, Math.min(i, segments.length - 2)));
+    setSegments((p) => {
+      const next = p.filter((_, i) => i !== idx);
+      segmentsRef.current = next;
+      return next;
+    });
+    setActiveIdx((i) => {
+      const next = Math.max(0, Math.min(i, segments.length - 2));
+      activeIdxRef.current = next;
+      return next;
+    });
   };
 
   const onPointerDown = (e: React.PointerEvent) => {

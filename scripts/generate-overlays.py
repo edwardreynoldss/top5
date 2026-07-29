@@ -92,6 +92,10 @@ def make_title_overlay(cfg: dict, out: Path) -> None:
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
+    if cfg.get("enabled") is False:
+        img.save(out)
+        return
+
     show_bar = bool(cfg.get("showBar", True))
     opacity = float(cfg.get("barOpacity", 0.72))
     bar_h = int(cfg.get("barHeight", 150))

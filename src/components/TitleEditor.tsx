@@ -51,11 +51,25 @@ export function TitleEditor({
         <p className="muted">Edit one section at a time — everything autosaves</p>
       </div>
 
+      <label className="field check title-enable">
+        <input
+          type="checkbox"
+          checked={title.enabled !== false}
+          onChange={(e) => updateTitle({ enabled: e.target.checked })}
+        />
+        <span>Show title</span>
+      </label>
+      {title.enabled === false && (
+        <p className="muted" style={{ marginTop: "-0.35rem" }}>
+          Title text and bar are hidden in preview and export.
+        </p>
+      )}
+
       <CollapsibleSection
         title="Words & colors"
         subtitle="Line 1–2 text and highlights"
         badge={`${wordCount} words`}
-        open={!!sectionOpen.words}
+        open={!!sectionOpen.words && title.enabled !== false}
         onToggle={() => toggle("words")}
       >
         <div className="title-lines">

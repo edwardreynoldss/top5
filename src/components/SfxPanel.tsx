@@ -18,6 +18,12 @@ import {
   resolveSfxStartAt,
   getPlaybackOrder,
 } from "@/lib/defaults";
+import {
+  cacheSfxFile,
+  forgetSfxLocal,
+  loadSfxLibrary,
+} from "@/lib/sfxLibrary";
+import type { SfxAsset } from "@/lib/types";
 
 export function SfxPanel() {
   const {
@@ -31,10 +37,17 @@ export function SfxPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [libraryTick, setLibraryTick] = useState(0);
   const previewRef = useRef<HTMLAudioElement | null>(null);
 
   const assets = project.sfxAssets || [];
   const placements = project.sfxPlacements || [];
+  const library = useMemo(() => {
+    void libraryTick;
+    return loadSfxLibrary();
+    // refresh when assets change or libraryTick bumps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [libraryTick, assets.length]);
   const readyClips = useMemo(
     () => getPlaybackOrder(project.clips, project.settings.playOrder),
     [project.clips, project.settings.playOrder]
@@ -57,21 +70,24 @@ export function SfxPanel() {
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
+      await cacheSfxFile(data.mediaId, file, data.fileName || file.name);
       const id = addSfxAsset({
         mediaId: data.mediaId,
         mediaUrl: data.mediaUrl,
         fileName: data.fileName || file.name,
         duration: data.duration || 1,
       });
+      // Place on the whole timeline at 0s — can move anywhere
       addSfxPlacement({
         assetId: id,
         startAt: 0,
-        clipId: readyClips[0]?.id || null,
+        clipId: null,
         offsetInClip: 0,
         trimStart: 0,
         trimEnd: Math.min(1.5, data.duration || 1.5),
         volume: 1,
       });
+      setLibraryTick((n) => n + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -79,19 +95,25 @@ export function SfxPanel() {
     }
   }
 
+  function addFromLibrary(asset: SfxAsset) {
+    addSfxAsset(asset);
+    addSfxPlacement({
+      assetId: asset.id,
+      startAt: 0,
+      clipId: null,
+      offsetInClip: 0,
+      trimStart: 0,
+      trimEnd: Math.min(1.5, asset.duration || 1.5),
+      volume: 1,
+    });
+  }
+
   function randomize(id: string) {
     if (totalDur <= 0.2) return;
-    if (readyClips.length === 0) {
-      updateSfxPlacement(id, { startAt: Math.random() * Math.max(0.1, totalDur), clipId: null });
-      return;
-    }
-    const clip = readyClips[Math.floor(Math.random() * readyClips.length)];
-    const off = offsets.find((o) => o.clipId === clip.id);
-    const maxOff = Math.max(0, (off?.duration || 1) - 0.15);
     updateSfxPlacement(id, {
-      clipId: clip.id,
-      offsetInClip: Math.random() * maxOff,
-      startAt: 0,
+      startAt: Math.random() * Math.max(0.1, totalDur - 0.1),
+      clipId: null,
+      offsetInClip: 0,
     });
   }
 
@@ -123,11 +145,15 @@ export function SfxPanel() {
     }
   }
 
+  const unusedLibrary = library.filter((a) => !assets.some((x) => x.id === a.id));
+
   return (
     <section className="panel tab-panel">
       <div className="panel-header compact">
         <h2>Sound effects</h2>
-        <p className="muted">Upload, trim, place, or randomize hits</p>
+        <p className="muted">
+          Samples save in this browser. Place hits anywhere on the timeline.
+        </p>
       </div>
 
       <div className="sfx-actions">
@@ -155,7 +181,7 @@ export function SfxPanel() {
           className="btn ghost small"
           type="button"
           disabled={assets.length === 0}
-          onClick={() => addSfxPlacement()}
+          onClick={() => addSfxPlacement({ clipId: null, startAt: 0 })}
         >
           <Plus size={14} /> Add hit
         </button>
@@ -164,7 +190,7 @@ export function SfxPanel() {
           type="button"
           disabled={placements.length === 0 || totalDur <= 0}
           onClick={randomizeAll}
-          title="Scatter all hits to random moments"
+          title="Scatter all hits to random times on the full timeline"
         >
           <Dices size={14} /> Randomize all
         </button>
@@ -172,10 +198,56 @@ export function SfxPanel() {
 
       {error && <p className="error-text">{error}</p>}
 
+      {totalDur > 0 && placements.length > 0 && (
+        <div className="sfx-timeline" aria-hidden>
+          <div className="sfx-timeline-track">
+            {placements.map((p, idx) => {
+              const abs = resolveSfxStartAt(p, offsets);
+              const left = Math.min(100, Math.max(0, (abs / totalDur) * 100));
+              return (
+                <span
+                  key={p.id}
+                  className="sfx-timeline-mark"
+                  style={{ left: `${left}%` }}
+                  title={`Hit ${idx + 1} @ ${abs.toFixed(2)}s`}
+                />
+              );
+            })}
+          </div>
+          <div className="sfx-timeline-labels">
+            <span>0:00</span>
+            <span>{formatTime(totalDur)}</span>
+          </div>
+        </div>
+      )}
+
       {assets.length > 0 && (
         <div className="sfx-library">
-          <p className="field-label">Library</p>
+          <p className="field-label">In this project</p>
           {assets.map((a) => (
+            <div key={a.id} className="sfx-asset-row">
+              <Volume2 size={14} className="muted-icon" />
+              <div className="sfx-asset-meta">
+                <p className="truncate">{a.fileName}</p>
+                <p className="muted">{formatTime(a.duration)} · saved locally</p>
+              </div>
+              <button
+                className="icon-btn danger"
+                type="button"
+                title="Remove from project (keeps local library)"
+                onClick={() => removeSfxAsset(a.id)}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {unusedLibrary.length > 0 && (
+        <div className="sfx-library">
+          <p className="field-label">Saved library (reuse)</p>
+          {unusedLibrary.map((a) => (
             <div key={a.id} className="sfx-asset-row">
               <Volume2 size={14} className="muted-icon" />
               <div className="sfx-asset-meta">
@@ -183,10 +255,21 @@ export function SfxPanel() {
                 <p className="muted">{formatTime(a.duration)}</p>
               </div>
               <button
+                className="btn ghost small"
+                type="button"
+                onClick={() => addFromLibrary(a)}
+              >
+                Use
+              </button>
+              <button
                 className="icon-btn danger"
                 type="button"
-                title="Remove sample"
-                onClick={() => removeSfxAsset(a.id)}
+                title="Delete from local library"
+                onClick={() => {
+                  void forgetSfxLocal(a.id, a.mediaId).then(() =>
+                    setLibraryTick((n) => n + 1)
+                  );
+                }}
               >
                 <Trash2 size={14} />
               </button>
@@ -200,7 +283,10 @@ export function SfxPanel() {
           Hits on timeline {totalDur > 0 ? `(video ${totalDur.toFixed(1)}s)` : ""}
         </p>
         {placements.length === 0 && (
-          <p className="muted">Upload a sound effect to place vine booms / GET OUT hits.</p>
+          <p className="muted">
+            Upload a sound effect, then set Whole video timeline + start time to place it
+            anywhere.
+          </p>
         )}
         {placements.map((p, idx) => {
           const asset = assets.find((a) => a.id === p.assetId);
@@ -223,7 +309,7 @@ export function SfxPanel() {
                   <button
                     className="icon-btn"
                     type="button"
-                    title="Randomize position"
+                    title="Randomize position on full timeline"
                     onClick={() => randomize(p.id)}
                   >
                     <Dices size={14} />
@@ -273,7 +359,7 @@ export function SfxPanel() {
                     }
                   }}
                 >
-                  <option value="__timeline__">Whole video timeline</option>
+                  <option value="__timeline__">Whole video timeline (anywhere)</option>
                   {readyClips.map((c) => (
                     <option key={c.id} value={c.id}>
                       Rank #{c.rank} {c.label ? `· ${c.label}` : ""}
@@ -300,19 +386,37 @@ export function SfxPanel() {
                   />
                 </label>
               ) : (
-                <label className="field">
-                  <span>Start at ({p.startAt.toFixed(2)}s)</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={Math.max(0.1, totalDur || 30)}
-                    step={0.05}
-                    value={p.startAt}
-                    onChange={(e) =>
-                      updateSfxPlacement(p.id, { startAt: parseFloat(e.target.value) })
-                    }
-                  />
-                </label>
+                <>
+                  <label className="field">
+                    <span>Start at ({p.startAt.toFixed(2)}s)</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={Math.max(0.1, totalDur || 30)}
+                      step={0.05}
+                      value={p.startAt}
+                      onChange={(e) =>
+                        updateSfxPlacement(p.id, { startAt: parseFloat(e.target.value) })
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Exact time (seconds)</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={Math.max(0.1, totalDur || 600)}
+                      step={0.05}
+                      value={Number(p.startAt.toFixed(2))}
+                      onChange={(e) =>
+                        updateSfxPlacement(p.id, {
+                          startAt: Math.max(0, parseFloat(e.target.value) || 0),
+                        })
+                      }
+                    />
+                  </label>
+                </>
               )}
 
               <div className="field-grid tight">
@@ -357,7 +461,8 @@ export function SfxPanel() {
                 </label>
               </div>
               <p className="muted">
-                Uses {(Math.max(0, p.trimEnd - p.trimStart)).toFixed(2)}s of sample
+                Uses {(Math.max(0, p.trimEnd - p.trimStart)).toFixed(2)}s of sample · plays at{" "}
+                {abs.toFixed(2)}s in the final video
               </p>
             </div>
           );

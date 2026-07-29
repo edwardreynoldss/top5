@@ -22,7 +22,11 @@ interface ExportClip {
 
 interface ExportBody {
   clips: ExportClip[];
-  title: Record<string, unknown> & { barHeight?: number; showBar?: boolean };
+  title: Record<string, unknown> & {
+    barHeight?: number;
+    showBar?: boolean;
+    enabled?: boolean;
+  };
   ranksLayout?: Record<string, unknown>;
   playOrder: PlayOrder;
   transition: TransitionType;
@@ -358,8 +362,10 @@ export async function POST(req: NextRequest) {
       ]);
 
       const seg = path.join(jobDir, `seg-${i}.mp4`);
-      const barH =
-        typeof body.title?.barHeight === "number"
+      const titleEnabled = body.title?.enabled !== false;
+      const barH = !titleEnabled
+        ? 0
+        : typeof body.title?.barHeight === "number"
           ? body.title.barHeight
           : body.title?.showBar === false
             ? 0
@@ -378,7 +384,7 @@ export async function POST(req: NextRequest) {
         fps,
         clipVolume: body.clipVolume ?? 1,
         crop: clip.crop || { zoom: 1, panX: 50, panY: 50 },
-        titleOverlap: body.titleOverlap !== false,
+        titleOverlap: !titleEnabled ? true : body.titleOverlap !== false,
         titleBarHeight: barH,
       });
 

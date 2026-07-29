@@ -65,6 +65,8 @@ export interface TitleConfig {
   barOpacity: number;
   showBar: boolean;
   barHeight: number;
+  /** When false, hide title text + bar completely (preview + export). */
+  enabled: boolean;
   x: number;
   y: number;
   align: TextAlign;

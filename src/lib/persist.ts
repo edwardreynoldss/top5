@@ -65,7 +65,11 @@ export function loadProject(): EditorProject {
       ...fallback,
       ...parsed,
       clips,
-      sfxAssets: parsed.sfxAssets || [],
+      sfxAssets: (parsed.sfxAssets || []).map((a) => ({
+        ...a,
+        // Never persist blob: URLs — restore from IndexedDB / server on hydrate
+        mediaUrl: a.mediaId ? `/api/media/${a.mediaId}` : a.mediaUrl,
+      })),
       sfxPlacements: parsed.sfxPlacements || [],
       settings: {
         ...fallback.settings,
@@ -73,6 +77,7 @@ export function loadProject(): EditorProject {
         title: {
           ...fallback.settings.title,
           ...(parsed.settings?.title || {}),
+          enabled: parsed.settings?.title?.enabled !== false,
           lines:
             parsed.settings?.title?.lines?.length
               ? parsed.settings.title.lines
@@ -103,6 +108,10 @@ export function saveProject(project: EditorProject) {
         ...c,
         status: c.mediaId ? "ready" : "empty",
         error: undefined,
+      })),
+      sfxAssets: (project.sfxAssets || []).map((a) => ({
+        ...a,
+        mediaUrl: a.mediaId ? `/api/media/${a.mediaId}` : a.mediaUrl,
       })),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));

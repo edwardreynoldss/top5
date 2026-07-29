@@ -12,6 +12,7 @@ import {
 } from "react";
 import { createDefaultProject, createWord } from "./defaults";
 import { clearSavedProject, loadProject, saveProject } from "./persist";
+import { hydrateSfxAssets, loadSfxLibrary, upsertSfxLibraryAsset } from "./sfxLibrary";
 import type {
   EditorProject,
   PlayOrder,
@@ -66,8 +67,25 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    setProject(loadProject());
-    setHydrated(true);
+    let cancelled = false;
+    async function boot() {
+      const loaded = loadProject();
+      const lib = loadSfxLibrary();
+      // Merge durable library samples into the project so they remain reusable
+      const byId = new Map((loaded.sfxAssets || []).map((a) => [a.id, a]));
+      for (const a of lib) {
+        if (!byId.has(a.id)) byId.set(a.id, a);
+      }
+      const merged = { ...loaded, sfxAssets: Array.from(byId.values()) };
+      const hydratedAssets = await hydrateSfxAssets(merged.sfxAssets);
+      if (cancelled) return;
+      setProject({ ...merged, sfxAssets: hydratedAssets });
+      setHydrated(true);
+    }
+    void boot();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -211,10 +229,17 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const addSfxAsset = useCallback((asset: Omit<SfxAsset, "id"> & { id?: string }) => {
     const id = asset.id || uuidv4();
-    setProject((prev) => ({
-      ...prev,
-      sfxAssets: [...(prev.sfxAssets || []), { ...asset, id }],
-    }));
+    const next = { ...asset, id };
+    upsertSfxLibraryAsset(next);
+    setProject((prev) => {
+      const existing = (prev.sfxAssets || []).filter(
+        (a) => a.id !== id && a.mediaId !== asset.mediaId
+      );
+      return {
+        ...prev,
+        sfxAssets: [...existing, next],
+      };
+    });
     return id;
   }, []);
 
@@ -224,6 +249,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       sfxAssets: (prev.sfxAssets || []).filter((a) => a.id !== id),
       sfxPlacements: (prev.sfxPlacements || []).filter((p) => p.assetId !== id),
     }));
+    // Keep file in the durable library so it can be re-added; library removal is explicit in UI
   }, []);
 
   const addSfxPlacement = useCallback((placement?: Partial<SfxPlacement>) => {
