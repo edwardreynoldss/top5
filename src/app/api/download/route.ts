@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "yt-dlp is not installed. Install it (macOS: brew install yt-dlp) or upload the video file instead.",
+            "yt-dlp is not installed. On Windows: winget install yt-dlp.yt-dlp (or pip install yt-dlp). Or upload the video file instead.",
           tools,
         },
         { status: 500 }
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "ffmpeg is not installed. Install it (macOS: brew install ffmpeg) then retry, or upload after converting to mp4.",
+            "ffmpeg is not installed. On Windows: winget install Gyan.FFmpeg — then reopen the terminal and restart the app.",
           tools,
         },
         { status: 500 }
