@@ -954,8 +954,12 @@ a {
   inset: 0;
   z-index: 80;
   background: rgba(5, 7, 12, 0.72);
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 1rem;
   backdrop-filter: blur(6px);
   animation: fadeIn 0.18s ease;
@@ -969,10 +973,46 @@ a {
   padding: 1rem;
   box-shadow: var(--shadow);
   animation: riseIn 0.22s ease;
+  margin: 0 auto 1.5rem;
 }
 
 .modal-card.wide {
   width: min(720px, 100%);
+}
+
+.modal-card.trim-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  overflow: hidden;
+}
+
+.modal-card.trim-modal .modal-header {
+  padding: 0.9rem 1rem 0.65rem;
+  margin-bottom: 0;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.85rem 1rem 1rem;
+}
+
+.modal-actions.sticky-actions {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-wrap: wrap;
+  z-index: 2;
 }
 
 .modal-header {
@@ -997,21 +1037,23 @@ a {
 
 .trim-video-wrap.portrait {
   aspect-ratio: 9 / 16;
-  max-height: min(52vh, 520px);
+  max-height: min(36vh, 360px);
   width: auto;
   margin: 0 auto;
-  max-width: 280px;
+  max-width: 220px;
 }
 
 .trim-video-wrap.landscape {
   aspect-ratio: 16 / 9;
   width: 100%;
+  max-height: min(32vh, 280px);
 }
 
 .crop-stage {
   touch-action: none;
   cursor: grab;
   user-select: none;
+  flex-shrink: 0;
 }
 
 .crop-stage:active {

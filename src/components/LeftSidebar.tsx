@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { TitleEditor } from "./TitleEditor";
 import { SettingsPanel } from "./SettingsPanel";
 import { SfxPanel } from "./SfxPanel";
-import { loadLeftUi, saveLeftUi, type LeftUiState } from "@/lib/persist";
+import { defaultLeftUi, loadLeftUi, saveLeftUi, type LeftUiState } from "@/lib/persist";
 import { useEditor } from "@/lib/store";
 
 const TABS: { id: LeftUiState["activeTab"]; label: string; hint: string }[] = [
@@ -15,9 +15,11 @@ const TABS: { id: LeftUiState["activeTab"]; label: string; hint: string }[] = [
 
 export function LeftSidebar() {
   const { saveStatus } = useEditor();
-  const [ui, setUi] = useState<LeftUiState>(() =>
-    typeof window === "undefined" ? { activeTab: "title", titleOpen: { words: true, style: false, ranks: false } } : loadLeftUi()
-  );
+  const [ui, setUi] = useState<LeftUiState>(defaultLeftUi);
+
+  useEffect(() => {
+    setUi(loadLeftUi());
+  }, []);
 
   useEffect(() => {
     saveLeftUi(ui);

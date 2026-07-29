@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -184,6 +184,27 @@ export function ClipCard({ clip }: { clip: RankClip }) {
 
   const segs = getClipSegments(clip);
 
+  const trimSrc = pendingSrc || "";
+  const trimDuration = pendingMeta?.duration || clip.duration || 0;
+  const trimSegments = useMemo(() => {
+    if (pendingMeta) {
+      return [
+        createSegment(
+          0,
+          Math.min(DEFAULT_CLIP_DURATION, pendingMeta.duration || DEFAULT_CLIP_DURATION)
+        ),
+      ];
+    }
+    return getClipSegments(clip);
+    // Only rebuild when the trim session source/duration or stored clip segments change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingMeta?.mediaId, pendingMeta?.duration, clip.id, clip.segments, clip.trimStart, clip.trimEnd]);
+  const trimCrop = useMemo(() => {
+    if (pendingMeta) return defaultCrop();
+    return getClipCrop(clip);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingMeta?.mediaId, clip.id, clip.crop]);
+
   return (
     <>
       <div
@@ -330,20 +351,11 @@ export function ClipCard({ clip }: { clip: RankClip }) {
 
       <TrimModal
         open={trimOpen && !!pendingSrc}
-        src={pendingSrc || ""}
+        src={trimSrc}
         fileName={pendingMeta?.fileName || clip.fileName}
-        initialSegments={
-          pendingMeta
-            ? [
-                createSegment(
-                  0,
-                  Math.min(DEFAULT_CLIP_DURATION, pendingMeta.duration || DEFAULT_CLIP_DURATION)
-                ),
-              ]
-            : getClipSegments(clip)
-        }
-        initialCrop={pendingMeta ? defaultCrop() : getClipCrop(clip)}
-        duration={pendingMeta?.duration || clip.duration || 0}
+        initialSegments={trimSegments}
+        initialCrop={trimCrop}
+        duration={trimDuration}
         onClose={() => {
           setTrimOpen(false);
           setPendingSrc(null);
