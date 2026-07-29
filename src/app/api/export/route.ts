@@ -17,17 +17,19 @@ interface ExportClip {
   trimStart: number;
   trimEnd: number;
   segments?: { start: number; end: number }[];
+  crop?: { zoom: number; panX: number; panY: number };
 }
 
 interface ExportBody {
   clips: ExportClip[];
-  title: Record<string, unknown>;
+  title: Record<string, unknown> & { barHeight?: number; showBar?: boolean };
   ranksLayout?: Record<string, unknown>;
   playOrder: PlayOrder;
   transition: TransitionType;
   transitionDuration: number;
   aspectMode: AspectMode;
   blurAmount: number;
+  titleOverlap?: boolean;
   showRankList: boolean;
   showActiveLabel: boolean;
   rankColors: Record<string, string>;
@@ -118,6 +120,9 @@ async function renderClipSegment(opts: {
   ranksOverlay: string | null;
   fps: number;
   clipVolume: number;
+  crop?: { zoom: number; panX: number; panY: number };
+  titleOverlap?: boolean;
+  titleBarHeight?: number;
 }) {
   const {
     input,
@@ -132,23 +137,45 @@ async function renderClipSegment(opts: {
     ranksOverlay,
     fps,
     clipVolume,
+    crop,
+    titleOverlap = true,
+    titleBarHeight = 150,
   } = opts;
 
   const blur = Math.max(2, Math.min(64, Math.round(blurAmount / 2)));
+  const zoom = Math.max(1, Math.min(3, crop?.zoom ?? 1));
+  const panX = Math.max(0, Math.min(100, crop?.panX ?? 50)) / 100;
+  const panY = Math.max(0, Math.min(100, crop?.panY ?? 50)) / 100;
+  const topPad = titleOverlap ? 0 : Math.max(0, Math.round(titleBarHeight));
+  const contentH = Math.max(16, height - topPad);
 
-  // Input is already seeked via -ss, so filters start at 0
+  // Cover content area, apply zoom, then crop with pan offsets
+  const coverScale = `scale=${width}:${contentH}:force_original_aspect_ratio=increase`;
+  const zoomScale =
+    zoom > 1.001
+      ? `,scale=iw*${zoom}:ih*${zoom}`
+      : "";
+  const cropWindow = `crop=${width}:${contentH}:(iw-${width})*${panX}:(ih-${contentH})*${panY},setsar=1`;
+  const padTop =
+    topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
+
+  const framed = `[0:v]fps=${fps},${coverScale}${zoomScale},${cropWindow}${padTop}`;
+
   const videoFilter =
     aspectMode === "crop-fill"
       ? [
-          `[0:v]fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1[base]`,
+          `${framed}[base]`,
           ranksOverlay
             ? `[base][2:v]overlay=0:0:shortest=1[withranks];[withranks][1:v]overlay=0:0:shortest=1[vout]`
             : `[base][1:v]overlay=0:0:shortest=1[vout]`,
         ].join(";")
       : [
+          // Blur bg still fills full frame; FG uses same crop framing
           `[0:v]fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},gblur=sigma=${blur},setsar=1[bg]`,
-          `[0:v]fps=${fps},scale=${width}:-2:force_original_aspect_ratio=decrease,setsar=1[fg]`,
-          `[bg][fg]overlay=(W-w)/2:(H-h)/2[comp]`,
+          `${framed}[fg]`,
+          topPad > 0
+            ? `[bg][fg]overlay=0:${topPad}[comp]`
+            : `[bg][fg]overlay=(W-w)/2:(H-h)/2[comp]`,
           ranksOverlay
             ? `[comp][2:v]overlay=0:0:shortest=1[withranks];[withranks][1:v]overlay=0:0:shortest=1[vout]`
             : `[comp][1:v]overlay=0:0:shortest=1[vout]`,
@@ -205,7 +232,6 @@ async function renderClipSegment(opts: {
       ...encodeArgs,
     ]);
   } catch {
-    // No usable audio track — synthesize silence
     const silenceIdx = ranksOverlay ? 3 : 2;
     await runCommand("ffmpeg", [
       ...commonArgs,
@@ -325,6 +351,12 @@ export async function POST(req: NextRequest) {
       ]);
 
       const seg = path.join(jobDir, `seg-${i}.mp4`);
+      const barH =
+        typeof body.title?.barHeight === "number"
+          ? body.title.barHeight
+          : body.title?.showBar === false
+            ? 0
+            : 150;
       await renderClipSegment({
         input,
         output: seg,
@@ -338,6 +370,9 @@ export async function POST(req: NextRequest) {
         ranksOverlay: body.showRankList ? ranksOverlay : null,
         fps,
         clipVolume: body.clipVolume ?? 1,
+        crop: clip.crop || { zoom: 1, panX: 50, panY: 50 },
+        titleOverlap: body.titleOverlap !== false,
+        titleBarHeight: barH,
       });
 
       // Optional flash/zoom transition frames baked as a short cut — flash via fade

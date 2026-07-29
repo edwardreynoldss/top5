@@ -358,6 +358,12 @@ a {
   background: #050607;
 }
 
+.preview-video-area {
+  position: absolute;
+  overflow: hidden;
+  z-index: 1;
+}
+
 .preview-bg {
   position: absolute;
   inset: -8%;
@@ -773,6 +779,44 @@ a {
 .trim-video-wrap.landscape {
   aspect-ratio: 16 / 9;
   width: 100%;
+}
+
+.crop-stage {
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.crop-stage:active {
+  cursor: grabbing;
+}
+
+.crop-guide {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border: 1px dashed rgba(200, 245, 66, 0.35);
+  z-index: 2;
+}
+
+.crop-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 0.5rem;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 0.72rem;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  pointer-events: none;
+}
+
+.crop-controls {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.45rem;
 }
 
 .trim-video {

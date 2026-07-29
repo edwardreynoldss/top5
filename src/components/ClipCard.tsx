@@ -13,10 +13,16 @@ import {
   X,
 } from "lucide-react";
 import { useEditor } from "@/lib/store";
-import type { RankClip, TrimSegment } from "@/lib/types";
+import type { ClipCrop, RankClip, TrimSegment } from "@/lib/types";
 import { TrimModal } from "./TrimModal";
 import { DEFAULT_CLIP_DURATION, MAX_CLIP_DURATION } from "@/lib/types";
-import { createSegment, getClipSegments, clipPlayDuration } from "@/lib/defaults";
+import {
+  createSegment,
+  getClipSegments,
+  clipPlayDuration,
+  defaultCrop,
+  getClipCrop,
+} from "@/lib/defaults";
 
 export function ClipCard({ clip }: { clip: RankClip }) {
   const { updateClip, selectedClipId, setSelectedClipId, project } = useEditor();
@@ -134,7 +140,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
     }
   }
 
-  function confirmTrim(segments: TrimSegment[]) {
+  function confirmTrim(segments: TrimSegment[], crop: ClipCrop) {
     if (!pendingMeta && !clip.mediaUrl) return;
     const meta = pendingMeta;
     const first = segments[0];
@@ -147,6 +153,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       sourceUrl: meta?.sourceUrl ?? clip.sourceUrl,
       duration: meta?.duration ?? clip.duration,
       segments,
+      crop,
       trimStart: first?.start ?? 0,
       trimEnd: last?.end ?? DEFAULT_CLIP_DURATION,
       error: undefined,
@@ -169,6 +176,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       trimStart: 0,
       trimEnd: DEFAULT_CLIP_DURATION,
       segments: [createSegment(0, DEFAULT_CLIP_DURATION)],
+      crop: defaultCrop(),
       error: undefined,
     });
     setUrl("");
@@ -254,7 +262,9 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                 <p className="truncate">{clip.fileName || "Clip ready"}</p>
                 <p className="muted">
                   {segs.length} part{segs.length > 1 ? "s" : ""} · {clipPlayDuration(clip).toFixed(1)}s
-                  (max {MAX_CLIP_DURATION}s)
+                  {getClipCrop(clip).zoom > 1
+                    ? ` · ${getClipCrop(clip).zoom.toFixed(1)}× zoom`
+                    : ""}
                 </p>
               </div>
             </div>
@@ -332,6 +342,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
               ]
             : getClipSegments(clip)
         }
+        initialCrop={pendingMeta ? defaultCrop() : getClipCrop(clip)}
         duration={pendingMeta?.duration || clip.duration || 0}
         onClose={() => {
           setTrimOpen(false);

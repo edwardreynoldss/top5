@@ -73,6 +73,7 @@ export function TopBar({
               ? c.segments
               : [{ start: c.trimStart, end: c.trimEnd }]
             ).map((s) => ({ start: s.start, end: s.end })),
+            crop: c.crop || { zoom: 1, panX: 50, panY: 50 },
           })),
           title: settings.title,
           ranksLayout: settings.ranksLayout,
@@ -81,6 +82,7 @@ export function TopBar({
           transitionDuration: settings.transitionDuration,
           aspectMode: settings.aspectMode,
           blurAmount: settings.blurAmount,
+          titleOverlap: settings.titleOverlap,
           showRankList: settings.showRankList,
           showActiveLabel: settings.showActiveLabel,
           rankColors: Object.fromEntries(

@@ -1,5 +1,12 @@
 import { v4 as uuidv4 } from "uuid";
-import type { EditorProject, RankClip, TitleLine, TitleWord, TrimSegment } from "./types";
+import type {
+  ClipCrop,
+  EditorProject,
+  RankClip,
+  TitleLine,
+  TitleWord,
+  TrimSegment,
+} from "./types";
 import { DEFAULT_CLIP_DURATION, MAX_CLIP_DURATION, OUTPUT_HEIGHT, OUTPUT_WIDTH } from "./types";
 
 export function createWord(text: string, color = "#FFFFFF"): TitleWord {
@@ -15,6 +22,10 @@ export function createLine(words: Array<{ text: string; color?: string }>): Titl
 
 export function createSegment(start: number, end: number): TrimSegment {
   return { id: uuidv4(), start, end };
+}
+
+export function defaultCrop(): ClipCrop {
+  return { zoom: 1, panX: 50, panY: 50 };
 }
 
 export function normalizeSegments(segments: TrimSegment[]): TrimSegment[] {
@@ -45,6 +56,7 @@ export function createEmptyClip(rank: number): RankClip {
     trimStart: seg.start,
     trimEnd: seg.end,
     segments: [seg],
+    crop: defaultCrop(),
     status: "empty",
   };
 }
@@ -88,6 +100,7 @@ export function createDefaultProject(): EditorProject {
       transitionDuration: 0.25,
       aspectMode: "crop-fill",
       blurAmount: 28,
+      titleOverlap: true,
       showRankList: true,
       showActiveLabel: true,
       rankColors: {
@@ -120,6 +133,10 @@ export function getClipSegments(clip: RankClip): TrimSegment[] {
   return [createSegment(clip.trimStart, clip.trimEnd)];
 }
 
+export function getClipCrop(clip: RankClip): ClipCrop {
+  return clip.crop || defaultCrop();
+}
+
 export function clipPlayDuration(clip: RankClip) {
   return Math.max(0.2, Math.min(MAX_CLIP_DURATION, segmentsDuration(getClipSegments(clip))));
 }
@@ -134,4 +151,14 @@ export function formatTime(seconds: number) {
 
 export function displayWord(text: string, uppercase: boolean) {
   return uppercase ? text.toUpperCase() : text;
+}
+
+export function cropPreviewStyle(crop: ClipCrop) {
+  const zoom = Math.max(1, Math.min(3, crop.zoom || 1));
+  return {
+    objectFit: "cover" as const,
+    objectPosition: `${crop.panX}% ${crop.panY}%`,
+    transform: `scale(${zoom})`,
+    transformOrigin: `${crop.panX}% ${crop.panY}%`,
+  };
 }

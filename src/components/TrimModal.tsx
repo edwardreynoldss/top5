@@ -1,18 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { formatTime, createSegment, segmentsDuration, normalizeSegments } from "@/lib/defaults";
-import { MAX_CLIP_DURATION, type TrimSegment } from "@/lib/types";
-import { X, Play, Pause, Check, Plus, Trash2 } from "lucide-react";
+import {
+  formatTime,
+  createSegment,
+  segmentsDuration,
+  normalizeSegments,
+  defaultCrop,
+  cropPreviewStyle,
+} from "@/lib/defaults";
+import { MAX_CLIP_DURATION, type ClipCrop, type TrimSegment } from "@/lib/types";
+import { X, Play, Pause, Check, Plus, Trash2, RotateCcw } from "lucide-react";
 
 interface TrimModalProps {
   open: boolean;
   src: string;
   fileName?: string | null;
   initialSegments: TrimSegment[];
+  initialCrop?: ClipCrop;
   duration: number;
   onClose: () => void;
-  onConfirm: (segments: TrimSegment[]) => void;
+  onConfirm: (segments: TrimSegment[], crop: ClipCrop) => void;
 }
 
 export function TrimModal({
@@ -20,12 +28,15 @@ export function TrimModal({
   src,
   fileName,
   initialSegments,
+  initialCrop,
   duration,
   onClose,
   onConfirm,
 }: TrimModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const [segments, setSegments] = useState<TrimSegment[]>(initialSegments);
+  const [crop, setCrop] = useState<ClipCrop>(initialCrop || defaultCrop());
   const [activeIdx, setActiveIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [previewAll, setPreviewAll] = useState(false);
@@ -34,6 +45,7 @@ export function TrimModal({
   const [portrait, setPortrait] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
 
   const active = segments[activeIdx] || segments[0];
   const totalSelected = useMemo(() => segmentsDuration(segments), [segments]);
@@ -45,13 +57,14 @@ export function TrimModal({
         ? normalizeSegments(initialSegments)
         : [createSegment(0, Math.min(4, duration || 4))];
     setSegments(segs);
+    setCrop(initialCrop || defaultCrop());
     setActiveIdx(0);
     setPlaying(false);
     setPreviewAll(false);
     setDur(duration);
     setLoadError(null);
     setReady(false);
-  }, [open, initialSegments, duration, src]);
+  }, [open, initialSegments, initialCrop, duration, src]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -74,32 +87,12 @@ export function TrimModal({
       if (first) v.currentTime = first.start;
     };
     const onErr = () => setLoadError("Could not load video preview. Try re-uploading the file.");
-    const onTime = () => {
-      setCurrent(v.currentTime);
-      if (!playing) return;
-      const seg = segments[activeIdx];
-      if (!seg) return;
-      if (v.currentTime >= seg.end - 0.05) {
-        if (previewAll && activeIdx < segments.length - 1) {
-          const next = activeIdx + 1;
-          setActiveIdx(next);
-          v.currentTime = segments[next].start;
-          return;
-        }
-        v.pause();
-        setPlaying(false);
-        setPreviewAll(false);
-        v.currentTime = seg.start;
-      }
-    };
 
     v.addEventListener("loadedmetadata", onMeta);
     v.addEventListener("error", onErr);
-    v.addEventListener("timeupdate", onTime);
     return () => {
       v.removeEventListener("loadedmetadata", onMeta);
       v.removeEventListener("error", onErr);
-      v.removeEventListener("timeupdate", onTime);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, src]);
@@ -148,7 +141,10 @@ export function TrimModal({
 
   const clampEnd = (v: number) => {
     if (!active) return;
-    const maxEnd = Math.min(dur || v, active.start + (MAX_CLIP_DURATION - (totalSelected - (active.end - active.start))));
+    const maxEnd = Math.min(
+      dur || v,
+      active.start + (MAX_CLIP_DURATION - (totalSelected - (active.end - active.start)))
+    );
     const next = Math.max(active.start + 0.2, Math.min(v, maxEnd));
     updateActive({ end: next });
   };
@@ -192,14 +188,37 @@ export function TrimModal({
     setActiveIdx((i) => Math.max(0, Math.min(i, segments.length - 2)));
   };
 
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (crop.zoom <= 1) return;
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    dragRef.current = { x: e.clientX, y: e.clientY, panX: crop.panX, panY: crop.panY };
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragRef.current || !stageRef.current) return;
+    const rect = stageRef.current.getBoundingClientRect();
+    const dx = ((e.clientX - dragRef.current.x) / rect.width) * 100;
+    const dy = ((e.clientY - dragRef.current.y) / rect.height) * 100;
+    // Dragging content moves focus opposite to finger for natural pan
+    setCrop((c) => ({
+      ...c,
+      panX: Math.max(0, Math.min(100, dragRef.current!.panX - dx)),
+      panY: Math.max(0, Math.min(100, dragRef.current!.panY - dy)),
+    }));
+  };
+
+  const onPointerUp = () => {
+    dragRef.current = null;
+  };
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className="modal-card wide">
         <div className="modal-header">
           <div>
-            <h3>Trim clip</h3>
+            <h3>Trim & crop</h3>
             <p className="muted">
-              {fileName || "Add one or more ranges — they merge into one clip"} · max {MAX_CLIP_DURATION}s
+              {fileName || "Cut ranges, then zoom/pan the frame"} · max {MAX_CLIP_DURATION}s
             </p>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
@@ -207,16 +226,71 @@ export function TrimModal({
           </button>
         </div>
 
-        <div className={`trim-video-wrap ${portrait ? "portrait" : "landscape"}`}>
+        <div
+          ref={stageRef}
+          className={`trim-video-wrap ${portrait ? "portrait" : "landscape"} crop-stage`}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+        >
           <video
             ref={videoRef}
             playsInline
             preload="auto"
             controls={false}
             className="trim-video"
+            style={cropPreviewStyle(crop)}
           />
+          <div className="crop-guide" />
           {!ready && !loadError && <div className="trim-loading">Loading preview…</div>}
           {loadError && <div className="trim-loading error-text">{loadError}</div>}
+          {crop.zoom > 1 && (
+            <div className="crop-hint">Drag to pan · zoom {crop.zoom.toFixed(2)}×</div>
+          )}
+        </div>
+
+        <div className="crop-controls">
+          <div className="trim-row">
+            <label>Zoom {crop.zoom.toFixed(2)}×</label>
+            <input
+              type="range"
+              min={1}
+              max={3}
+              step={0.05}
+              value={crop.zoom}
+              onChange={(e) => setCrop((c) => ({ ...c, zoom: parseFloat(e.target.value) }))}
+            />
+          </div>
+          <div className="trim-row">
+            <label>Pan X {crop.panX.toFixed(0)}%</label>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={crop.panX}
+              onChange={(e) => setCrop((c) => ({ ...c, panX: parseFloat(e.target.value) }))}
+            />
+          </div>
+          <div className="trim-row">
+            <label>Pan Y {crop.panY.toFixed(0)}%</label>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={crop.panY}
+              onChange={(e) => setCrop((c) => ({ ...c, panY: parseFloat(e.target.value) }))}
+            />
+          </div>
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={() => setCrop(defaultCrop())}
+          >
+            <RotateCcw size={14} /> Reset crop
+          </button>
         </div>
 
         <div className="segment-tabs">
@@ -295,8 +369,8 @@ export function TrimModal({
               />
             </div>
             <p className="muted center">
-              Merged length: <strong>{totalSelected.toFixed(2)}s</strong> / {MAX_CLIP_DURATION}s · Source{" "}
-              {formatTime(dur)} · {portrait ? "9:16 preview" : "16:9 preview"}
+              Merged length: <strong>{totalSelected.toFixed(2)}s</strong> / {MAX_CLIP_DURATION}s ·{" "}
+              {portrait ? "9:16" : "16:9"} crop frame
             </p>
           </div>
         )}
@@ -313,7 +387,7 @@ export function TrimModal({
           <button
             className="btn primary"
             disabled={totalSelected > MAX_CLIP_DURATION || segments.length === 0}
-            onClick={() => onConfirm(normalizeSegments(segments))}
+            onClick={() => onConfirm(normalizeSegments(segments), crop)}
           >
             <Check size={16} />
             Use clip ({totalSelected.toFixed(1)}s)

@@ -84,6 +84,20 @@ export function SettingsPanel() {
         </label>
 
         <label className="field">
+          <span>Title vs video</span>
+          <select
+            className="input"
+            value={settings.titleOverlap ? "overlap" : "below"}
+            onChange={(e) =>
+              updateSettings({ titleOverlap: e.target.value === "overlap" })
+            }
+          >
+            <option value="overlap">Title overlaps video</option>
+            <option value="below">Video starts below title</option>
+          </select>
+        </label>
+
+        <label className="field">
           <span>Blur amount ({settings.blurAmount}px)</span>
           <input
             type="range"

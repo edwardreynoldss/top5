@@ -7,6 +7,8 @@ import {
   clipPlayDuration,
   displayWord,
   getClipSegments,
+  getClipCrop,
+  cropPreviewStyle,
 } from "@/lib/defaults";
 import { fontCss, type RankClip } from "@/lib/types";
 
@@ -181,13 +183,25 @@ export function PreviewPhone({
   const labelFontPx = ranksLayout.labelSize * previewScale;
   const barHeightPx = title.barHeight * previewScale;
   const fitFill = settings.aspectMode === "crop-fill";
+  const crop = activeClip ? getClipCrop(activeClip) : null;
+  const titleOverlap = settings.titleOverlap !== false;
+  const previewBarH = title.showBar ? barHeightPx : titleFontPx * title.lines.length + 16;
+  const videoTop = titleOverlap ? 0 : previewBarH;
 
   return (
     <div className="preview-shell">
       <div className="preview-phone">
         <div className="preview-stage">
           {activeClip?.mediaUrl ? (
-            <>
+            <div
+              className="preview-video-area"
+              style={{
+                top: videoTop,
+                bottom: 0,
+                left: 0,
+                right: 0,
+              }}
+            >
               {!fitFill && (
                 <video
                   ref={bgRef}
@@ -195,7 +209,10 @@ export function PreviewPhone({
                   muted
                   playsInline
                   preload="auto"
-                  style={{ filter: `blur(${settings.blurAmount}px) saturate(1.1)` }}
+                  style={{
+                    filter: `blur(${settings.blurAmount}px) saturate(1.1)`,
+                    ...(crop ? cropPreviewStyle(crop) : null),
+                  }}
                 />
               )}
               <video
@@ -203,12 +220,13 @@ export function PreviewPhone({
                 className={fitFill ? "preview-fg fill" : "preview-fg"}
                 playsInline
                 preload="auto"
+                style={crop ? cropPreviewStyle(crop) : undefined}
                 onLoadedData={(e) => {
                   e.currentTarget.volume = settings.clipVolume;
                 }}
               />
               {!mediaReady && <div className="preview-loading">Loading clip…</div>}
-            </>
+            </div>
           ) : (
             <div className="preview-empty">
               <p>Add clips to preview your ranking Short</p>

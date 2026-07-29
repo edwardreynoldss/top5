@@ -9,6 +9,16 @@ export interface TrimSegment {
   end: number;
 }
 
+/** Zoom/pan framing for fit-to-screen crop */
+export interface ClipCrop {
+  /** 1 = normal fill, up to 3 = zoom in */
+  zoom: number;
+  /** 0–100 horizontal focus (50 = center) */
+  panX: number;
+  /** 0–100 vertical focus (50 = center) */
+  panY: number;
+}
+
 export interface RankClip {
   id: string;
   rank: number;
@@ -23,6 +33,7 @@ export interface RankClip {
   trimEnd: number;
   /** One or more ranges that are merged in playback/export */
   segments: TrimSegment[];
+  crop: ClipCrop;
   status: "empty" | "loading" | "ready" | "error";
   error?: string;
 }
@@ -77,6 +88,11 @@ export interface ProjectSettings {
   transitionDuration: number;
   aspectMode: AspectMode;
   blurAmount: number;
+  /**
+   * true = video fills full frame and title overlays it
+   * false = video starts below the title bar
+   */
+  titleOverlap: boolean;
   showRankList: boolean;
   showActiveLabel: boolean;
   rankColors: Record<number, string>;
