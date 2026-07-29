@@ -140,5 +140,3 @@ export function useEditor() {
   if (!ctx) throw new Error("useEditor must be used within EditorProvider");
   return ctx;
 }
-
-export { createEmptyClip };
