@@ -2,36 +2,60 @@
 
 Create **Top 5 ranking** YouTube Shorts / TikTok / Reels videos in the browser — CapCut-style template with editable title (fonts, multi-color words, 2 lines, placement), blurred vertical fill, persistent rank list, clip trimming, drag-to-reorder, and MP4 export.
 
-## Requirements
+## Requirements (Windows)
 
-Install these on your machine first (this fixes `spawn ffmpeg ENOENT`):
+Install these tools first. Missing `ffmpeg` causes `spawn ffmpeg ENOENT`.
 
-```bash
-# macOS
-brew install ffmpeg yt-dlp
-pip3 install pillow
+### 1. Node.js
+https://nodejs.org (LTS) — includes `npm`.
 
-# Ubuntu / Debian
-sudo apt install ffmpeg
-pip3 install -U yt-dlp pillow
+### 2. FFmpeg, yt-dlp, Python (recommended: winget)
+
+Open **PowerShell** and run:
+
+```powershell
+winget install Gyan.FFmpeg
+winget install yt-dlp.yt-dlp
+winget install Python.Python.3.12
 ```
 
-Optional overrides if binaries are not on PATH:
+Close PowerShell, open a **new** window, then:
 
-```bash
-export FFMPEG_PATH=/opt/homebrew/bin/ffmpeg
-export FFPROBE_PATH=/opt/homebrew/bin/ffprobe
-export YT_DLP_PATH=/opt/homebrew/bin/yt-dlp
+```powershell
+python -m pip install -U pillow yt-dlp
 ```
+
+### 3. Verify
+
+```powershell
+ffmpeg -version
+ffprobe -version
+yt-dlp --version
+python --version
+python -c "import PIL; print('pillow ok')"
+```
+
+If a command is “not recognized”, log out/in (or reboot) so PATH updates, or set full paths:
+
+```powershell
+$env:FFMPEG_PATH="C:\Program Files\ffmpeg\bin\ffmpeg.exe"
+$env:FFPROBE_PATH="C:\Program Files\ffmpeg\bin\ffprobe.exe"
+$env:YT_DLP_PATH="C:\Users\YOU\AppData\Local\Microsoft\WinGet\Links\yt-dlp.exe"
+$env:PYTHON_PATH="C:\Users\YOU\AppData\Local\Programs\Python\Python312\python.exe"
+```
+
+### Alternative installs
+- **Chocolatey:** `choco install ffmpeg yt-dlp python`
+- **Scoop:** `scoop install ffmpeg yt-dlp python`
 
 ## Setup
 
-```bash
+```powershell
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The top bar shows **Tools OK** when ffmpeg / yt-dlp / python3 are detected (`/api/health`).
+Open http://localhost:3000 — the top bar should say **Tools OK**.
 
 ## Workflow
 
@@ -43,11 +67,21 @@ Open [http://localhost:3000](http://localhost:3000). The top bar shows **Tools O
 
 ## Link downloads
 
-YouTube / TikTok often require browser cookies now. If fetch fails:
+YouTube / TikTok often require browser cookies. If fetch fails in PowerShell:
 
-```bash
-export YT_DLP_COOKIES_FROM_BROWSER=chrome   # or safari / firefox
+```powershell
+$env:YT_DLP_COOKIES_FROM_BROWSER="chrome"   # or firefox / edge
 npm run dev
 ```
 
-Or download the clip in the app and **upload the file** (always works).
+Or download the clip in the app and **upload the MP4** (always works).
+
+## Other OS (optional)
+
+```bash
+# macOS
+brew install ffmpeg yt-dlp && pip3 install pillow
+
+# Ubuntu
+sudo apt install ffmpeg && pip3 install -U yt-dlp pillow
+```

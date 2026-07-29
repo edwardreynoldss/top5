@@ -37,7 +37,7 @@ export function TopBar({
             .filter(([, v]) => !(v as { ok?: boolean }).ok)
             .map(([k]) => k);
           setToolsHint(
-            `Missing tools: ${missing.join(", ")}. macOS: brew install ffmpeg yt-dlp && pip install pillow`
+            `Missing tools: ${missing.join(", ")}. Windows: winget install Gyan.FFmpeg yt-dlp.yt-dlp Python.Python.3.12 then pip install pillow yt-dlp`
           );
         } else {
           setToolsHint(null);

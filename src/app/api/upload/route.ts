@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "ffmpeg was not found (spawn ENOENT). Install it and restart the app.\nmacOS: brew install ffmpeg\nUbuntu: sudo apt install ffmpeg\nOr set FFMPEG_PATH to the full binary path.",
+            "ffmpeg was not found (spawn ENOENT). On Windows run: winget install Gyan.FFmpeg — then close the terminal, reopen it, and restart the app. Or set FFMPEG_PATH to ffmpeg.exe.",
           tools,
         },
         { status: 500 }

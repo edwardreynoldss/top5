@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Export needs ffmpeg and python3 (Pillow). macOS: brew install ffmpeg && pip3 install pillow",
+            "Export needs ffmpeg and python3 (Pillow). Windows: winget install Gyan.FFmpeg Python.Python.3.12 && pip install pillow",
           tools,
         },
         { status: 500 }
