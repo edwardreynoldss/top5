@@ -50,6 +50,7 @@ export function TrimModal({
   const [current, setCurrent] = useState(0);
   const [dur, setDur] = useState(duration > 0 ? duration : 0);
   const [portrait, setPortrait] = useState(false);
+  const [videoAspect, setVideoAspect] = useState(16 / 9);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
@@ -116,6 +117,7 @@ export function TrimModal({
     setCurrent(0);
     setDur(duration > 0 ? duration : 0);
     setPortrait(false);
+    setVideoAspect(16 / 9);
     setLoadError(null);
     setReady(false);
     playingRef.current = false;
@@ -152,6 +154,8 @@ export function TrimModal({
             : 0;
       if (d > 0) setDur(d);
       if (v.videoWidth > 0 && v.videoHeight > 0) {
+        const aspect = v.videoWidth / v.videoHeight;
+        setVideoAspect(aspect);
         setPortrait(v.videoHeight / v.videoWidth >= 1.2);
       }
       setReady(true);
@@ -379,7 +383,6 @@ export function TrimModal({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (Math.abs(crop.zoom - 1) < 0.001) return;
     e.preventDefault();
     stageRef.current?.setPointerCapture?.(e.pointerId);
     dragRef.current = { x: e.clientX, y: e.clientY, panX: crop.panX, panY: crop.panY };
@@ -404,6 +407,8 @@ export function TrimModal({
   const sliderMax = Math.max(dur || 1, active?.end || 1, 1);
   const canUseClip =
     segments.length > 0 && totalSelected > 0 && totalSelected <= MAX_CLIP_DURATION;
+  const frameAspect = portrait ? 9 / 16 : 16 / 9;
+  const cropStyle = cropPreviewStyle(crop, { frameAspect, videoAspect });
 
   return (
     <div
@@ -445,7 +450,7 @@ export function TrimModal({
               muted
               controls={false}
               className="trim-video"
-              style={cropPreviewStyle(crop)}
+              style={cropStyle}
             />
             <div className="crop-guide" />
             {!ready && !loadError && <div className="trim-loading">Loading preview…</div>}
@@ -458,7 +463,7 @@ export function TrimModal({
             {crop.zoom !== 1 && (
               <div className="crop-hint">
                 Drag to pan · zoom {crop.zoom.toFixed(2)}×
-                {crop.zoom < 1 ? " (fit)" : ""}
+                {crop.zoom < 1 ? " (out)" : " (in)"}
               </div>
             )}
           </div>
@@ -467,11 +472,15 @@ export function TrimModal({
             <div className="trim-row">
               <label>
                 Zoom {crop.zoom.toFixed(2)}×
-                {crop.zoom < 1 ? " · zoomed out" : crop.zoom > 1 ? " · punched in" : " · cover"}
+                {crop.zoom < 1
+                  ? " · zoomed out"
+                  : crop.zoom > 1
+                    ? " · punched in"
+                    : " · fill frame"}
               </label>
               <input
                 type="range"
-                min={0.5}
+                min={0.25}
                 max={3}
                 step={0.05}
                 value={clampCropZoom(crop.zoom)}

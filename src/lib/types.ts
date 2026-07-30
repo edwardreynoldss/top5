@@ -11,7 +11,11 @@ export interface TrimSegment {
 
 /** Zoom/pan framing for fit-to-screen crop */
 export interface ClipCrop {
-  /** 0.5–1 = zoom out / see more (contain), 1 = cover fill, up to 3 = punch in */
+  /**
+   * Continuous zoom relative to cover-fill.
+   * 1 = fill frame (cover), below 1 = zoom out gradually toward the full frame,
+   * above 1 = punch in. Range roughly 0.25–3.
+   */
   zoom: number;
   /** 0–100 horizontal focus (50 = center) */
   panX: number;

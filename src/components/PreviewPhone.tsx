@@ -45,14 +45,18 @@ export function PreviewPhone({
   const activeSfxRef = useRef<HTMLAudioElement[]>([]);
   const scrubbingRef = useRef(false);
   const advancingRef = useRef(false);
+  const isPlayingRef = useRef(isPlaying);
   const activeIndexRef = useRef(0);
   const segIndexRef = useRef(0);
+  const sequenceRef = useRef<RankClip[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [segIndex, setSegIndex] = useState(0);
   const [localTime, setLocalTime] = useState(0);
   const [mediaReady, setMediaReady] = useState(false);
+  const [videoAspect, setVideoAspect] = useState(9 / 16);
   const [dropAssetId, setDropAssetId] = useState<string>("");
   const [transitionFlash, setTransitionFlash] = useState(false);
+  isPlayingRef.current = isPlaying;
   activeIndexRef.current = activeIndex;
   segIndexRef.current = segIndex;
 
@@ -60,6 +64,7 @@ export function PreviewPhone({
     () => getPlaybackOrder(project.clips, settings.playOrder),
     [project.clips, settings.playOrder]
   );
+  sequenceRef.current = sequence;
   const offsets = useMemo(
     () => clipTimelineOffsets(project.clips, settings.playOrder),
     [project.clips, settings.playOrder]
@@ -69,7 +74,8 @@ export function PreviewPhone({
     [project.clips, settings.playOrder]
   );
 
-  const activeClip = previewClip ?? sequence[activeIndex] ?? null;
+  // Full ranking preview only — never lock to a single selected clip
+  const activeClip = sequence[activeIndex] ?? null;
   const segments = useMemo(
     () => (activeClip ? getClipSegments(activeClip) : []),
     [activeClip]
@@ -119,6 +125,7 @@ export function PreviewPhone({
       return;
     }
 
+    let cancelled = false;
     setMediaReady(false);
     const url = activeClip.mediaUrl;
     const start = scrubbingRef.current
@@ -136,6 +143,10 @@ export function PreviewPhone({
     syncSrc(bg);
 
     const onReady = () => {
+      if (cancelled) return;
+      if (fg.videoWidth > 0 && fg.videoHeight > 0) {
+        setVideoAspect(fg.videoWidth / fg.videoHeight);
+      }
       setMediaReady(true);
       advancingRef.current = false;
       try {
@@ -145,11 +156,29 @@ export function PreviewPhone({
       } catch {
         // ignore
       }
+      // Resume if we were mid–Play all when the next clip loaded
+      if (isPlayingRef.current) {
+        void fg.play().catch((err: unknown) => {
+          const name = err && typeof err === "object" && "name" in err ? String(err.name) : "";
+          if (name === "AbortError") return;
+          onPlayingChange(false);
+        });
+        void bg?.play().catch(() => undefined);
+      }
     };
 
     fg.addEventListener("loadeddata", onReady);
-    if (fg.readyState >= 2) onReady();
-    return () => fg.removeEventListener("loadeddata", onReady);
+    fg.addEventListener("canplay", onReady);
+    if (fg.readyState >= 2 && fg.getAttribute("src") === url) onReady();
+    const failsafe = window.setTimeout(() => {
+      if (!cancelled) advancingRef.current = false;
+    }, 800);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(failsafe);
+      fg.removeEventListener("loadeddata", onReady);
+      fg.removeEventListener("canplay", onReady);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClip?.id, activeClip?.mediaUrl]);
 
@@ -160,7 +189,12 @@ export function PreviewPhone({
 
     if (isPlaying && activeClip?.mediaUrl && mediaReady) {
       resetSfxFiring(absTime);
-      void fg.play().catch(() => onPlayingChange(false));
+      void fg.play().catch((err: unknown) => {
+        const name = err && typeof err === "object" && "name" in err ? String(err.name) : "";
+        // src changes abort the prior play() — do not stop the full ranking preview
+        if (name === "AbortError") return;
+        onPlayingChange(false);
+      });
       void bg?.play().catch(() => undefined);
     } else {
       fg.pause();
@@ -206,77 +240,72 @@ export function PreviewPhone({
 
     const onTime = () => {
       if (scrubbingRef.current || advancingRef.current) return;
+      if (!isPlayingRef.current) return;
       setLocalTime(fg.currentTime);
       if (bg && Math.abs(bg.currentTime - fg.currentTime) > 0.15) {
         bg.currentTime = fg.currentTime;
       }
-      if (fg.currentTime >= activeSeg.end - 0.05) {
-        if (segIndexRef.current < segments.length - 1) {
-          const nextSeg = segments[segIndexRef.current + 1];
-          const ni = segIndexRef.current + 1;
-          advancingRef.current = true;
-          segIndexRef.current = ni;
-          setSegIndex(ni);
-          try {
-            fg.currentTime = nextSeg.start;
-            if (bg) bg.currentTime = nextSeg.start;
-          } catch {
-            // ignore
-          }
-          window.setTimeout(() => {
-            advancingRef.current = false;
-          }, 60);
-          return;
-        }
-        if (previewClip) {
-          fg.pause();
-          bg?.pause();
-          onPlayingChange(false);
-          segIndexRef.current = 0;
-          setSegIndex(0);
-          fg.currentTime = segments[0]?.start || 0;
-          return;
-        }
-        // Advance to next ranking clip (full-video preview)
+      if (fg.currentTime < activeSeg.end - 0.05) return;
+
+      // Next trim part within the same ranking clip
+      if (segIndexRef.current < segments.length - 1) {
+        const nextSeg = segments[segIndexRef.current + 1];
+        const ni = segIndexRef.current + 1;
         advancingRef.current = true;
-        const next = activeIndexRef.current + 1;
-        if (next < sequence.length) {
-          if (settings.transition === "flash") {
-            setTransitionFlash(true);
-            window.setTimeout(() => setTransitionFlash(false), 120);
-          }
-          activeIndexRef.current = next;
-          segIndexRef.current = 0;
-          setActiveIndex(next);
-          setSegIndex(0);
-        } else {
-          activeIndexRef.current = 0;
-          segIndexRef.current = 0;
-          setActiveIndex(0);
-          setSegIndex(0);
-          onPlayingChange(false);
-          firedSfxRef.current.clear();
-          advancingRef.current = false;
+        segIndexRef.current = ni;
+        setSegIndex(ni);
+        try {
+          fg.currentTime = nextSeg.start;
+          if (bg) bg.currentTime = nextSeg.start;
+        } catch {
+          // ignore
         }
+        window.setTimeout(() => {
+          advancingRef.current = false;
+        }, 80);
+        return;
+      }
+
+      // Advance to next ranking clip (full-video preview)
+      advancingRef.current = true;
+      const seq = sequenceRef.current;
+      const next = activeIndexRef.current + 1;
+      if (next < seq.length) {
+        if (settings.transition === "flash") {
+          setTransitionFlash(true);
+          window.setTimeout(() => setTransitionFlash(false), 120);
+        }
+        activeIndexRef.current = next;
+        segIndexRef.current = 0;
+        setActiveIndex(next);
+        setSegIndex(0);
+        // advancingRef cleared when next clip's media is ready
+      } else {
+        activeIndexRef.current = 0;
+        segIndexRef.current = 0;
+        setActiveIndex(0);
+        setSegIndex(0);
+        onPlayingChange(false);
+        firedSfxRef.current.clear();
+        advancingRef.current = false;
       }
     };
     fg.addEventListener("timeupdate", onTime);
-    return () => fg.removeEventListener("timeupdate", onTime);
+    fg.addEventListener("ended", onTime);
+    return () => {
+      fg.removeEventListener("timeupdate", onTime);
+      fg.removeEventListener("ended", onTime);
+    };
   }, [
     activeClip,
     activeSeg,
     segments,
-    sequence.length,
-    previewClip,
     onPlayingChange,
     settings.transition,
   ]);
 
-  useEffect(() => {
-    if (!previewClip) return;
-    setActiveIndex(0);
-    setSegIndex(0);
-  }, [previewClip]);
+  // previewClip prop kept for API compatibility; preview always plays the full sequence
+  void previewClip;
 
   function seekAbsolute(t: number) {
     if (offsets.length === 0 || sequence.length === 0) return;
@@ -396,6 +425,9 @@ export function PreviewPhone({
   const barHeightPx = title.barHeight * previewScale;
   const fitFill = settings.aspectMode === "crop-fill";
   const crop = activeClip ? getClipCrop(activeClip) : null;
+  const cropStyle = crop
+    ? cropPreviewStyle(crop, { frameAspect: 9 / 16, videoAspect })
+    : undefined;
   const titleOverlap = settings.titleOverlap !== false;
   const titleEnabled = title.enabled !== false;
   const previewBarH = !titleEnabled
@@ -428,7 +460,7 @@ export function PreviewPhone({
                   preload="auto"
                   style={{
                     filter: `blur(${settings.blurAmount}px) saturate(1.1)`,
-                    ...(crop ? cropPreviewStyle(crop) : null),
+                    ...(cropStyle || null),
                   }}
                 />
               )}
@@ -437,9 +469,13 @@ export function PreviewPhone({
                 className={fitFill ? "preview-fg fill" : "preview-fg"}
                 playsInline
                 preload="auto"
-                style={crop ? cropPreviewStyle(crop) : undefined}
+                style={cropStyle}
                 onLoadedData={(e) => {
                   e.currentTarget.volume = settings.clipVolume;
+                  const v = e.currentTarget;
+                  if (v.videoWidth > 0 && v.videoHeight > 0) {
+                    setVideoAspect(v.videoWidth / v.videoHeight);
+                  }
                 }}
               />
               {!mediaReady && <div className="preview-loading">Loading clip…</div>}

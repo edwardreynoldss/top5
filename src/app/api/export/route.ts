@@ -170,32 +170,23 @@ async function renderClipSegment(opts: {
   } = opts;
 
   const blur = Math.max(2, Math.min(64, Math.round(blurAmount / 2)));
-  const zoom = Math.max(0.5, Math.min(3, crop?.zoom ?? 1));
+  const zoom = Math.max(0.25, Math.min(3, crop?.zoom ?? 1));
   const panX = Math.max(0, Math.min(100, crop?.panX ?? 50)) / 100;
   const panY = Math.max(0, Math.min(100, crop?.panY ?? 50)) / 100;
   const topPad = titleOverlap ? 0 : Math.max(0, Math.round(titleBarHeight));
   const contentH = Math.max(16, height - topPad);
 
-  // zoom < 1 = fit whole frame (letterbox); zoom >= 1 = cover (+ punch in)
-  let framed: string;
-  if (zoom < 1) {
-    const fitScale = `scale=${width}:${contentH}:force_original_aspect_ratio=decrease`;
-    const shrink =
-      zoom < 0.999 ? `,scale=iw*${zoom}:ih*${zoom}` : "";
-    const pad =
-      `pad=${width}:${contentH}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`;
-    const padTop =
-      topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
-    framed = `[0:v]fps=${fps},${fitScale}${shrink},${pad}${padTop}`;
-  } else {
-    const coverScale = `scale=${width}:${contentH}:force_original_aspect_ratio=increase`;
-    const zoomScale =
-      zoom > 1.001 ? `,scale=iw*${zoom}:ih*${zoom}` : "";
-    const cropWindow = `crop=${width}:${contentH}:(iw-${width})*${panX}:(ih-${contentH})*${panY},setsar=1`;
-    const padTop =
-      topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
-    framed = `[0:v]fps=${fps},${coverScale}${zoomScale},${cropWindow}${padTop}`;
-  }
+  // Continuous zoom matching preview CSS:
+  // cover-fit, then scale by zoom; overlay onto a black canvas so zoom < 1
+  // letterboxes gradually instead of jumping to a tiny contain frame.
+  const padTop =
+    topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
+  const framed =
+    `[0:v]fps=${fps},` +
+    `scale=${width}:${contentH}:force_original_aspect_ratio=increase,` +
+    `scale=iw*${zoom}:ih*${zoom}[czfg];` +
+    `color=c=black:s=${width}x${contentH}:r=${fps}[czbg];` +
+    `[czbg][czfg]overlay=x='(W-w)*${panX}':y='(H-h)*${panY}':shortest=1,setsar=1${padTop}`;
 
   const videoFilter =
     aspectMode === "crop-fill"

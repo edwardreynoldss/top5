@@ -156,28 +156,57 @@ export function displayWord(text: string, uppercase: boolean) {
   return uppercase ? text.toUpperCase() : text;
 }
 
-export function cropPreviewStyle(crop: ClipCrop) {
-  const zoom = Math.max(0.5, Math.min(3, crop.zoom || 1));
-  if (zoom < 1) {
-    // Zoom out: fit the whole frame (letterbox/pillarbox) so different aspect ratios are visible
-    return {
-      objectFit: "contain" as const,
-      objectPosition: `${crop.panX}% ${crop.panY}%`,
-      transform: `scale(${zoom})`,
-      transformOrigin: "center center",
-    };
+/**
+ * How much larger a cover-fit is than a contain-fit (linear).
+ * 16:9 in 9:16 ≈ 3.16; matching aspects → 1.
+ */
+export function coverContainFactor(frameAspect: number, videoAspect: number) {
+  if (
+    !Number.isFinite(frameAspect) ||
+    !Number.isFinite(videoAspect) ||
+    frameAspect <= 0 ||
+    videoAspect <= 0
+  ) {
+    return 1;
   }
+  return Math.max(frameAspect / videoAspect, videoAspect / frameAspect);
+}
+
+/**
+ * CSS scale applied on top of object-fit:contain so zoom=1 matches cover-fill,
+ * and values just below 1 only nudge out slightly (no sudden shrink).
+ */
+export function cropDisplayScale(
+  zoom: number,
+  frameAspect: number,
+  videoAspect: number
+) {
+  const z = clampCropZoom(zoom);
+  const cover = coverContainFactor(frameAspect, videoAspect);
+  return cover * z;
+}
+
+export function cropPreviewStyle(
+  crop: ClipCrop,
+  opts?: { frameAspect?: number; videoAspect?: number }
+) {
+  const frameAspect = opts?.frameAspect ?? 9 / 16;
+  const videoAspect = opts?.videoAspect ?? frameAspect;
+  const scale = cropDisplayScale(crop.zoom, frameAspect, videoAspect);
   return {
-    objectFit: "cover" as const,
+    // Contain + scale(coverFactor*zoom): zoom=1 fills like cover; zoom out is continuous
+    objectFit: "contain" as const,
     objectPosition: `${crop.panX}% ${crop.panY}%`,
-    transform: `scale(${zoom})`,
+    transform: `scale(${scale})`,
     transformOrigin: `${crop.panX}% ${crop.panY}%`,
+    width: "100%",
+    height: "100%",
   };
 }
 
 /** Clamp crop zoom into the supported range */
 export function clampCropZoom(zoom: number) {
-  return Math.max(0.5, Math.min(3, Number.isFinite(zoom) ? zoom : 1));
+  return Math.max(0.25, Math.min(3, Number.isFinite(zoom) ? zoom : 1));
 }
 
 /** Absolute timeline start for each ready clip in playback order */
