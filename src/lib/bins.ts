@@ -159,5 +159,91 @@ export function whichTools() {
       result[tool] = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
+
+  // Pillow is required by scripts/generate-overlays.py during export
+  if (result.python3?.ok && result.python3.path) {
+    try {
+      execFileSync(result.python3.path, ["-c", "import PIL"], {
+        encoding: "utf8",
+        env: toolEnv(),
+        windowsHide: true,
+        timeout: 15000,
+      });
+      result.pillow = { ok: true, path: result.python3.path };
+    } catch {
+      result.pillow = {
+        ok: false,
+        path: result.python3.path,
+        error:
+          `Pillow (PIL) is not installed for ${result.python3.path}. ` +
+          `Export will try to install it automatically, or run:\n` +
+          `  "${result.python3.path}" -m pip install pillow`,
+      };
+    }
+  } else {
+    result.pillow = {
+      ok: false,
+      error: "Python is required to install/use Pillow for title overlays.",
+    };
+  }
+
   return result;
+}
+
+/**
+ * Ensure the resolved Python can `import PIL`. If not, install pillow via
+ * `python -m pip` for that exact interpreter (important on Windows where
+ * `pip` on PATH may point at a different Python).
+ */
+export function ensurePillow(): { python: string; installedNow: boolean } {
+  const python = resolveBinary("python3");
+  const env = toolEnv();
+
+  const canImport = () => {
+    try {
+      execFileSync(python, ["-c", "import PIL; print(PIL.__version__)"], {
+        encoding: "utf8",
+        env,
+        windowsHide: true,
+        timeout: 20000,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (canImport()) {
+    return { python, installedNow: false };
+  }
+
+  try {
+    execFileSync(
+      python,
+      ["-m", "pip", "install", "--user", "--upgrade", "pillow"],
+      {
+        encoding: "utf8",
+        env,
+        windowsHide: true,
+        timeout: 180000,
+      }
+    );
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `Pillow (PIL) is missing and auto-install failed for:\n  ${python}\n\n` +
+        `Open PowerShell in the project folder and run:\n` +
+        `  "${python}" -m pip install pillow\n\n` +
+        `Then restart the app and export again.\n\n${detail.slice(0, 800)}`
+    );
+  }
+
+  if (!canImport()) {
+    throw new Error(
+      `Pillow still missing after pip install for:\n  ${python}\n` +
+        `Try manually:\n  "${python}" -m pip install pillow`
+    );
+  }
+
+  return { python, installedNow: true };
 }

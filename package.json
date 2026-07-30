@@ -6,7 +6,8 @@
     "dev": "next dev --hostname 0.0.0.0 --port 3000",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
-    "lint": "eslint"
+    "lint": "eslint",
+    "setup:python": "python -m pip install -r requirements.txt || python3 -m pip install -r requirements.txt"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

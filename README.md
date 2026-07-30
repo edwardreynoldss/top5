@@ -23,7 +23,11 @@ Close PowerShell, open a **new** window, then:
 
 ```powershell
 python -m pip install -U pillow yt-dlp
+# or from the project folder:
+npm run setup:python
 ```
+
+Export will also **auto-install Pillow** into your Python if it’s missing when you click Export.
 
 ### 3. Verify
 

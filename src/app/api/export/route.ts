@@ -4,7 +4,7 @@ import { existsSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
 import { ensureDirs, EXPORT_DIR, UPLOAD_DIR, exportPath } from "@/lib/paths";
 import { runCommand } from "@/lib/ffmpeg";
-import { whichTools } from "@/lib/bins";
+import { ensurePillow, whichTools } from "@/lib/bins";
 import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
 import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
 
@@ -284,8 +284,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Export needs ffmpeg and python3 (Pillow). Windows: winget install Gyan.FFmpeg Python.Python.3.12 && pip install pillow",
+            "Export needs ffmpeg and python3 (Pillow). Windows: winget install Gyan.FFmpeg Python.Python.3.12 then run: python -m pip install pillow",
           tools,
+        },
+        { status: 500 }
+      );
+    }
+
+    // Auto-install Pillow into the same Python used for overlay generation
+    try {
+      ensurePillow();
+    } catch (e) {
+      return NextResponse.json(
+        {
+          error: e instanceof Error ? e.message : String(e),
+          tools: whichTools(),
         },
         { status: 500 }
       );

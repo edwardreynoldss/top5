@@ -35,10 +35,16 @@ export function TopBar({
         setToolsOk(Boolean(data.ok));
         if (!data.ok) {
           const missing = Object.entries(data.tools || {})
-            .filter(([, v]) => !(v as { ok?: boolean }).ok)
+            .filter(([k, v]) => k !== "pillow" && !(v as { ok?: boolean }).ok)
             .map(([k]) => k);
+          const pillowHint =
+            data.pillowReady === false
+              ? " Pillow will auto-install on export (or run: python -m pip install pillow)."
+              : "";
           setToolsHint(
-            `Missing tools: ${missing.join(", ")}. Windows: winget install Gyan.FFmpeg yt-dlp.yt-dlp Python.Python.3.12 then pip install pillow yt-dlp`
+            missing.length
+              ? `Missing tools: ${missing.join(", ")}. Windows: winget install Gyan.FFmpeg yt-dlp.yt-dlp Python.Python.3.12 then python -m pip install pillow yt-dlp`
+              : pillowHint.trim() || null
           );
         } else {
           setToolsHint(null);
