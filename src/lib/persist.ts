@@ -1,9 +1,10 @@
-import { createDefaultProject, defaultCrop, createSegment } from "./defaults";
-import type { EditorProject, RankClip } from "./types";
+import { builtInDefaultSettings, createDefaultProject, defaultCrop, createSegment } from "./defaults";
+import type { EditorProject, ProjectSettings, RankClip } from "./types";
 import { DEFAULT_CLIP_DURATION } from "./types";
 
 export const STORAGE_KEY = "rankshorts-project-v1";
 export const UI_STORAGE_KEY = "rankshorts-ui-v1";
+export const LAYOUT_STORAGE_KEY = "rankshorts-layout-default-v1";
 
 export interface LeftUiState {
   activeTab: "title" | "look" | "sfx";
@@ -19,6 +20,63 @@ export function defaultLeftUi(): LeftUiState {
       ranks: false,
     },
   };
+}
+
+/** Layout defaults exclude per-project media beds */
+export function layoutSettingsFromProject(settings: ProjectSettings): ProjectSettings {
+  const next = JSON.parse(JSON.stringify(settings)) as ProjectSettings;
+  next.musicMediaId = null;
+  next.musicUrl = null;
+  return next;
+}
+
+export function saveLayoutDefault(settings: ProjectSettings) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      LAYOUT_STORAGE_KEY,
+      JSON.stringify(layoutSettingsFromProject(settings))
+    );
+  } catch {
+    // quota / private mode
+  }
+}
+
+export function loadLayoutDefault(): ProjectSettings | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ProjectSettings>;
+    const base = builtInDefaultSettings();
+    return {
+      ...base,
+      ...parsed,
+      title: {
+        ...base.title,
+        ...(parsed.title || {}),
+        enabled: parsed.title?.enabled !== false,
+        lines: parsed.title?.lines?.length ? parsed.title.lines : base.title.lines,
+      },
+      ranksLayout: {
+        ...base.ranksLayout,
+        ...(parsed.ranksLayout || {}),
+      },
+      rankColors: {
+        ...base.rankColors,
+        ...(parsed.rankColors || {}),
+      },
+      musicMediaId: null,
+      musicUrl: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function clearLayoutDefault() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(LAYOUT_STORAGE_KEY);
 }
 
 function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip {
@@ -53,13 +111,17 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
 }
 
 export function loadProject(): EditorProject {
-  const fallback = createDefaultProject();
+  const layout = loadLayoutDefault();
+  const fallback = createDefaultProject(layout || undefined);
   if (typeof window === "undefined") return fallback;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<EditorProject>;
-    const ranks = [5, 4, 3, 2, 1];
+    const ranks =
+      (parsed.settings?.playOrder || fallback.settings.playOrder) === "ascending"
+        ? [1, 2, 3, 4, 5]
+        : [5, 4, 3, 2, 1];
     const clips = (parsed.clips && parsed.clips.length === 5
       ? parsed.clips
       : fallback.clips

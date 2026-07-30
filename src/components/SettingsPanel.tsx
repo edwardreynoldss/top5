@@ -1,14 +1,16 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useEditor } from "@/lib/store";
-import { Upload, Music2 } from "lucide-react";
+import { Upload, Music2, Bookmark } from "lucide-react";
 import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
 
 export function SettingsPanel() {
-  const { project, updateSettings, setPlayOrder, setTransition } = useEditor();
+  const { project, updateSettings, setPlayOrder, setTransition, saveLayoutAsDefault } =
+    useEditor();
   const { settings } = project;
   const musicRef = useRef<HTMLInputElement>(null);
+  const [layoutFlash, setLayoutFlash] = useState(false);
 
   async function uploadMusic(file: File) {
     const fd = new FormData();
@@ -27,6 +29,24 @@ export function SettingsPanel() {
       <div className="panel-header compact">
         <h2>Playback & look</h2>
         <p className="muted">Order, transitions, fit, music</p>
+      </div>
+
+      <div className="layout-default-row">
+        <button
+          type="button"
+          className="btn ghost small"
+          onClick={() => {
+            saveLayoutAsDefault();
+            setLayoutFlash(true);
+            window.setTimeout(() => setLayoutFlash(false), 1800);
+          }}
+        >
+          <Bookmark size={14} />
+          {layoutFlash ? "Saved as default" : "Save as default layout"}
+        </button>
+        <p className="muted">
+          Remembers title, ranks position, colors, and look. Reset clears clips but keeps this layout.
+        </p>
       </div>
 
       <div className="field-grid">

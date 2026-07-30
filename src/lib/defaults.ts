@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import type {
   ClipCrop,
   EditorProject,
+  ProjectSettings,
   RankClip,
   TitleLine,
   TitleWord,
@@ -62,66 +63,81 @@ export function createEmptyClip(rank: number): RankClip {
   };
 }
 
-export function createDefaultProject(): EditorProject {
+/** Built-in factory settings (before any user “Save as default layout”). */
+export function builtInDefaultSettings(): ProjectSettings {
   return {
-    clips: [5, 4, 3, 2, 1].map((rank) => createEmptyClip(rank)),
+    title: {
+      lines: [
+        createLine([
+          { text: "RANKING", color: "#FFFFFF" },
+          { text: "BEST", color: "#FFFFFF" },
+        ]),
+        createLine([
+          { text: "FALLING", color: "#39FF14" },
+          { text: "MOMENTS", color: "#FFFFFF" },
+        ]),
+      ],
+      fontId: "display",
+      fontSize: 54,
+      lineGap: 8,
+      barOpacity: 0.72,
+      showBar: true,
+      barHeight: 150,
+      enabled: true,
+      x: 50,
+      y: 2.2,
+      align: "center",
+      uppercase: true,
+    },
+    ranksLayout: {
+      x: 3.5,
+      y: 11,
+      fontSize: 92,
+      gap: 120,
+      fontId: "display",
+      labelSize: 42,
+    },
+    playOrder: "countdown",
+    transition: "flash",
+    transitionDuration: 0.25,
+    aspectMode: "crop-fill",
+    blurAmount: 28,
+    titleOverlap: true,
+    showRankList: true,
+    showActiveLabel: true,
+    rankColors: {
+      1: "#FF2D2D",
+      2: "#FF8A00",
+      3: "#FFD400",
+      4: "#FFFFFF",
+      5: "#FFFFFF",
+    },
+    fps: 30,
+    width: OUTPUT_WIDTH,
+    height: OUTPUT_HEIGHT,
+    musicMediaId: null,
+    musicUrl: null,
+    musicVolume: 0.35,
+    clipVolume: 1,
+  };
+}
+
+export function cloneSettings(settings: ProjectSettings): ProjectSettings {
+  return JSON.parse(JSON.stringify(settings)) as ProjectSettings;
+}
+
+/**
+ * Empty clips + layout settings. Pass saved layout settings so Reset keeps
+ * title/ranks positioning instead of the built-in factory look.
+ */
+export function createDefaultProject(settings?: ProjectSettings): EditorProject {
+  const ranks =
+    (settings?.playOrder || "countdown") === "ascending" ? [1, 2, 3, 4, 5] : [5, 4, 3, 2, 1];
+  return {
+    clips: ranks.map((rank) => createEmptyClip(rank)),
     sfxAssets: [],
     sfxPlacements: [],
-    settings: {
-      title: {
-        lines: [
-          createLine([
-            { text: "RANKING", color: "#FFFFFF" },
-            { text: "BEST", color: "#FFFFFF" },
-          ]),
-          createLine([
-            { text: "FALLING", color: "#39FF14" },
-            { text: "MOMENTS", color: "#FFFFFF" },
-          ]),
-        ],
-        fontId: "display",
-        fontSize: 54,
-        lineGap: 8,
-        barOpacity: 0.72,
-        showBar: true,
-        barHeight: 150,
-        enabled: true,
-        x: 50,
-        y: 2.2,
-        align: "center",
-        uppercase: true,
-      },
-      ranksLayout: {
-        x: 3.5,
-        y: 11,
-        fontSize: 92,
-        gap: 120,
-        fontId: "display",
-        labelSize: 42,
-      },
-      playOrder: "countdown",
-      transition: "flash",
-      transitionDuration: 0.25,
-      aspectMode: "crop-fill",
-      blurAmount: 28,
-      titleOverlap: true,
-      showRankList: true,
-      showActiveLabel: true,
-      rankColors: {
-        1: "#FF2D2D",
-        2: "#FF8A00",
-        3: "#FFD400",
-        4: "#FFFFFF",
-        5: "#FFFFFF",
-      },
-      fps: 30,
-      width: OUTPUT_WIDTH,
-      height: OUTPUT_HEIGHT,
-      musicMediaId: null,
-      musicUrl: null,
-      musicVolume: 0.35,
-      clipVolume: 1,
-    },
+    settings: settings ? cloneSettings(settings) : builtInDefaultSettings(),
   };
 }
 

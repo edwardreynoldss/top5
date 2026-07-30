@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Loader2, Play, Pause, RotateCcw } from "lucide-react";
+import { Download, Loader2, Play, Pause, RotateCcw, Bookmark } from "lucide-react";
 import { clipPlayDuration, getPlaybackOrder, resolveSfxStartAt, effectiveSfxVolume, getClipVolume } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
 import { useEditor } from "@/lib/store";
@@ -13,7 +13,7 @@ export function TopBar({
   isPlaying: boolean;
   onTogglePlay: () => void;
 }) {
-  const { project, resetProject } = useEditor();
+  const { project, resetProject, saveLayoutAsDefault } = useEditor();
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
@@ -24,6 +24,7 @@ export function TopBar({
   const [error, setError] = useState<string | null>(null);
   const [toolsOk, setToolsOk] = useState<boolean | null>(null);
   const [toolsHint, setToolsHint] = useState<string | null>(null);
+  const [layoutSavedFlash, setLayoutSavedFlash] = useState(false);
 
   const readyClips = useMemo(
     () => getPlaybackOrder(project.clips, project.settings.playOrder),
@@ -192,7 +193,31 @@ export function TopBar({
       </div>
 
       <div className="topbar-actions">
-        <button className="btn ghost" onClick={resetProject} title="Reset project">
+        <button
+          className="btn ghost"
+          onClick={() => {
+            saveLayoutAsDefault();
+            setLayoutSavedFlash(true);
+            window.setTimeout(() => setLayoutSavedFlash(false), 1800);
+          }}
+          title="Save current title, ranks, and look as the default layout for Reset"
+        >
+          <Bookmark size={16} />
+          {layoutSavedFlash ? "Layout saved" : "Save layout"}
+        </button>
+        <button
+          className="btn ghost"
+          onClick={() => {
+            if (
+              window.confirm(
+                "Clear all clips and placements? Your saved default layout (title/ranks/look) will be kept."
+              )
+            ) {
+              resetProject();
+            }
+          }}
+          title="Clear clips — keeps your saved default layout"
+        >
           <RotateCcw size={16} />
         </button>
         <button className="btn" onClick={onTogglePlay} disabled={readyClips.length === 0}>

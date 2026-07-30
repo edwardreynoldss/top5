@@ -11,7 +11,13 @@ import {
   type ReactNode,
 } from "react";
 import { createDefaultProject, createWord } from "./defaults";
-import { clearSavedProject, loadProject, saveProject } from "./persist";
+import {
+  clearSavedProject,
+  loadLayoutDefault,
+  loadProject,
+  saveLayoutDefault,
+  saveProject,
+} from "./persist";
 import { hydrateSfxAssets, loadSfxLibrary, upsertSfxLibraryAsset } from "./sfxLibrary";
 import type {
   EditorProject,
@@ -58,6 +64,7 @@ interface EditorContextValue {
   sfxTabNonce: number;
   requestSfxTab: () => void;
   resetProject: () => void;
+  saveLayoutAsDefault: () => void;
   setPlayOrder: (order: PlayOrder) => void;
   setTransition: (t: TransitionType) => void;
 }
@@ -331,10 +338,20 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const resetProject = useCallback(() => {
     clearSavedProject();
-    setProject(createDefaultProject());
+    const layout = loadLayoutDefault();
+    const base = createDefaultProject(layout || undefined);
+    // Keep durable SFX library samples; clear placements and clips
+    const lib = loadSfxLibrary();
+    setProject({ ...base, sfxAssets: lib });
     setSelectedClipId(null);
+    setSelectedSfxPlacementId(null);
     setSaveStatus("saved");
   }, []);
+
+  const saveLayoutAsDefault = useCallback(() => {
+    saveLayoutDefault(project.settings);
+    setSaveStatus("saved");
+  }, [project.settings]);
 
   const setPlayOrder = useCallback((order: PlayOrder) => {
     setProject((prev) => {
@@ -380,6 +397,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateSfxPlacement,
       removeSfxPlacement,
       resetProject,
+      saveLayoutAsDefault,
       setPlayOrder,
       setTransition,
     }),
@@ -406,6 +424,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateSfxPlacement,
       removeSfxPlacement,
       resetProject,
+      saveLayoutAsDefault,
       setPlayOrder,
       setTransition,
     ]
