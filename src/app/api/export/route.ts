@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { existsSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
-import { ensureDirs, EXPORT_DIR, UPLOAD_DIR, exportPath } from "@/lib/paths";
+import { ensureDirs, EXPORT_DIR, UPLOAD_DIR, exportPath, publishProjectExport } from "@/lib/paths";
 import { runCommand } from "@/lib/ffmpeg";
 import { ensurePillow, whichTools } from "@/lib/bins";
 import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
@@ -614,9 +614,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const published = publishProjectExport(finalOut);
+
     return NextResponse.json({
-      exportId: `${jobId}.mp4`,
-      downloadUrl: `/api/media/${jobId}.mp4`,
+      exportId: published.fileName,
+      fileName: published.fileName,
+      exportNumber: published.number,
+      /** Saved on disk under the project exports/ folder */
+      savedPath: published.relativePath,
+      downloadUrl: `/api/media/${published.fileName}?download=1`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Export failed";

@@ -17,6 +17,10 @@ export function TopBar({
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [savedExport, setSavedExport] = useState<{
+    fileName: string;
+    savedPath: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toolsOk, setToolsOk] = useState<boolean | null>(null);
   const [toolsHint, setToolsHint] = useState<string | null>(null);
@@ -63,6 +67,7 @@ export function TopBar({
     setExporting(true);
     setError(null);
     setDownloadUrl(null);
+    setSavedExport(null);
     setProgress("Preparing sound effects…");
     try {
       // Re-upload any SFX that vanished from tmp/ but still live in IndexedDB
@@ -140,8 +145,22 @@ export function TopBar({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Export failed");
-      setProgress("Done");
-      setDownloadUrl(data.downloadUrl);
+      const fileName = data.fileName || "ranking-short.mp4";
+      const url = data.downloadUrl as string;
+      setProgress(`Saved ${data.savedPath || `exports/${fileName}`}`);
+      setDownloadUrl(url);
+      setSavedExport({
+        fileName,
+        savedPath: data.savedPath || `exports/${fileName}`,
+      });
+      // Instant browser download with the numbered filename
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");
       setProgress(null);
@@ -191,9 +210,13 @@ export function TopBar({
           {toolsHint && !error && <p className="error-text">{toolsHint}</p>}
           {error && <p className="error-text">{error}</p>}
           {progress && !error && <p>{progress}</p>}
-          {downloadUrl && (
-            <a className="btn primary small" href={downloadUrl} download="ranking-short.mp4">
-              <Download size={14} /> Download video
+          {downloadUrl && savedExport && (
+            <a
+              className="btn primary small"
+              href={downloadUrl}
+              download={savedExport.fileName}
+            >
+              <Download size={14} /> {savedExport.fileName}
             </a>
           )}
         </div>

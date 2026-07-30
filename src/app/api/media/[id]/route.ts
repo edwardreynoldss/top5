@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createReadStream, existsSync, statSync } from "fs";
 import path from "path";
 import { Readable } from "stream";
-import { UPLOAD_DIR, EXPORT_DIR } from "@/lib/paths";
+import { UPLOAD_DIR, EXPORT_DIR, PROJECT_EXPORTS_DIR } from "@/lib/paths";
 
 export const runtime = "nodejs";
 
@@ -10,7 +10,11 @@ function resolveFile(id: string) {
   if (!id || id.includes("..") || id.includes("/") || id.includes("\\")) {
     return null;
   }
-  const candidates = [path.join(UPLOAD_DIR, id), path.join(EXPORT_DIR, id)];
+  const candidates = [
+    path.join(PROJECT_EXPORTS_DIR, id),
+    path.join(UPLOAD_DIR, id),
+    path.join(EXPORT_DIR, id),
+  ];
   const filePath = candidates.find((p) => existsSync(p));
   return filePath || null;
 }
@@ -25,17 +29,21 @@ function contentTypeFor(id: string) {
   return "video/mp4";
 }
 
-function baseHeaders(id: string, size: number): HeadersInit {
-  return {
+function baseHeaders(id: string, size: number, asDownload: boolean): HeadersInit {
+  const headers: Record<string, string> = {
     "Content-Type": contentTypeFor(id),
     "Accept-Ranges": "bytes",
     "Content-Length": String(size),
     "Cache-Control": "private, max-age=3600",
   };
+  if (asDownload) {
+    headers["Content-Disposition"] = `attachment; filename="${id.replace(/"/g, "")}"`;
+  }
+  return headers;
 }
 
 export async function HEAD(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   const { id } = await context.params;
@@ -44,9 +52,10 @@ export async function HEAD(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const stat = statSync(filePath);
+  const asDownload = req.nextUrl.searchParams.get("download") === "1";
   return new NextResponse(null, {
     status: 200,
-    headers: baseHeaders(id, stat.size),
+    headers: baseHeaders(id, stat.size, asDownload),
   });
 }
 
@@ -61,9 +70,10 @@ export async function GET(
   }
 
   const stat = statSync(filePath);
+  const asDownload = req.nextUrl.searchParams.get("download") === "1";
   const range = req.headers.get("range");
 
-  if (range) {
+  if (range && !asDownload) {
     const m = /bytes=(\d*)-(\d*)/.exec(range);
     if (!m) {
       return new NextResponse("Invalid Range", {
@@ -95,6 +105,6 @@ export async function GET(
 
   const stream = createReadStream(filePath);
   return new NextResponse(Readable.toWeb(stream) as ReadableStream, {
-    headers: baseHeaders(id, stat.size),
+    headers: baseHeaders(id, stat.size, asDownload),
   });
 }

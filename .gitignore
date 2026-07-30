@@ -46,6 +46,11 @@ tmp/**
 !tmp/uploads/.gitkeep
 !tmp/exports/.gitkeep
 
+# finished numbered exports (keep folder + readme)
+exports/*
+!exports/.gitkeep
+!exports/README.md
+
 # user-dropped SFX library (keep readme)
 sfx/*
 !sfx/README.md
