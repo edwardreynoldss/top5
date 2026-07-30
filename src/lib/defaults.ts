@@ -57,6 +57,7 @@ export function createEmptyClip(rank: number): RankClip {
     trimEnd: seg.end,
     segments: [seg],
     crop: defaultCrop(),
+    volume: 1,
     status: "empty",
   };
 }
@@ -138,6 +139,17 @@ export function getClipSegments(clip: RankClip): TrimSegment[] {
 
 export function getClipCrop(clip: RankClip): ClipCrop {
   return clip.crop || defaultCrop();
+}
+
+/** Per-clip volume (0–2), default 1 */
+export function getClipVolume(clip: RankClip) {
+  return Math.max(0, Math.min(2, typeof clip.volume === "number" && Number.isFinite(clip.volume) ? clip.volume : 1));
+}
+
+/** Clip gain × project master clipVolume */
+export function effectiveClipVolume(clip: RankClip, master = 1) {
+  const m = Math.max(0, Math.min(2, Number.isFinite(master) ? master : 1));
+  return Math.max(0, Math.min(2, getClipVolume(clip) * m));
 }
 
 export function clipPlayDuration(clip: RankClip) {

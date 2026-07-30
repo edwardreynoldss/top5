@@ -34,6 +34,10 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
         ? clip.segments
         : [createSegment(clip.trimStart ?? 0, clip.trimEnd ?? DEFAULT_CLIP_DURATION)],
     crop: clip.crop || defaultCrop(),
+    volume:
+      typeof clip.volume === "number" && Number.isFinite(clip.volume)
+        ? Math.max(0, Math.min(2, clip.volume))
+        : 1,
     // Don't restore blob: URLs; keep server media paths
     mediaUrl:
       clip.mediaUrl && clip.mediaUrl.startsWith("/api/media/")

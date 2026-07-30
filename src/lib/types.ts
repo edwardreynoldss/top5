@@ -38,6 +38,8 @@ export interface RankClip {
   /** One or more ranges that are merged in playback/export */
   segments: TrimSegment[];
   crop: ClipCrop;
+  /** Per-clip gain 0–2 (1 = unchanged). Multiplied by project clipVolume on preview/export. */
+  volume: number;
   status: "empty" | "loading" | "ready" | "error";
   error?: string;
 }

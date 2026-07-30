@@ -19,6 +19,8 @@ interface ExportClip {
   trimEnd: number;
   segments?: { start: number; end: number }[];
   crop?: { zoom: number; panX: number; panY: number };
+  /** Per-clip gain 0–2; multiplied by body.clipVolume */
+  volume?: number;
 }
 
 interface ExportBody {
@@ -398,7 +400,10 @@ export async function POST(req: NextRequest) {
         titleOverlay,
         ranksOverlay: body.showRankList ? ranksOverlay : null,
         fps,
-        clipVolume: body.clipVolume ?? 1,
+        clipVolume: Math.max(
+          0,
+          Math.min(2, (clip.volume ?? 1) * (body.clipVolume ?? 1))
+        ),
         crop: clip.crop || { zoom: 1, panX: 50, panY: 50 },
         titleOverlap: !titleEnabled ? true : body.titleOverlap !== false,
         titleBarHeight: barH,

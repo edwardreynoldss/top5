@@ -129,7 +129,7 @@ export function SettingsPanel() {
         </label>
 
         <label className="field">
-          <span>Clip volume</span>
+          <span>Master clip volume</span>
           <input
             type="range"
             min={0}

@@ -94,14 +94,20 @@ export function TrimModal({
   const active = segments[activeIdx] || segments[0];
   const totalSelected = useMemo(() => segmentsDuration(segments), [segments]);
 
-  // Reset trim state once per open/src session — not on every parent re-render
-  // (ClipCard often passes fresh array/object literals for initialSegments/crop).
+  // Reset trim state once per open session. Key includes saved trim/crop so
+  // re-edit restores the clip's settings instead of a blank default.
   useEffect(() => {
     if (!open) {
       sessionRef.current = null;
       return;
     }
-    const sessionKey = `${src}::${duration}`;
+    const segKey = initialSegments
+      .map((s) => `${Number(s.start).toFixed(3)}-${Number(s.end).toFixed(3)}`)
+      .join("|");
+    const cropKey = initialCrop
+      ? `${initialCrop.zoom}:${initialCrop.panX}:${initialCrop.panY}`
+      : "default";
+    const sessionKey = `${src}::${duration}::${segKey}::${cropKey}`;
     if (sessionRef.current === sessionKey) return;
     sessionRef.current = sessionKey;
 

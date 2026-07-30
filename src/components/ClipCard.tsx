@@ -11,6 +11,7 @@ import {
   Trash2,
   Loader2,
   X,
+  Volume2,
 } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import type { ClipCrop, RankClip, TrimSegment } from "@/lib/types";
@@ -22,6 +23,7 @@ import {
   clipPlayDuration,
   defaultCrop,
   getClipCrop,
+  getClipVolume,
 } from "@/lib/defaults";
 
 function isVideoFile(file: File) {
@@ -243,17 +245,22 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       trimEnd: DEFAULT_CLIP_DURATION,
       segments: [createSegment(0, DEFAULT_CLIP_DURATION)],
       crop: defaultCrop(),
+      volume: 1,
       error: undefined,
     });
     setUrl("");
   }
 
   const segs = getClipSegments(clip);
+  const clipVol = getClipVolume(clip);
 
+  // New ingest (upload/fetch) uses pendingMeta → fresh trim defaults.
+  // Re-edit (scissors) only sets pendingSrc so existing trim/crop are kept.
   const trimSrc = pendingSrc || "";
   const trimDuration = pendingMeta?.duration || clip.duration || 0;
+  const isNewIngest = !!pendingMeta;
   const trimSegments = useMemo(() => {
-    if (pendingMeta) {
+    if (isNewIngest && pendingMeta) {
       return [
         createSegment(
           0,
@@ -262,14 +269,21 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       ];
     }
     return getClipSegments(clip);
-    // Only rebuild when the trim session source/duration or stored clip segments change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingMeta?.mediaId, pendingMeta?.duration, clip.id, clip.segments, clip.trimStart, clip.trimEnd]);
+  }, [
+    isNewIngest,
+    pendingMeta?.mediaId,
+    pendingMeta?.duration,
+    clip.id,
+    clip.segments,
+    clip.trimStart,
+    clip.trimEnd,
+  ]);
   const trimCrop = useMemo(() => {
-    if (pendingMeta) return defaultCrop();
+    if (isNewIngest) return defaultCrop();
     return getClipCrop(clip);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingMeta?.mediaId, clip.id, clip.crop]);
+  }, [isNewIngest, pendingMeta?.mediaId, clip.id, clip.crop]);
 
   return (
     <>
@@ -306,21 +320,12 @@ export function ClipCard({ clip }: { clip: RankClip }) {
               <div className="clip-actions">
                 <button
                   className="icon-btn"
-                  title="Re-trim"
+                  title="Edit trim & crop"
                   onClick={(e) => {
                     e.stopPropagation();
+                    // Re-edit: keep saved trim/crop — do not set pendingMeta (that path is new ingest)
+                    setPendingMeta(null);
                     setPendingSrc(clip.mediaUrl);
-                    setPendingMeta(
-                      clip.mediaId
-                        ? {
-                            mediaId: clip.mediaId,
-                            mediaUrl: clip.mediaUrl!,
-                            duration: clip.duration,
-                            fileName: clip.fileName || "clip",
-                            sourceUrl: clip.sourceUrl,
-                          }
-                        : null
-                    );
                     setTrimOpen(true);
                   }}
                 >
@@ -348,26 +353,49 @@ export function ClipCard({ clip }: { clip: RankClip }) {
           )}
 
           {clip.status === "ready" ? (
-            <div className="clip-ready">
-              <div className="thumb">
-                <video
-                  key={clip.mediaUrl || clip.id}
-                  src={`${clip.mediaUrl!}#t=${segs[0]?.start || 0}`}
-                  muted
-                  playsInline
-                  preload="metadata"
+            <div className="clip-ready-wrap">
+              <div className="clip-ready">
+                <div className="thumb">
+                  <video
+                    key={clip.mediaUrl || clip.id}
+                    src={`${clip.mediaUrl!}#t=${segs[0]?.start || 0}`}
+                    muted
+                    playsInline
+                    preload="metadata"
+                  />
+                </div>
+                <div className="clip-meta">
+                  <p className="truncate">{clip.fileName || "Clip ready"}</p>
+                  <p className="muted">
+                    {segs.length} part{segs.length > 1 ? "s" : ""} · {clipPlayDuration(clip).toFixed(1)}s
+                    {getClipCrop(clip).zoom !== 1
+                      ? ` · ${getClipCrop(clip).zoom.toFixed(1)}× zoom`
+                      : ""}
+                    {" · drop a new video to replace"}
+                  </p>
+                </div>
+              </div>
+              <label
+                className="clip-volume"
+                onClick={(e) => e.stopPropagation()}
+                title="Volume for this clip"
+              >
+                <Volume2 size={14} className="muted-icon" />
+                <span>{Math.round(clipVol * 100)}%</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={0.05}
+                  value={clipVol}
+                  aria-label={`Volume for rank ${clip.rank}`}
+                  onChange={(e) =>
+                    updateClip(clip.id, {
+                      volume: Math.max(0, Math.min(2, parseFloat(e.target.value) || 0)),
+                    })
+                  }
                 />
-              </div>
-              <div className="clip-meta">
-                <p className="truncate">{clip.fileName || "Clip ready"}</p>
-                <p className="muted">
-                  {segs.length} part{segs.length > 1 ? "s" : ""} · {clipPlayDuration(clip).toFixed(1)}s
-                  {getClipCrop(clip).zoom !== 1
-                    ? ` · ${getClipCrop(clip).zoom.toFixed(1)}× zoom`
-                    : ""}
-                  {" · drop a new video to replace"}
-                </p>
-              </div>
+              </label>
             </div>
           ) : (
             <div className="clip-import" onClick={(e) => e.stopPropagation()}>

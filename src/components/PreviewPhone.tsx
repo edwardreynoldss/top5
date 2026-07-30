@@ -19,11 +19,12 @@ import {
   findClipAtAbsoluteTime,
   formatTime,
   effectiveSfxVolume,
+  effectiveClipVolume,
 } from "@/lib/defaults";
 import { fontCss, type RankClip } from "@/lib/types";
 
 export function PreviewPhone({
-  previewClip,
+  previewClip: _previewClip,
   isPlaying,
   onPlayingChange,
 }: {
@@ -362,8 +363,12 @@ export function PreviewPhone({
     settings.transition,
   ]);
 
-  // previewClip prop kept for API compatibility; preview always plays the full sequence
-  void previewClip;
+  // Apply per-clip × master volume whenever the active clip or levels change
+  useEffect(() => {
+    const fg = videoRef.current;
+    if (!fg || !activeClip) return;
+    fg.volume = Math.min(1, effectiveClipVolume(activeClip, settings.clipVolume));
+  }, [activeClip, activeClip?.volume, settings.clipVolume]);
 
   function seekAbsolute(t: number) {
     if (offsets.length === 0 || sequence.length === 0) return;
@@ -529,8 +534,13 @@ export function PreviewPhone({
                 preload="auto"
                 style={cropStyle}
                 onLoadedData={(e) => {
-                  e.currentTarget.volume = settings.clipVolume;
                   const v = e.currentTarget;
+                  if (activeClip) {
+                    v.volume = Math.min(
+                      1,
+                      effectiveClipVolume(activeClip, settings.clipVolume)
+                    );
+                  }
                   if (v.videoWidth > 0 && v.videoHeight > 0) {
                     setVideoAspect(v.videoWidth / v.videoHeight);
                   }

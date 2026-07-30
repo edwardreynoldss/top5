@@ -1167,6 +1167,25 @@ a {
   align-items: center;
 }
 
+.clip-ready-wrap {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.clip-volume {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.clip-volume input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent, #c8f542);
+}
+
 .thumb {
   width: 72px;
   height: 48px;

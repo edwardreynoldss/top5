@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Play, Pause, RotateCcw } from "lucide-react";
-import { clipPlayDuration, getPlaybackOrder, resolveSfxStartAt, effectiveSfxVolume } from "@/lib/defaults";
+import { clipPlayDuration, getPlaybackOrder, resolveSfxStartAt, effectiveSfxVolume, getClipVolume } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
 import { useEditor } from "@/lib/store";
 
@@ -108,6 +108,7 @@ export function TopBar({
               : [{ start: c.trimStart, end: c.trimEnd }]
             ).map((s) => ({ start: s.start, end: s.end })),
             crop: c.crop || { zoom: 1, panX: 50, panY: 50 },
+            volume: getClipVolume(c),
           })),
           title: titlePayload,
           ranksLayout: settings.ranksLayout,
