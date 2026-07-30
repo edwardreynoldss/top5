@@ -24,12 +24,26 @@ import {
   getClipCrop,
 } from "@/lib/defaults";
 
+function isVideoFile(file: File) {
+  if (file.type.startsWith("video/")) return true;
+  return /\.(mp4|mov|webm|mkv|m4v|avi)$/i.test(file.name);
+}
+
+function pickVideoFromDataTransfer(dt: DataTransfer | null): File | null {
+  if (!dt?.files?.length) return null;
+  for (const file of Array.from(dt.files)) {
+    if (isVideoFile(file)) return file;
+  }
+  return null;
+}
+
 export function ClipCard({ clip }: { clip: RankClip }) {
   const { updateClip, selectedClipId, setSelectedClipId, project } = useEditor();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: clip.id });
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const dragDepthRef = useRef(0);
   const [url, setUrl] = useState(clip.sourceUrl || "");
   const [trimOpen, setTrimOpen] = useState(false);
   const [pendingSrc, setPendingSrc] = useState<string | null>(null);
@@ -41,6 +55,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
     sourceUrl?: string | null;
   } | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
+  const [fileDragOver, setFileDragOver] = useState(false);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -49,6 +64,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
   };
 
   const color = project.settings.rankColors[clip.rank] || "#fff";
+  const busy = clip.status === "loading";
 
   function cancelIngest() {
     abortRef.current?.abort();
@@ -58,6 +74,13 @@ export function ClipCard({ clip }: { clip: RankClip }) {
   }
 
   async function ingestUpload(file: File) {
+    if (!isVideoFile(file)) {
+      updateClip(clip.id, {
+        status: "error",
+        error: "Drop a video file (mp4, mov, webm, mkv…)",
+      });
+      return;
+    }
     cancelIngest();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -93,6 +116,49 @@ export function ClipCard({ clip }: { clip: RankClip }) {
     } finally {
       abortRef.current = null;
     }
+  }
+
+  function onFileDragEnter(e: React.DragEvent) {
+    if (![...e.dataTransfer.types].includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current += 1;
+    setFileDragOver(true);
+  }
+
+  function onFileDragOver(e: React.DragEvent) {
+    if (![...e.dataTransfer.types].includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    setFileDragOver(true);
+  }
+
+  function onFileDragLeave(e: React.DragEvent) {
+    if (![...e.dataTransfer.types].includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setFileDragOver(false);
+  }
+
+  function onFileDrop(e: React.DragEvent) {
+    if (![...e.dataTransfer.types].includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = 0;
+    setFileDragOver(false);
+    if (busy) return;
+    const file = pickVideoFromDataTransfer(e.dataTransfer);
+    if (!file) {
+      updateClip(clip.id, {
+        status: clip.status === "ready" ? "ready" : "error",
+        error: "Drop a video file (mp4, mov, webm, mkv…)",
+      });
+      return;
+    }
+    setSelectedClipId(clip.id);
+    void ingestUpload(file);
   }
 
   async function ingestUrl() {
@@ -210,8 +276,14 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       <div
         ref={setNodeRef}
         style={style}
-        className={`clip-card ${selectedClipId === clip.id ? "selected" : ""}`}
+        className={`clip-card ${selectedClipId === clip.id ? "selected" : ""} ${
+          fileDragOver ? "file-drop-target" : ""
+        }`}
         onClick={() => setSelectedClipId(clip.id)}
+        onDragEnter={onFileDragEnter}
+        onDragOver={onFileDragOver}
+        onDragLeave={onFileDragLeave}
+        onDrop={onFileDrop}
       >
         <button className="drag-handle" {...attributes} {...listeners} aria-label="Reorder">
           <GripVertical size={16} />
@@ -268,6 +340,13 @@ export function ClipCard({ clip }: { clip: RankClip }) {
             )}
           </div>
 
+          {fileDragOver && (
+            <div className="clip-drop-overlay" aria-hidden>
+              <Upload size={18} />
+              <span>{busy ? "Busy…" : "Drop video to fill this clip"}</span>
+            </div>
+          )}
+
           {clip.status === "ready" ? (
             <div className="clip-ready">
               <div className="thumb">
@@ -286,6 +365,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                   {getClipCrop(clip).zoom > 1
                     ? ` · ${getClipCrop(clip).zoom.toFixed(1)}× zoom`
                     : ""}
+                  {" · drop a new video to replace"}
                 </p>
               </div>
             </div>
@@ -298,9 +378,9 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                   placeholder="YouTube / TikTok / Instagram URL"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  disabled={clip.status === "loading"}
+                  disabled={busy}
                 />
-                {clip.status === "loading" ? (
+                {busy ? (
                   <button className="btn small danger-btn" onClick={cancelIngest}>
                     <X size={14} /> Cancel
                   </button>
@@ -316,14 +396,14 @@ export function ClipCard({ clip }: { clip: RankClip }) {
               </div>
               <div className="or-row">
                 <span>or</span>
-                {clip.status === "loading" ? (
+                {busy ? (
                   <span className="muted">{progress || "Working…"}</span>
                 ) : (
                   <button
                     className="btn ghost small"
                     onClick={() => fileRef.current?.click()}
                   >
-                    <Upload size={14} /> Upload file
+                    <Upload size={14} /> Upload / drop video
                   </button>
                 )}
                 <input
@@ -338,9 +418,13 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                   }}
                 />
               </div>
-              {clip.status === "loading" && (
+              {!busy && (
+                <p className="muted clip-drop-hint">Drag a video file onto this card</p>
+              )}
+              {busy && (
                 <p className="muted">
-                  <Loader2 size={12} className="spin inline" /> {progress || "Processing…"} — you can cancel
+                  <Loader2 size={12} className="spin inline" /> {progress || "Processing…"} — you can
+                  cancel
                 </p>
               )}
               {clip.error && <p className="error-text">{clip.error}</p>}

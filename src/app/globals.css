@@ -1046,12 +1046,38 @@ a {
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  position: relative;
 }
 
 .clip-card:hover,
 .clip-card.selected {
   border-color: rgba(200, 245, 66, 0.45);
+}
+
+.clip-card.file-drop-target {
+  border-color: rgba(200, 245, 66, 0.75);
+  background: rgba(200, 245, 66, 0.08);
+}
+
+.clip-drop-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0.45rem 0;
+  padding: 0.7rem 0.75rem;
+  border: 1px dashed rgba(200, 245, 66, 0.55);
+  border-radius: 10px;
+  background: rgba(200, 245, 66, 0.1);
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.clip-drop-hint {
+  margin: 0.15rem 0 0;
+  font-size: 0.72rem;
 }
 
 .drag-handle {

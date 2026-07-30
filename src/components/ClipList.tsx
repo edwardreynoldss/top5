@@ -36,7 +36,7 @@ export function ClipList() {
       <div className="panel-header">
         <h2>Clips</h2>
         <p className="muted">
-          Drag to reorder · paste a link or upload · trim before inserting
+          Drag to reorder · drop a video onto a clip · or paste a link / upload
         </p>
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
