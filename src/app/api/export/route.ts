@@ -11,6 +11,26 @@ import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
 export const runtime = "nodejs";
 export const maxDuration = 600;
 
+/** Widely playable H.264 — avoid yuv444 / High 4:4:4 which many Windows/phone players reject */
+const H264_COMPAT = [
+  "-c:v",
+  "libx264",
+  "-preset",
+  "veryfast",
+  "-crf",
+  "20",
+  "-pix_fmt",
+  "yuv420p",
+  "-profile:v",
+  "high",
+  "-level",
+  "4.1",
+] as const;
+
+const AAC_COMPAT = ["-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2"] as const;
+
+const MP4_FASTSTART = ["-movflags", "+faststart"] as const;
+
 interface ExportClip {
   mediaId: string;
   rank: number;
@@ -98,20 +118,10 @@ async function buildMergedSource(
       String(dur),
       "-i",
       input,
-      "-c:v",
-      "libx264",
-      "-preset",
-      "ultrafast",
-      "-crf",
-      "22",
+      ...H264_COMPAT,
       "-r",
       String(fps),
-      "-c:a",
-      "aac",
-      "-ar",
-      "44100",
-      "-ac",
-      "2",
+      ...AAC_COMPAT,
       part,
     ]);
     parts.push(part);
@@ -195,8 +205,8 @@ async function renderClipSegment(opts: {
       ? [
           `${framed}[base]`,
           ranksOverlay
-            ? `[base][2:v]overlay=0:0:shortest=1[withranks];[withranks][1:v]overlay=0:0:shortest=1[vout]`
-            : `[base][1:v]overlay=0:0:shortest=1[vout]`,
+            ? `[base][2:v]overlay=0:0:shortest=1[withranks];[withranks][1:v]overlay=0:0:shortest=1,format=yuv420p[vout]`
+            : `[base][1:v]overlay=0:0:shortest=1,format=yuv420p[vout]`,
         ].join(";")
       : [
           // Blur bg still fills full frame; FG uses same crop framing
@@ -206,8 +216,8 @@ async function renderClipSegment(opts: {
             ? `[bg][fg]overlay=0:${topPad}[comp]`
             : `[bg][fg]overlay=(W-w)/2:(H-h)/2[comp]`,
           ranksOverlay
-            ? `[comp][2:v]overlay=0:0:shortest=1[withranks];[withranks][1:v]overlay=0:0:shortest=1[vout]`
-            : `[comp][1:v]overlay=0:0:shortest=1[vout]`,
+            ? `[comp][2:v]overlay=0:0:shortest=1[withranks];[withranks][1:v]overlay=0:0:shortest=1,format=yuv420p[vout]`
+            : `[comp][1:v]overlay=0:0:shortest=1,format=yuv420p[vout]`,
         ].join(";");
 
   const commonArgs = [
@@ -235,21 +245,12 @@ async function renderClipSegment(opts: {
     "[vout]",
     "-map",
     "[aout]",
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-crf",
-    "20",
-    "-pix_fmt",
-    "yuv420p",
-    "-c:a",
-    "aac",
-    "-b:a",
-    "192k",
+    ...H264_COMPAT,
+    ...AAC_COMPAT,
     "-shortest",
     "-r",
     String(fps),
+    ...MP4_FASTSTART,
     output,
   ];
 
@@ -369,14 +370,21 @@ export async function POST(req: NextRequest) {
           ? duration
           : Math.max(0.2, ranges[0].end - ranges[0].start);
 
-      // Per-clip ranks overlay with this clip's label emphasized
+      // Keep labels for this clip and every earlier clip in playback order
       const ranksOverlay = body.showRankList ? path.join(jobDir, `ranks-${i}.png`) : null;
       const perCfg = {
         ...titleCfg,
         activeRank: clip.rank,
-        ranks: ordered.map((c) => ({
+        showActiveLabel: body.showActiveLabel !== false,
+        ranks: ordered.map((c, idx) => ({
           rank: c.rank,
-          label: c.rank === clip.rank ? c.label : "",
+          // Progressive reveal: once a rank plays, its name stays on later clips
+          label:
+            body.showActiveLabel === false
+              ? ""
+              : idx <= i
+                ? c.label || ""
+                : "",
         })),
       };
       const perCfgPath = path.join(jobDir, `overlay-${i}.json`);
@@ -431,15 +439,10 @@ export async function POST(req: NextRequest) {
           "-i",
           seg,
           "-vf",
-          `fade=t=out:st=${Math.max(0, renderDuration - td)}:d=${td}:color=white`,
-          "-c:v",
-          "libx264",
-          "-preset",
-          "veryfast",
-          "-crf",
-          "20",
-          "-c:a",
-          "copy",
+          `fade=t=out:st=${Math.max(0, renderDuration - td)}:d=${td}:color=white,format=yuv420p`,
+          ...H264_COMPAT,
+          ...AAC_COMPAT,
+          ...MP4_FASTSTART,
           flashed,
         ]);
         segmentPaths.push(flashed);
@@ -451,15 +454,10 @@ export async function POST(req: NextRequest) {
           "-i",
           seg,
           "-vf",
-          `zoompan=z='if(gte(time,${Math.max(0, renderDuration - td)}),1+0.35*(time-(${Math.max(0, renderDuration - td)}))/${td},1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps}`,
-          "-c:v",
-          "libx264",
-          "-preset",
-          "veryfast",
-          "-crf",
-          "20",
-          "-c:a",
-          "copy",
+          `zoompan=z='if(gte(time,${Math.max(0, renderDuration - td)}),1+0.35*(time-(${Math.max(0, renderDuration - td)}))/${td},1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps},format=yuv420p`,
+          ...H264_COMPAT,
+          ...AAC_COMPAT,
+          ...MP4_FASTSTART,
           zoomed,
         ]);
         segmentPaths.push(zoomed);
@@ -497,14 +495,16 @@ export async function POST(req: NextRequest) {
     const needsMix = hasMusic || sfxList.length > 0;
 
     if (!needsMix) {
+      // Always re-encode final for yuv420p / High profile (copy can keep unplayable 4:4:4)
       await runCommand("ffmpeg", [
         "-y",
         "-i",
         concatOut,
-        "-c",
-        "copy",
-        "-movflags",
-        "+faststart",
+        "-vf",
+        "format=yuv420p",
+        ...H264_COMPAT,
+        ...AAC_COMPAT,
+        ...MP4_FASTSTART,
         finalOut,
       ]);
     } else {
@@ -551,15 +551,10 @@ export async function POST(req: NextRequest) {
         "0:v",
         "-map",
         "[aout]",
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
+        ...H264_COMPAT,
+        ...AAC_COMPAT,
         "-shortest",
-        "-movflags",
-        "+faststart",
+        ...MP4_FASTSTART,
         finalOut
       );
 
@@ -609,13 +604,10 @@ export async function POST(req: NextRequest) {
           "0:v",
           "-map",
           "[aout]",
-          "-c:v",
-          "copy",
-          "-c:a",
-          "aac",
+          ...H264_COMPAT,
+          ...AAC_COMPAT,
           "-shortest",
-          "-movflags",
-          "+faststart",
+          ...MP4_FASTSTART,
           finalOut
         );
         await runCommand("ffmpeg", silentArgs);

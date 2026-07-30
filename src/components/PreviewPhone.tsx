@@ -609,10 +609,17 @@ export function PreviewPhone({
             >
               {ranksToShow.map((c) => {
                 const isActive = activeClip?.rank === c.rank;
+                // Progressive reveal: keep labels for ranks already played (and current)
+                const seqIdx = sequence.findIndex((x) => x.id === c.id);
+                const revealed =
+                  settings.showActiveLabel &&
+                  Boolean(c.label) &&
+                  seqIdx >= 0 &&
+                  seqIdx <= activeIndex;
                 return (
                   <div
                     key={c.id}
-                    className={`rank-row ${isActive ? "active" : ""}`}
+                    className={`rank-row ${isActive ? "active" : ""} ${revealed ? "revealed" : ""}`}
                     style={{ minHeight: `${rankGapPx * 0.7}px` }}
                   >
                     <span
@@ -624,7 +631,7 @@ export function PreviewPhone({
                     >
                       {c.rank}.
                     </span>
-                    {settings.showActiveLabel && isActive && c.label ? (
+                    {revealed ? (
                       <span className="rank-label" style={{ fontSize: `${labelFontPx}px` }}>
                         {c.label.toUpperCase()}
                       </span>

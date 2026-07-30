@@ -125,7 +125,7 @@ export function SettingsPanel() {
             checked={settings.showActiveLabel}
             onChange={(e) => updateSettings({ showActiveLabel: e.target.checked })}
           />
-          <span>Reveal label next to active rank</span>
+          <span>Reveal labels as ranks play (names stay on screen)</span>
         </label>
 
         <label className="field">
