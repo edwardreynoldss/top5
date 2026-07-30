@@ -117,6 +117,18 @@ export function PreviewPhone({
     );
   }
 
+  function safePlay(el: HTMLVideoElement | null) {
+    if (!el) return;
+    void el.play().catch((err: unknown) => {
+      const name = err && typeof err === "object" && "name" in err ? String(err.name) : "";
+      // AbortError = interrupted by a new load/play; keep ranking preview going
+      if (name === "AbortError") return;
+      console.warn("preview play failed", err);
+      onPlayingChange(false);
+    });
+  }
+
+  // Load active clip media once per clip/url — never reseek on repeated canplay
   useEffect(() => {
     const fg = videoRef.current;
     const bg = bgRef.current;
@@ -126,58 +138,68 @@ export function PreviewPhone({
     }
 
     let cancelled = false;
+    let initialized = false;
     setMediaReady(false);
+    advancingRef.current = false;
+
     const url = activeClip.mediaUrl;
     const start = scrubbingRef.current
       ? localTime
       : getClipSegments(activeClip)[0]?.start || 0;
 
     const syncSrc = (el: HTMLVideoElement | null) => {
-      if (!el) return;
+      if (!el) return false;
       if (el.getAttribute("src") !== url) {
         el.src = url;
         el.load();
+        return true;
       }
+      return false;
     };
     syncSrc(fg);
     syncSrc(bg);
 
-    const onReady = () => {
-      if (cancelled) return;
+    const finishInit = () => {
+      if (cancelled || initialized) return;
+      initialized = true;
       if (fg.videoWidth > 0 && fg.videoHeight > 0) {
         setVideoAspect(fg.videoWidth / fg.videoHeight);
       }
+      try {
+        if (Math.abs(fg.currentTime - start) > 0.08) {
+          fg.currentTime = start;
+        }
+        if (bg && Math.abs(bg.currentTime - start) > 0.08) {
+          bg.currentTime = start;
+        }
+      } catch {
+        // ignore seek errors
+      }
+      setLocalTime(start);
       setMediaReady(true);
       advancingRef.current = false;
-      try {
-        fg.currentTime = start;
-        if (bg) bg.currentTime = start;
-        setLocalTime(start);
-      } catch {
-        // ignore
-      }
-      // Resume if we were mid–Play all when the next clip loaded
       if (isPlayingRef.current) {
-        void fg.play().catch((err: unknown) => {
-          const name = err && typeof err === "object" && "name" in err ? String(err.name) : "";
-          if (name === "AbortError") return;
-          onPlayingChange(false);
-        });
-        void bg?.play().catch(() => undefined);
+        safePlay(fg);
+        safePlay(bg);
       }
     };
 
-    fg.addEventListener("loadeddata", onReady);
-    fg.addEventListener("canplay", onReady);
-    if (fg.readyState >= 2 && fg.getAttribute("src") === url) onReady();
+    const onLoaded = () => finishInit();
+    fg.addEventListener("loadeddata", onLoaded);
+    // Already buffered (same src after scrub)
+    if (fg.readyState >= 2 && fg.getAttribute("src") === url) {
+      finishInit();
+    }
+
     const failsafe = window.setTimeout(() => {
-      if (!cancelled) advancingRef.current = false;
-    }, 800);
+      if (!cancelled && !initialized && fg.readyState >= 1) finishInit();
+      advancingRef.current = false;
+    }, 1200);
+
     return () => {
       cancelled = true;
       window.clearTimeout(failsafe);
-      fg.removeEventListener("loadeddata", onReady);
-      fg.removeEventListener("canplay", onReady);
+      fg.removeEventListener("loadeddata", onLoaded);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClip?.id, activeClip?.mediaUrl]);
@@ -189,18 +211,17 @@ export function PreviewPhone({
 
     if (isPlaying && activeClip?.mediaUrl && mediaReady) {
       resetSfxFiring(absTime);
-      void fg.play().catch((err: unknown) => {
-        const name = err && typeof err === "object" && "name" in err ? String(err.name) : "";
-        // src changes abort the prior play() — do not stop the full ranking preview
-        if (name === "AbortError") return;
-        onPlayingChange(false);
-      });
-      void bg?.play().catch(() => undefined);
-    } else {
+      safePlay(fg);
+      if (bg) {
+        bg.muted = true;
+        safePlay(bg);
+      }
+    } else if (!isPlaying) {
       fg.pause();
       bg?.pause();
-      if (!isPlaying) stopAllSfx();
+      stopAllSfx();
     }
+    // While isPlaying && !mediaReady, do not pause — wait for load to finish
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, activeClip?.id, activeClip?.mediaUrl, mediaReady, onPlayingChange]);
 
@@ -238,14 +259,12 @@ export function PreviewPhone({
     const bg = bgRef.current;
     if (!fg || !activeClip || !activeSeg) return;
 
-    const onTime = () => {
+    const segEnd = activeSeg.end;
+    const segStart = activeSeg.start;
+
+    const completeCurrent = () => {
       if (scrubbingRef.current || advancingRef.current) return;
       if (!isPlayingRef.current) return;
-      setLocalTime(fg.currentTime);
-      if (bg && Math.abs(bg.currentTime - fg.currentTime) > 0.15) {
-        bg.currentTime = fg.currentTime;
-      }
-      if (fg.currentTime < activeSeg.end - 0.05) return;
 
       // Next trim part within the same ranking clip
       if (segIndexRef.current < segments.length - 1) {
@@ -263,10 +282,12 @@ export function PreviewPhone({
         window.setTimeout(() => {
           advancingRef.current = false;
         }, 80);
+        safePlay(fg);
+        safePlay(bg);
         return;
       }
 
-      // Advance to next ranking clip (full-video preview)
+      // Advance to next ranking clip
       advancingRef.current = true;
       const seq = sequenceRef.current;
       const next = activeIndexRef.current + 1;
@@ -279,7 +300,7 @@ export function PreviewPhone({
         segIndexRef.current = 0;
         setActiveIndex(next);
         setSegIndex(0);
-        // advancingRef cleared when next clip's media is ready
+        // advancingRef cleared when next clip media initializes
       } else {
         activeIndexRef.current = 0;
         segIndexRef.current = 0;
@@ -288,14 +309,51 @@ export function PreviewPhone({
         onPlayingChange(false);
         firedSfxRef.current.clear();
         advancingRef.current = false;
+        try {
+          const first = seq[0];
+          const start = first ? getClipSegments(first)[0]?.start || 0 : 0;
+          fg.currentTime = start;
+          if (bg) bg.currentTime = start;
+          setLocalTime(start);
+        } catch {
+          // ignore
+        }
       }
     };
+
+    const onTime = () => {
+      if (scrubbingRef.current || advancingRef.current) return;
+      const t = fg.currentTime;
+      setLocalTime(t);
+      if (bg && Math.abs(bg.currentTime - t) > 0.15) {
+        bg.currentTime = t;
+      }
+      if (!isPlayingRef.current) return;
+
+      // Only complete after we've actually entered the segment (avoid seek glitches)
+      if (t + 0.02 < segStart) return;
+
+      const naturalEnd =
+        Number.isFinite(fg.duration) && fg.duration > 0 ? fg.duration : Infinity;
+      const endAt = Math.min(segEnd, naturalEnd);
+      if (t >= endAt - 0.05) {
+        completeCurrent();
+      }
+    };
+
+    const onEnded = () => {
+      if (!isPlayingRef.current) return;
+      completeCurrent();
+    };
+
     fg.addEventListener("timeupdate", onTime);
-    fg.addEventListener("ended", onTime);
+    fg.addEventListener("ended", onEnded);
     return () => {
       fg.removeEventListener("timeupdate", onTime);
-      fg.removeEventListener("ended", onTime);
+      fg.removeEventListener("ended", onEnded);
     };
+    // safePlay is stable enough via onPlayingChange; omit to avoid rebinding every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeClip,
     activeSeg,
