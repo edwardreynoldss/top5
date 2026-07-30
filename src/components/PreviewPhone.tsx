@@ -44,11 +44,17 @@ export function PreviewPhone({
   const firedSfxRef = useRef<Set<string>>(new Set());
   const activeSfxRef = useRef<HTMLAudioElement[]>([]);
   const scrubbingRef = useRef(false);
+  const advancingRef = useRef(false);
+  const activeIndexRef = useRef(0);
+  const segIndexRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [segIndex, setSegIndex] = useState(0);
   const [localTime, setLocalTime] = useState(0);
   const [mediaReady, setMediaReady] = useState(false);
   const [dropAssetId, setDropAssetId] = useState<string>("");
+  const [transitionFlash, setTransitionFlash] = useState(false);
+  activeIndexRef.current = activeIndex;
+  segIndexRef.current = segIndex;
 
   const sequence = useMemo(
     () => getPlaybackOrder(project.clips, settings.playOrder),
@@ -131,6 +137,7 @@ export function PreviewPhone({
 
     const onReady = () => {
       setMediaReady(true);
+      advancingRef.current = false;
       try {
         fg.currentTime = start;
         if (bg) bg.currentTime = start;
@@ -198,40 +205,58 @@ export function PreviewPhone({
     if (!fg || !activeClip || !activeSeg) return;
 
     const onTime = () => {
-      if (scrubbingRef.current) return;
+      if (scrubbingRef.current || advancingRef.current) return;
       setLocalTime(fg.currentTime);
       if (bg && Math.abs(bg.currentTime - fg.currentTime) > 0.15) {
         bg.currentTime = fg.currentTime;
       }
       if (fg.currentTime >= activeSeg.end - 0.05) {
-        if (segIndex < segments.length - 1) {
-          const nextSeg = segments[segIndex + 1];
-          setSegIndex(segIndex + 1);
+        if (segIndexRef.current < segments.length - 1) {
+          const nextSeg = segments[segIndexRef.current + 1];
+          const ni = segIndexRef.current + 1;
+          advancingRef.current = true;
+          segIndexRef.current = ni;
+          setSegIndex(ni);
           try {
             fg.currentTime = nextSeg.start;
             if (bg) bg.currentTime = nextSeg.start;
           } catch {
             // ignore
           }
+          window.setTimeout(() => {
+            advancingRef.current = false;
+          }, 60);
           return;
         }
         if (previewClip) {
           fg.pause();
           bg?.pause();
           onPlayingChange(false);
+          segIndexRef.current = 0;
           setSegIndex(0);
           fg.currentTime = segments[0]?.start || 0;
           return;
         }
-        const next = activeIndex + 1;
+        // Advance to next ranking clip (full-video preview)
+        advancingRef.current = true;
+        const next = activeIndexRef.current + 1;
         if (next < sequence.length) {
+          if (settings.transition === "flash") {
+            setTransitionFlash(true);
+            window.setTimeout(() => setTransitionFlash(false), 120);
+          }
+          activeIndexRef.current = next;
+          segIndexRef.current = 0;
           setActiveIndex(next);
           setSegIndex(0);
         } else {
+          activeIndexRef.current = 0;
+          segIndexRef.current = 0;
           setActiveIndex(0);
           setSegIndex(0);
           onPlayingChange(false);
           firedSfxRef.current.clear();
+          advancingRef.current = false;
         }
       }
     };
@@ -240,12 +265,11 @@ export function PreviewPhone({
   }, [
     activeClip,
     activeSeg,
-    activeIndex,
-    segIndex,
     segments,
     sequence.length,
     previewClip,
     onPlayingChange,
+    settings.transition,
   ]);
 
   useEffect(() => {
@@ -419,6 +443,7 @@ export function PreviewPhone({
                 }}
               />
               {!mediaReady && <div className="preview-loading">Loading clip…</div>}
+              {transitionFlash && <div className="preview-flash" aria-hidden />}
             </div>
           ) : (
             <div className="preview-empty">
@@ -526,10 +551,13 @@ export function PreviewPhone({
             onClick={togglePlay}
           >
             {isPlaying ? <Pause size={14} /> : <Play size={14} />}
-            {isPlaying ? "Pause" : "Play"}
+            {isPlaying ? "Pause" : "Play all"}
           </button>
           <span className="preview-clock">
             {formatTime(absTime)} / {formatTime(totalDur)}
+            {sequence.length > 0
+              ? ` · clip ${Math.min(activeIndex + 1, sequence.length)}/${sequence.length}`
+              : ""}
           </span>
         </div>
 

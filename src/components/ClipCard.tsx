@@ -362,7 +362,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                 <p className="truncate">{clip.fileName || "Clip ready"}</p>
                 <p className="muted">
                   {segs.length} part{segs.length > 1 ? "s" : ""} · {clipPlayDuration(clip).toFixed(1)}s
-                  {getClipCrop(clip).zoom > 1
+                  {getClipCrop(clip).zoom !== 1
                     ? ` · ${getClipCrop(clip).zoom.toFixed(1)}× zoom`
                     : ""}
                   {" · drop a new video to replace"}

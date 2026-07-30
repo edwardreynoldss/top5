@@ -724,6 +724,24 @@ a {
   font-size: 0.85rem;
 }
 
+.preview-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: #fff;
+  animation: preview-flash-fade 120ms ease-out forwards;
+}
+
+@keyframes preview-flash-fade {
+  from {
+    opacity: 0.95;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 .preview-empty {
   position: absolute;
   inset: 0;

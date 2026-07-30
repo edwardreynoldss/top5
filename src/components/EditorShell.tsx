@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { EditorProvider, useEditor } from "@/lib/store";
 import { TopBar } from "./TopBar";
 import { PreviewPhone } from "./PreviewPhone";
@@ -8,30 +8,36 @@ import { ClipList } from "./ClipList";
 import { LeftSidebar } from "./LeftSidebar";
 
 function EditorInner() {
-  const { project, selectedClipId } = useEditor();
+  const { setSelectedClipId } = useEditor();
   const [isPlaying, setIsPlaying] = useState(false);
 
-  const selectedClip = useMemo(
-    () => project.clips.find((c) => c.id === selectedClipId && c.status === "ready") || null,
-    [project.clips, selectedClipId]
-  );
+  function togglePlay() {
+    setIsPlaying((p) => {
+      const next = !p;
+      if (next) {
+        // Always play the full ranking timeline (not a single selected clip)
+        setSelectedClipId(null);
+      }
+      return next;
+    });
+  }
 
   return (
     <div className="app-shell">
-      <TopBar
-        isPlaying={isPlaying}
-        onTogglePlay={() => setIsPlaying((p) => !p)}
-      />
+      <TopBar isPlaying={isPlaying} onTogglePlay={togglePlay} />
       <main className="editor-grid">
         <LeftSidebar />
         <section className="center-col">
           <PreviewPhone
-            previewClip={isPlaying ? null : selectedClip}
+            previewClip={null}
             isPlaying={isPlaying}
-            onPlayingChange={setIsPlaying}
+            onPlayingChange={(v) => {
+              if (v) setSelectedClipId(null);
+              setIsPlaying(v);
+            }}
           />
           <p className="preview-hint">
-            Live 9:16 preview · layout autosaves in this browser
+            Full ranking preview · play to check every clip & transitions · layout autosaves
           </p>
         </section>
         <aside className="right-col">

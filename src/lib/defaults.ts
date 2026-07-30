@@ -157,13 +157,27 @@ export function displayWord(text: string, uppercase: boolean) {
 }
 
 export function cropPreviewStyle(crop: ClipCrop) {
-  const zoom = Math.max(1, Math.min(3, crop.zoom || 1));
+  const zoom = Math.max(0.5, Math.min(3, crop.zoom || 1));
+  if (zoom < 1) {
+    // Zoom out: fit the whole frame (letterbox/pillarbox) so different aspect ratios are visible
+    return {
+      objectFit: "contain" as const,
+      objectPosition: `${crop.panX}% ${crop.panY}%`,
+      transform: `scale(${zoom})`,
+      transformOrigin: "center center",
+    };
+  }
   return {
     objectFit: "cover" as const,
     objectPosition: `${crop.panX}% ${crop.panY}%`,
     transform: `scale(${zoom})`,
     transformOrigin: `${crop.panX}% ${crop.panY}%`,
   };
+}
+
+/** Clamp crop zoom into the supported range */
+export function clampCropZoom(zoom: number) {
+  return Math.max(0.5, Math.min(3, Number.isFinite(zoom) ? zoom : 1));
 }
 
 /** Absolute timeline start for each ready clip in playback order */

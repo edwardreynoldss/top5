@@ -8,8 +8,10 @@ import {
   normalizeSegments,
   defaultCrop,
   cropPreviewStyle,
+  clampCropZoom,
 } from "@/lib/defaults";
 import { MAX_CLIP_DURATION, type ClipCrop, type TrimSegment } from "@/lib/types";
+import { nextPlaybackAction } from "@/lib/trimPreview";
 import { X, Play, Pause, Check, Plus, Trash2, RotateCcw } from "lucide-react";
 
 interface TrimModalProps {
@@ -56,10 +58,37 @@ export function TrimModal({
   const previewAllRef = useRef(previewAll);
   const playingRef = useRef(playing);
   const seekingRef = useRef(false);
+  const seekClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   segmentsRef.current = segments;
   activeIdxRef.current = activeIdx;
   previewAllRef.current = previewAll;
   playingRef.current = playing;
+
+  function beginSeek() {
+    seekingRef.current = true;
+    if (seekClearTimer.current) clearTimeout(seekClearTimer.current);
+    // Always clear — seeked may not fire if value is unchanged or metadata is thin
+    seekClearTimer.current = setTimeout(() => {
+      seekingRef.current = false;
+    }, 200);
+  }
+
+  function endSeek() {
+    seekingRef.current = false;
+    if (seekClearTimer.current) {
+      clearTimeout(seekClearTimer.current);
+      seekClearTimer.current = null;
+    }
+  }
+
+  function seekVideo(v: HTMLVideoElement, t: number) {
+    beginSeek();
+    try {
+      v.currentTime = t;
+    } catch {
+      endSeek();
+    }
+  }
 
   const active = segments[activeIdx] || segments[0];
   const totalSelected = useMemo(() => segmentsDuration(segments), [segments]);
@@ -171,12 +200,7 @@ export function TrimModal({
     const v = videoRef.current;
     if (!v || !playing) return;
 
-    const onSeeking = () => {
-      seekingRef.current = true;
-    };
-    const onSeeked = () => {
-      seekingRef.current = false;
-    };
+    const onSeeked = () => endSeek();
 
     const onTime = () => {
       if (seekingRef.current) return;
@@ -189,45 +213,41 @@ export function TrimModal({
       const seg = segs[idx];
       if (!seg) return;
 
-      // Ignore end checks until we're actually inside the active range
-      // (prevents pause right after seeking to the next merged part)
-      if (t < seg.start - 0.02) return;
+      const action = nextPlaybackAction({
+        currentTime: t,
+        seg,
+        previewAll: previewAllRef.current,
+        segIndex: idx,
+        segCount: segs.length,
+      });
 
-      if (t >= seg.end - 0.04) {
-        if (previewAllRef.current && idx < segs.length - 1) {
-          const next = idx + 1;
-          const nextSeg = segs[next];
-          activeIdxRef.current = next;
-          setActiveIdx(next);
-          seekingRef.current = true;
-          try {
-            v.currentTime = nextSeg.start;
-          } catch {
-            seekingRef.current = false;
-          }
-          return;
-        }
-        v.pause();
-        playingRef.current = false;
-        previewAllRef.current = false;
-        setPlaying(false);
-        setPreviewAll(false);
-        try {
-          v.currentTime = seg.start;
-        } catch {
-          // ignore
-        }
+      if (action === "continue") return;
+
+      if (action === "advance") {
+        const next = idx + 1;
+        const nextSeg = segs[next];
+        activeIdxRef.current = next;
+        setActiveIdx(next);
+        seekVideo(v, nextSeg.start);
+        return;
       }
+
+      v.pause();
+      playingRef.current = false;
+      previewAllRef.current = false;
+      setPlaying(false);
+      setPreviewAll(false);
+      seekVideo(v, seg.start);
     };
 
     v.addEventListener("timeupdate", onTime);
-    v.addEventListener("seeking", onSeeking);
     v.addEventListener("seeked", onSeeked);
     return () => {
       v.removeEventListener("timeupdate", onTime);
-      v.removeEventListener("seeking", onSeeking);
       v.removeEventListener("seeked", onSeeked);
     };
+    // seekVideo / endSeek use refs — intentionally omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing]);
 
   if (!open) return null;
@@ -250,12 +270,9 @@ export function TrimModal({
     updateActive({ start: next });
     const v = videoRef.current;
     if (!v) return;
-    // Scrub the frame to the new in-point without stopping playback intent
-    seekingRef.current = true;
-    try {
-      v.currentTime = next;
-    } catch {
-      seekingRef.current = false;
+    seekVideo(v, next);
+    if (playingRef.current) {
+      void v.play().catch(() => undefined);
     }
   };
 
@@ -267,7 +284,13 @@ export function TrimModal({
     );
     const next = Math.max(active.start + 0.2, Math.min(value, maxEnd));
     updateActive({ end: next });
-    // Don't seek/pause when adjusting out-point — let playback continue
+    const v = videoRef.current;
+    if (!v) return;
+    // If playhead is past the new out-point, jump back to in-point and keep going
+    if (playingRef.current && v.currentTime >= next - 0.04) {
+      seekVideo(v, active.start);
+      void v.play().catch(() => undefined);
+    }
   };
 
   const playSegment = async (all: boolean) => {
@@ -281,10 +304,10 @@ export function TrimModal({
       previewAllRef.current = false;
       setPlaying(false);
       setPreviewAll(false);
+      endSeek();
       return;
     }
 
-    // Switching modes or starting fresh
     if (playingRef.current) {
       v.pause();
     }
@@ -299,19 +322,27 @@ export function TrimModal({
     setPreviewAll(all);
 
     try {
-      seekingRef.current = true;
-      v.currentTime = startAt;
+      endSeek();
+      seekVideo(v, startAt);
+      // Wait briefly for seek so play starts from the new in-point
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          v.removeEventListener("seeked", done);
+          resolve();
+        };
+        v.addEventListener("seeked", done);
+        window.setTimeout(done, 180);
+      });
+      endSeek();
       await v.play();
       playingRef.current = true;
       setPlaying(true);
       setLoadError(null);
-      // Clear seek guard shortly after play starts
-      window.setTimeout(() => {
-        seekingRef.current = false;
-      }, 80);
+      setCurrent(v.currentTime);
     } catch {
       playingRef.current = false;
       setPlaying(false);
+      endSeek();
       setLoadError("Browser blocked playback — click Preview again.");
     }
   };
@@ -348,7 +379,7 @@ export function TrimModal({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (crop.zoom <= 1) return;
+    if (Math.abs(crop.zoom - 1) < 0.001) return;
     e.preventDefault();
     stageRef.current?.setPointerCapture?.(e.pointerId);
     dragRef.current = { x: e.clientX, y: e.clientY, panX: crop.panX, panY: crop.panY };
@@ -424,21 +455,29 @@ export function TrimModal({
                 <p className="muted">You can still set trim times and click Use clip.</p>
               </div>
             )}
-            {crop.zoom > 1 && (
-              <div className="crop-hint">Drag to pan · zoom {crop.zoom.toFixed(2)}×</div>
+            {crop.zoom !== 1 && (
+              <div className="crop-hint">
+                Drag to pan · zoom {crop.zoom.toFixed(2)}×
+                {crop.zoom < 1 ? " (fit)" : ""}
+              </div>
             )}
           </div>
 
           <div className="crop-controls">
             <div className="trim-row">
-              <label>Zoom {crop.zoom.toFixed(2)}×</label>
+              <label>
+                Zoom {crop.zoom.toFixed(2)}×
+                {crop.zoom < 1 ? " · zoomed out" : crop.zoom > 1 ? " · punched in" : " · cover"}
+              </label>
               <input
                 type="range"
-                min={1}
+                min={0.5}
                 max={3}
                 step={0.05}
-                value={crop.zoom}
-                onChange={(e) => setCrop((c) => ({ ...c, zoom: parseFloat(e.target.value) }))}
+                value={clampCropZoom(crop.zoom)}
+                onChange={(e) =>
+                  setCrop((c) => ({ ...c, zoom: clampCropZoom(parseFloat(e.target.value)) }))
+                }
               />
             </div>
             <div className="trim-row">

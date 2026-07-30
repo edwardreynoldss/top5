@@ -170,23 +170,32 @@ async function renderClipSegment(opts: {
   } = opts;
 
   const blur = Math.max(2, Math.min(64, Math.round(blurAmount / 2)));
-  const zoom = Math.max(1, Math.min(3, crop?.zoom ?? 1));
+  const zoom = Math.max(0.5, Math.min(3, crop?.zoom ?? 1));
   const panX = Math.max(0, Math.min(100, crop?.panX ?? 50)) / 100;
   const panY = Math.max(0, Math.min(100, crop?.panY ?? 50)) / 100;
   const topPad = titleOverlap ? 0 : Math.max(0, Math.round(titleBarHeight));
   const contentH = Math.max(16, height - topPad);
 
-  // Cover content area, apply zoom, then crop with pan offsets
-  const coverScale = `scale=${width}:${contentH}:force_original_aspect_ratio=increase`;
-  const zoomScale =
-    zoom > 1.001
-      ? `,scale=iw*${zoom}:ih*${zoom}`
-      : "";
-  const cropWindow = `crop=${width}:${contentH}:(iw-${width})*${panX}:(ih-${contentH})*${panY},setsar=1`;
-  const padTop =
-    topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
-
-  const framed = `[0:v]fps=${fps},${coverScale}${zoomScale},${cropWindow}${padTop}`;
+  // zoom < 1 = fit whole frame (letterbox); zoom >= 1 = cover (+ punch in)
+  let framed: string;
+  if (zoom < 1) {
+    const fitScale = `scale=${width}:${contentH}:force_original_aspect_ratio=decrease`;
+    const shrink =
+      zoom < 0.999 ? `,scale=iw*${zoom}:ih*${zoom}` : "";
+    const pad =
+      `pad=${width}:${contentH}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`;
+    const padTop =
+      topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
+    framed = `[0:v]fps=${fps},${fitScale}${shrink},${pad}${padTop}`;
+  } else {
+    const coverScale = `scale=${width}:${contentH}:force_original_aspect_ratio=increase`;
+    const zoomScale =
+      zoom > 1.001 ? `,scale=iw*${zoom}:ih*${zoom}` : "";
+    const cropWindow = `crop=${width}:${contentH}:(iw-${width})*${panX}:(ih-${contentH})*${panY},setsar=1`;
+    const padTop =
+      topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
+    framed = `[0:v]fps=${fps},${coverScale}${zoomScale},${cropWindow}${padTop}`;
+  }
 
   const videoFilter =
     aspectMode === "crop-fill"
