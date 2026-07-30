@@ -24,7 +24,7 @@ import {
 import { fontCss, type RankClip } from "@/lib/types";
 
 export function PreviewPhone({
-  previewClip: _previewClip,
+  previewClip: _unusedPreviewClip = null,
   isPlaying,
   onPlayingChange,
 }: {
@@ -32,6 +32,7 @@ export function PreviewPhone({
   isPlaying: boolean;
   onPlayingChange: (v: boolean) => void;
 }) {
+  void _unusedPreviewClip;
   const {
     project,
     addSfxPlacement,
