@@ -6,4 +6,4 @@ Finished ranking videos are saved here automatically:
 - `ranking-short-2.mp4`
 - …
 
-Each Export increments the number. Files also trigger a browser download with the same name.
+Each Export increments the number. Files are written here only (no browser Downloads folder).

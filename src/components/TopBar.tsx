@@ -16,7 +16,6 @@ export function TopBar({
   const { project, resetProject, saveLayoutAsDefault } = useEditor();
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [savedExport, setSavedExport] = useState<{
     fileName: string;
     savedPath: string;
@@ -67,7 +66,6 @@ export function TopBar({
     }
     setExporting(true);
     setError(null);
-    setDownloadUrl(null);
     setSavedExport(null);
     setProgress("Preparing sound effects…");
     try {
@@ -147,21 +145,12 @@ export function TopBar({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Export failed");
       const fileName = data.fileName || "ranking-short.mp4";
-      const url = data.downloadUrl as string;
-      setProgress(`Saved ${data.savedPath || `exports/${fileName}`}`);
-      setDownloadUrl(url);
+      const savedPath = data.savedPath || `exports/${fileName}`;
+      setProgress(`Saved to ${savedPath}`);
       setSavedExport({
         fileName,
-        savedPath: data.savedPath || `exports/${fileName}`,
+        savedPath,
       });
-      // Instant browser download with the numbered filename
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");
       setProgress(null);
@@ -230,19 +219,15 @@ export function TopBar({
         </button>
       </div>
 
-      {(progress || error || downloadUrl || toolsHint) && (
+      {(progress || error || savedExport || toolsHint) && (
         <div className="export-toast">
           {toolsHint && !error && <p className="error-text">{toolsHint}</p>}
           {error && <p className="error-text">{error}</p>}
           {progress && !error && <p>{progress}</p>}
-          {downloadUrl && savedExport && (
-            <a
-              className="btn primary small"
-              href={downloadUrl}
-              download={savedExport.fileName}
-            >
-              <Download size={14} /> {savedExport.fileName}
-            </a>
+          {savedExport && !error && (
+            <p className="muted export-saved-path" title={savedExport.savedPath}>
+              {savedExport.fileName}
+            </p>
           )}
         </div>
       )}

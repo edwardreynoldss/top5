@@ -67,7 +67,7 @@ Open http://localhost:3000 — the top bar should say **Tools OK**.
 2. Move rank numbers with the ranks placement sliders
 3. Paste a YouTube / TikTok / Instagram link **or upload** a file → trim → confirm
 4. Drag clips to reorder
-5. Preview, then Export MP4 — files save to `exports/ranking-short-1.mp4`, `ranking-short-2.mp4`, … and download automatically
+5. Preview, then Export MP4 — files save only to `exports/ranking-short-1.mp4`, `ranking-short-2.mp4`, …
 
 ## Link downloads
 
