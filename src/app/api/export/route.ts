@@ -71,6 +71,8 @@ interface ExportBody {
     mediaId?: string | null;
     scale?: number;
     speed?: number;
+    startAt?: number;
+    duration?: number;
   } | null;
   sfx?: {
     mediaId: string;
@@ -166,6 +168,12 @@ async function renderClipSegment(opts: {
   stickerPath: string | null;
   stickerScale: number;
   stickerSpeed: number;
+  /** Seconds from the start of this clip before the sticker appears */
+  stickerDelay: number;
+  /** Local clip time when sticker overlay should end */
+  stickerEnd: number;
+  /** Seek into the sticker source (seconds) when the clip starts mid-sticker */
+  stickerSourceSeek: number;
   fps: number;
   clipVolume: number;
   crop?: { zoom: number; panX: number; panY: number };
@@ -186,6 +194,9 @@ async function renderClipSegment(opts: {
     stickerPath,
     stickerScale,
     stickerSpeed,
+    stickerDelay,
+    stickerEnd,
+    stickerSourceSeek,
     fps,
     clipVolume,
     crop,
@@ -201,6 +212,8 @@ async function renderClipSegment(opts: {
   const contentH = Math.max(16, height - topPad);
   const scale = Math.max(0.15, Math.min(1.5, stickerScale || 1));
   const speed = Math.max(0.25, Math.min(3, stickerSpeed || 1));
+  const delay = Math.max(0, stickerDelay || 0);
+  const endAt = Math.max(delay + 0.05, stickerEnd || duration);
 
   // Continuous zoom matching preview CSS:
   // cover-fit, then scale by zoom; overlay onto a black canvas so zoom < 1
@@ -234,8 +247,9 @@ async function renderClipSegment(opts: {
     parts.push(`[${last}][1:v]overlay=0:0:shortest=1[withtitle]`);
     last = "withtitle";
     if (stickerIdx >= 0) {
+      // One-shot timed overlay — not looping for the whole clip
       parts.push(
-        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:shortest=1:format=auto,format=yuv420p[vout]`
+        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,${delay.toFixed(3)}\\,${endAt.toFixed(3)})':format=auto,format=yuv420p[vout]`
       );
     } else {
       parts.push(`[${last}]format=yuv420p[vout]`);
@@ -279,8 +293,11 @@ async function renderClipSegment(opts: {
   }
 
   if (stickerPath) {
-    // Loop the transparent WebM for the full clip length
-    commonArgs.push("-stream_loop", "-1", "-t", String(duration), "-i", stickerPath);
+    // Play once (no stream_loop), muted, optionally seek if clip starts mid-sticker
+    if (stickerSourceSeek > 0.01) {
+      commonArgs.push("-ss", String(stickerSourceSeek));
+    }
+    commonArgs.push("-an", "-i", stickerPath);
   }
 
   const encodeArgs = [
@@ -394,8 +411,18 @@ export async function POST(req: NextRequest) {
     }
     const stickerScale = body.sticker?.scale ?? 0.55;
     const stickerSpeed = body.sticker?.speed ?? 1;
+    const stickerStartAt = Math.max(
+      0,
+      Number.isFinite(body.sticker?.startAt) ? Number(body.sticker?.startAt) : 20
+    );
+    const stickerDuration =
+      Number.isFinite(body.sticker?.duration) && Number(body.sticker?.duration) > 0
+        ? Number(body.sticker?.duration)
+        : 3;
+    const stickerPlayDur = Math.max(0.2, stickerDuration / Math.max(0.25, Math.min(3, stickerSpeed)));
 
     const segmentPaths: string[] = [];
+    let timelineCursor = 0;
 
     for (let i = 0; i < ordered.length; i++) {
       const clip = ordered[i];
@@ -465,6 +492,25 @@ export async function POST(req: NextRequest) {
           : body.title?.showBar === false
             ? 0
             : 150;
+
+      const clipAbsStart = timelineCursor;
+      const stickerAbsEnd = stickerStartAt + stickerPlayDur;
+      const clipAbsEnd = clipAbsStart + renderDuration;
+      const stickerOverlaps =
+        Boolean(stickerPath) &&
+        stickerAbsEnd > clipAbsStart + 0.01 &&
+        stickerStartAt < clipAbsEnd - 0.01;
+      const stickerDelay = stickerOverlaps
+        ? Math.max(0, stickerStartAt - clipAbsStart)
+        : 0;
+      const stickerEndLocal = stickerOverlaps
+        ? Math.min(renderDuration, stickerAbsEnd - clipAbsStart)
+        : 0;
+      const stickerSourceSeek =
+        stickerOverlaps && clipAbsStart > stickerStartAt
+          ? Math.max(0, (clipAbsStart - stickerStartAt) * Math.max(0.25, Math.min(3, stickerSpeed)))
+          : 0;
+
       await renderClipSegment({
         input,
         output: seg,
@@ -476,9 +522,12 @@ export async function POST(req: NextRequest) {
         aspectMode: body.aspectMode || "crop-fill",
         titleOverlay,
         ranksOverlay: body.showRankList ? ranksOverlay : null,
-        stickerPath,
+        stickerPath: stickerOverlaps ? stickerPath : null,
         stickerScale,
         stickerSpeed,
+        stickerDelay,
+        stickerEnd: stickerEndLocal,
+        stickerSourceSeek,
         fps,
         clipVolume: Math.max(
           0,
@@ -488,6 +537,8 @@ export async function POST(req: NextRequest) {
         titleOverlap: !titleEnabled ? true : body.titleOverlap !== false,
         titleBarHeight: barH,
       });
+
+      timelineCursor += renderDuration;
 
       // Optional flash/zoom transition frames baked as a short cut — flash via fade
       if (body.transition === "flash" && i < ordered.length - 1) {

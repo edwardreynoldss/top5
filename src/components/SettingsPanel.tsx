@@ -48,6 +48,8 @@ export function SettingsPanel() {
           mediaUrl: data.mediaUrl,
           fileName: data.fileName || file.name,
           hasAlpha: Boolean(data.hasAlpha),
+          duration: typeof data.duration === "number" ? data.duration : 0,
+          startAt: Number.isFinite(sticker.startAt) ? sticker.startAt : 20,
         },
       });
       if (!data.hasAlpha) {
@@ -204,21 +206,23 @@ export function SettingsPanel() {
           <span>Bottom sticker (transparent WebM)</span>
         </div>
         <p className="muted">
-          Sits at the bottom of every clip. Use a VP9 alpha WebM (Profounder{" "}
-          <code>webm_transparent</code>) so the background stays clear.
+          Plays once at a time you choose on the ranking timeline (default 20s). Always muted —
+          never loops for the whole video. Use a VP9 alpha WebM (Profounder{" "}
+          <code>webm_transparent</code>).
         </p>
         {sticker.mediaUrl ? (
           <div className="music-ready">
             <video
-              key={`${sticker.mediaUrl}-${sticker.speed}`}
+              key={sticker.mediaUrl}
               src={sticker.mediaUrl}
               muted
-              loop
               playsInline
-              autoPlay
+              preload="metadata"
               className="sticker-settings-preview"
               onLoadedData={(e) => {
-                e.currentTarget.playbackRate = Math.max(0.25, Math.min(3, sticker.speed || 1));
+                e.currentTarget.muted = true;
+                e.currentTarget.pause();
+                e.currentTarget.currentTime = 0;
               }}
             />
             <label className="field check">
@@ -230,6 +234,40 @@ export function SettingsPanel() {
                 }
               />
               <span>Show on preview &amp; export</span>
+            </label>
+            <label className="field">
+              <span>Appear at ({sticker.startAt.toFixed(1)}s on timeline)</span>
+              <input
+                type="range"
+                min={0}
+                max={60}
+                step={0.5}
+                value={Math.max(0, Math.min(60, sticker.startAt ?? 20))}
+                onChange={(e) =>
+                  updateSettings({
+                    sticker: { ...sticker, startAt: parseFloat(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>Or type seconds</span>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={600}
+                step={0.5}
+                value={Number.isFinite(sticker.startAt) ? sticker.startAt : 20}
+                onChange={(e) =>
+                  updateSettings({
+                    sticker: {
+                      ...sticker,
+                      startAt: Math.max(0, parseFloat(e.target.value) || 0),
+                    },
+                  })
+                }
+              />
             </label>
             <label className="field">
               <span>Size ({Math.round(sticker.scale * 100)}%)</span>
@@ -264,6 +302,10 @@ export function SettingsPanel() {
             <p className="muted">
               {sticker.fileName || "sticker.webm"}
               {sticker.hasAlpha ? " · alpha OK" : " · no alpha detected"}
+              {" · muted"}
+              {sticker.duration > 0
+                ? ` · plays ${(sticker.duration / Math.max(0.25, sticker.speed)).toFixed(1)}s`
+                : ""}
             </p>
             <div className="sticker-actions">
               <button
@@ -284,6 +326,7 @@ export function SettingsPanel() {
                       mediaUrl: null,
                       fileName: null,
                       hasAlpha: false,
+                      duration: 0,
                     },
                   })
                 }

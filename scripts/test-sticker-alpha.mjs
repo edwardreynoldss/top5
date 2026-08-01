@@ -143,7 +143,9 @@ async function main() {
         enabled: true,
         mediaId: sJson.mediaId,
         scale: 0.55,
-        speed: 1.5,
+        speed: 1,
+        startAt: 0.35,
+        duration: sJson.duration || 2,
       },
       sfx: [],
     };

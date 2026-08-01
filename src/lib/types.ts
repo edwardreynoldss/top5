@@ -90,7 +90,8 @@ export interface RankLayout {
 
 /**
  * Animated bottom sticker (transparent WebM / VP9 alpha).
- * Sits on every clip in preview + export; size & playback speed are adjustable.
+ * Plays once at an absolute timeline time (default 20s) — not looping.
+ * Always muted (no audio).
  */
 export interface StickerOverlay {
   enabled: boolean;
@@ -101,6 +102,13 @@ export interface StickerOverlay {
   scale: number;
   /** Playback rate (0.25–3). 1 = native speed. */
   speed: number;
+  /**
+   * Absolute timeline seconds when the sticker should appear.
+   * Default 20.
+   */
+  startAt: number;
+  /** Native media duration in seconds (from upload probe). */
+  duration: number;
   /** Has real alpha channel (VP9 yuva / alpha_mode). */
   hasAlpha: boolean;
 }

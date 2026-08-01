@@ -19,8 +19,41 @@ export function defaultSticker(): StickerOverlay {
     fileName: null,
     scale: 0.55,
     speed: 1,
+    startAt: 20,
+    duration: 0,
     hasAlpha: false,
   };
+}
+
+/** How long the sticker is visible on the timeline (source duration ÷ speed). */
+export function stickerPlayDuration(sticker: Pick<StickerOverlay, "duration" | "speed">) {
+  const speed = Math.max(0.25, Math.min(3, sticker.speed || 1));
+  const dur = Number.isFinite(sticker.duration) && sticker.duration > 0 ? sticker.duration : 3;
+  return Math.max(0.2, dur / speed);
+}
+
+/**
+ * Where the sticker lands inside a clip on the absolute timeline.
+ * Returns null when this clip does not overlap the sticker window.
+ */
+export function stickerPlacementInClip(
+  sticker: Pick<StickerOverlay, "startAt" | "duration" | "speed" | "enabled">,
+  clipStart: number,
+  clipDuration: number
+): { delay: number; end: number; sourceSeek: number } | null {
+  if (!sticker.enabled) return null;
+  const absStart = Math.max(0, Number.isFinite(sticker.startAt) ? sticker.startAt : 20);
+  const playDur = stickerPlayDuration(sticker);
+  const absEnd = absStart + playDur;
+  const clipEnd = clipStart + clipDuration;
+  if (absEnd <= clipStart + 0.01 || absStart >= clipEnd - 0.01) return null;
+
+  const speed = Math.max(0.25, Math.min(3, sticker.speed || 1));
+  const delay = Math.max(0, absStart - clipStart);
+  const end = Math.min(clipDuration, absEnd - clipStart);
+  const sourceSeek =
+    clipStart > absStart ? Math.max(0, (clipStart - absStart) * speed) : 0;
+  return { delay, end, sourceSeek };
 }
 
 export function createWord(text: string, color = "#FFFFFF"): TitleWord {

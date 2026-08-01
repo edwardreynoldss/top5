@@ -145,6 +145,8 @@ export function TopBar({
                 mediaId: settings.sticker.mediaId,
                 scale: settings.sticker.scale,
                 speed: settings.sticker.speed,
+                startAt: settings.sticker.startAt ?? 20,
+                duration: settings.sticker.duration ?? 0,
               }
             : null,
           sfx: sfxForExport,

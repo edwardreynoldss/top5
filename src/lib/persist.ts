@@ -164,6 +164,14 @@ export function loadProject(): EditorProject {
         sticker: {
           ...fallback.settings.sticker,
           ...(parsed.settings?.sticker || {}),
+          startAt:
+            typeof parsed.settings?.sticker?.startAt === "number"
+              ? parsed.settings.sticker.startAt
+              : fallback.settings.sticker.startAt,
+          duration:
+            typeof parsed.settings?.sticker?.duration === "number"
+              ? parsed.settings.sticker.duration
+              : fallback.settings.sticker.duration,
           mediaUrl: parsed.settings?.sticker?.mediaId
             ? `/api/media/${parsed.settings.sticker.mediaId}`
             : parsed.settings?.sticker?.mediaUrl ?? fallback.settings.sticker.mediaUrl,

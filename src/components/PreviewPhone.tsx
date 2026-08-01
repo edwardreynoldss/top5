@@ -21,6 +21,7 @@ import {
   effectiveSfxVolume,
   effectiveClipVolume,
   defaultSticker,
+  stickerPlayDuration,
 } from "@/lib/defaults";
 import { fontCss, type RankClip } from "@/lib/types";
 
@@ -45,6 +46,7 @@ export function PreviewPhone({
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgRef = useRef<HTMLVideoElement>(null);
   const stickerVideoRef = useRef<HTMLVideoElement>(null);
+  const stickerArmedRef = useRef(false);
   const firedSfxRef = useRef<Set<string>>(new Set());
   const activeSfxRef = useRef<HTMLAudioElement[]>([]);
   const scrubbingRef = useRef(false);
@@ -103,21 +105,54 @@ export function PreviewPhone({
   }, [assets, dropAssetId]);
 
   const sticker = settings.sticker ?? defaultSticker();
-  const stickerVisible = Boolean(sticker.enabled && sticker.mediaUrl);
+  const stickerStartAt = Math.max(0, Number.isFinite(sticker.startAt) ? sticker.startAt : 20);
+  const stickerEndAt = stickerStartAt + stickerPlayDuration(sticker);
+  const stickerActive =
+    Boolean(sticker.enabled && sticker.mediaUrl) &&
+    absTime >= stickerStartAt - 0.02 &&
+    absTime < stickerEndAt;
 
-  // Keep bottom sticker looping + speed in sync with settings
+  // Play sticker once when the timeline crosses startAt — never loop, always muted
   useEffect(() => {
     const el = stickerVideoRef.current;
-    if (!el || !stickerVisible) return;
-    el.playbackRate = Math.max(0.25, Math.min(3, sticker.speed || 1));
+    if (!el || !sticker.enabled || !sticker.mediaUrl) {
+      stickerArmedRef.current = false;
+      return;
+    }
     el.muted = true;
-    const tryPlay = () => {
+    el.defaultMuted = true;
+    el.volume = 0;
+    el.playbackRate = Math.max(0.25, Math.min(3, sticker.speed || 1));
+    el.loop = false;
+
+    if (!stickerActive) {
+      stickerArmedRef.current = false;
+      try {
+        el.pause();
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    if (!stickerArmedRef.current) {
+      stickerArmedRef.current = true;
+      const localOffset = Math.max(0, absTime - stickerStartAt);
+      try {
+        el.currentTime = localOffset * el.playbackRate;
+      } catch {
+        // ignore
+      }
       void el.play().catch(() => undefined);
-    };
-    if (el.readyState >= 2) tryPlay();
-    else el.addEventListener("loadeddata", tryPlay, { once: true });
-    return () => el.removeEventListener("loadeddata", tryPlay);
-  }, [stickerVisible, sticker.mediaUrl, sticker.speed]);
+    }
+  }, [
+    stickerActive,
+    sticker.enabled,
+    sticker.mediaUrl,
+    sticker.speed,
+    stickerStartAt,
+    absTime,
+  ]);
 
   function stopAllSfx() {
     for (const a of activeSfxRef.current) {
@@ -661,22 +696,23 @@ export function PreviewPhone({
             </div>
           )}
 
-          {stickerVisible && (
+          {sticker.enabled && sticker.mediaUrl ? (
             <video
               ref={stickerVideoRef}
               key={sticker.mediaUrl || "sticker"}
-              className="sticker-overlay"
+              className={`sticker-overlay ${stickerActive ? "active" : ""}`}
               src={sticker.mediaUrl || undefined}
               muted
-              loop
               playsInline
               preload="auto"
               draggable={false}
               style={{
                 transform: `translateX(-50%) scale(${Math.max(0.15, Math.min(1.5, sticker.scale || 1))})`,
+                opacity: stickerActive ? 1 : 0,
+                visibility: stickerActive ? "visible" : "hidden",
               }}
             />
-          )}
+          ) : null}
 
           {activeClip && (
             <div className="preview-meta">
