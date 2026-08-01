@@ -2,15 +2,19 @@
 
 import { useRef, useState } from "react";
 import { useEditor } from "@/lib/store";
-import { Upload, Music2, Bookmark } from "lucide-react";
+import { Upload, Music2, Bookmark, Sparkles } from "lucide-react";
 import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
+import { defaultSticker } from "@/lib/defaults";
 
 export function SettingsPanel() {
   const { project, updateSettings, setPlayOrder, setTransition, saveLayoutAsDefault } =
     useEditor();
   const { settings } = project;
   const musicRef = useRef<HTMLInputElement>(null);
+  const stickerRef = useRef<HTMLInputElement>(null);
   const [layoutFlash, setLayoutFlash] = useState(false);
+  const [stickerBusy, setStickerBusy] = useState(false);
+  const sticker = settings.sticker ?? defaultSticker();
 
   async function uploadMusic(file: File) {
     const fd = new FormData();
@@ -24,11 +28,43 @@ export function SettingsPanel() {
     updateSettings({ musicMediaId: data.mediaId, musicUrl: data.mediaUrl });
   }
 
+  async function uploadSticker(file: File) {
+    setStickerBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("purpose", "sticker");
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Sticker upload failed");
+        return;
+      }
+      updateSettings({
+        sticker: {
+          ...sticker,
+          enabled: true,
+          mediaId: data.mediaId,
+          mediaUrl: data.mediaUrl,
+          fileName: data.fileName || file.name,
+          hasAlpha: Boolean(data.hasAlpha),
+        },
+      });
+      if (!data.hasAlpha) {
+        alert(
+          "Uploaded, but no alpha channel was detected. Use a Profounder “webm_transparent” export (or another VP9 alpha WebM) so the background stays clear."
+        );
+      }
+    } finally {
+      setStickerBusy(false);
+    }
+  }
+
   return (
     <section className="panel tab-panel">
       <div className="panel-header compact">
         <h2>Playback & look</h2>
-        <p className="muted">Order, transitions, fit, music</p>
+        <p className="muted">Order, transitions, fit, sticker, music</p>
       </div>
 
       <div className="layout-default-row">
@@ -45,7 +81,8 @@ export function SettingsPanel() {
           {layoutFlash ? "Saved as default" : "Save as default layout"}
         </button>
         <p className="muted">
-          Remembers title, ranks position, colors, and look. Reset clears clips but keeps this layout.
+          Remembers title, ranks position, colors, sticker, and look. Reset clears clips but keeps
+          this layout.
         </p>
       </div>
 
@@ -159,6 +196,122 @@ export function SettingsPanel() {
             onChange={(e) => updateSettings({ clipVolume: parseFloat(e.target.value) })}
           />
         </label>
+      </div>
+
+      <div className="music-block sticker-block">
+        <div className="music-head">
+          <Sparkles size={16} />
+          <span>Bottom sticker (transparent WebM)</span>
+        </div>
+        <p className="muted">
+          Sits at the bottom of every clip. Use a VP9 alpha WebM (Profounder{" "}
+          <code>webm_transparent</code>) so the background stays clear.
+        </p>
+        {sticker.mediaUrl ? (
+          <div className="music-ready">
+            <video
+              key={`${sticker.mediaUrl}-${sticker.speed}`}
+              src={sticker.mediaUrl}
+              muted
+              loop
+              playsInline
+              autoPlay
+              className="sticker-settings-preview"
+              onLoadedData={(e) => {
+                e.currentTarget.playbackRate = Math.max(0.25, Math.min(3, sticker.speed || 1));
+              }}
+            />
+            <label className="field check">
+              <input
+                type="checkbox"
+                checked={sticker.enabled}
+                onChange={(e) =>
+                  updateSettings({ sticker: { ...sticker, enabled: e.target.checked } })
+                }
+              />
+              <span>Show on preview &amp; export</span>
+            </label>
+            <label className="field">
+              <span>Size ({Math.round(sticker.scale * 100)}%)</span>
+              <input
+                type="range"
+                min={0.15}
+                max={1.5}
+                step={0.05}
+                value={sticker.scale}
+                onChange={(e) =>
+                  updateSettings({
+                    sticker: { ...sticker, scale: parseFloat(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>Speed ({sticker.speed.toFixed(2)}×)</span>
+              <input
+                type="range"
+                min={0.25}
+                max={3}
+                step={0.05}
+                value={sticker.speed}
+                onChange={(e) =>
+                  updateSettings({
+                    sticker: { ...sticker, speed: parseFloat(e.target.value) },
+                  })
+                }
+              />
+            </label>
+            <p className="muted">
+              {sticker.fileName || "sticker.webm"}
+              {sticker.hasAlpha ? " · alpha OK" : " · no alpha detected"}
+            </p>
+            <div className="sticker-actions">
+              <button
+                className="btn ghost small"
+                disabled={stickerBusy}
+                onClick={() => stickerRef.current?.click()}
+              >
+                <Upload size={14} /> Replace
+              </button>
+              <button
+                className="btn ghost small"
+                onClick={() =>
+                  updateSettings({
+                    sticker: {
+                      ...sticker,
+                      enabled: false,
+                      mediaId: null,
+                      mediaUrl: null,
+                      fileName: null,
+                      hasAlpha: false,
+                    },
+                  })
+                }
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            className="btn ghost small"
+            disabled={stickerBusy}
+            onClick={() => stickerRef.current?.click()}
+          >
+            <Upload size={14} /> {stickerBusy ? "Uploading…" : "Upload transparent WebM"}
+          </button>
+        )}
+        <input
+          ref={stickerRef}
+          type="file"
+          accept="video/webm,.webm,video/quicktime,.mov"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void uploadSticker(f);
+            e.target.value = "";
+          }}
+        />
       </div>
 
       <div className="music-block">

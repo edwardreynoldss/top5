@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { writeFile } from "fs/promises";
+import { copyFile, writeFile } from "fs/promises";
 import { ensureDirs, mediaPath } from "@/lib/paths";
-import { probeDuration, runCommand } from "@/lib/ffmpeg";
+import { probeDuration, probeHasAlpha, runCommand } from "@/lib/ffmpeg";
 import { whichTools } from "@/lib/bins";
 
 export const runtime = "nodejs";
@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "File too large (max 250MB)" }, { status: 400 });
     }
 
+    const purpose = String(form.get("purpose") || "");
     const id = randomUUID();
     const originalName = file.name || "upload.mp4";
     const buf = Buffer.from(await file.arrayBuffer());
@@ -44,6 +45,37 @@ export async function POST(req: NextRequest) {
       : "mp4";
     const rawPath = mediaPath(id, `raw.${safeExt}`);
     await writeFile(rawPath, buf);
+
+    // Transparent sticker / overlay: keep WebM (VP9+alpha) — never flatten to H.264
+    if (purpose === "sticker") {
+      if (safeExt !== "webm" && safeExt !== "mov") {
+        return NextResponse.json(
+          {
+            error:
+              "Bottom sticker needs a transparent WebM (VP9 alpha) or ProRes/PNG MOV. Profounder “webm_transparent” exports work.",
+          },
+          { status: 400 }
+        );
+      }
+      const outPath = mediaPath(id, safeExt);
+      // Remux/copy to normalize container; fall back to raw bytes if copy fails
+      try {
+        await runCommand("ffmpeg", ["-y", "-i", rawPath, "-c", "copy", outPath]);
+      } catch {
+        await copyFile(rawPath, outPath);
+      }
+      const hasAlpha = await probeHasAlpha(outPath);
+      const duration = await probeDuration(outPath);
+      const mediaId = pathBasename(outPath);
+      return NextResponse.json({
+        mediaId,
+        mediaUrl: `/api/media/${mediaId}`,
+        duration,
+        fileName: originalName,
+        hasAlpha,
+        purpose: "sticker",
+      });
+    }
 
     const isAudio = ["mp3", "wav", "m4a", "aac"].includes(safeExt);
     const outPath = mediaPath(id, isAudio ? (safeExt === "mp3" ? "mp3" : "m4a") : "mp4");

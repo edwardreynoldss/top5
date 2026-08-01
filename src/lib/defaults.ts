@@ -4,11 +4,24 @@ import type {
   EditorProject,
   ProjectSettings,
   RankClip,
+  StickerOverlay,
   TitleLine,
   TitleWord,
   TrimSegment,
 } from "./types";
 import { DEFAULT_CLIP_DURATION, MAX_CLIP_DURATION, OUTPUT_HEIGHT, OUTPUT_WIDTH } from "./types";
+
+export function defaultSticker(): StickerOverlay {
+  return {
+    enabled: false,
+    mediaId: null,
+    mediaUrl: null,
+    fileName: null,
+    scale: 0.55,
+    speed: 1,
+    hasAlpha: false,
+  };
+}
 
 export function createWord(text: string, color = "#FFFFFF"): TitleWord {
   return { id: uuidv4(), text, color };
@@ -97,6 +110,7 @@ export function builtInDefaultSettings(): ProjectSettings {
       fontId: "display",
       labelSize: 42,
     },
+    sticker: defaultSticker(),
     playOrder: "countdown",
     transition: "flash",
     transitionDuration: 0.25,

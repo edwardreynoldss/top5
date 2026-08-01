@@ -528,6 +528,33 @@ a {
   box-sizing: border-box;
 }
 
+.sticker-settings-preview {
+  width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+  background: repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 50% / 16px 16px;
+  border-radius: 8px;
+}
+
+.sticker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sticker-overlay {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 100%;
+  height: auto;
+  max-height: 45%;
+  object-fit: contain;
+  transform-origin: bottom center;
+  pointer-events: none;
+  z-index: 6;
+}
+
 .sfx-actions {
   display: flex;
   flex-wrap: wrap;

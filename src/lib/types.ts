@@ -88,9 +88,27 @@ export interface RankLayout {
   labelSize: number;
 }
 
+/**
+ * Animated bottom sticker (transparent WebM / VP9 alpha).
+ * Sits on every clip in preview + export; size & playback speed are adjustable.
+ */
+export interface StickerOverlay {
+  enabled: boolean;
+  mediaId: string | null;
+  mediaUrl: string | null;
+  fileName: string | null;
+  /** Relative size vs natural width (0.15–2). 1 ≈ full frame width. */
+  scale: number;
+  /** Playback rate (0.25–3). 1 = native speed. */
+  speed: number;
+  /** Has real alpha channel (VP9 yuva / alpha_mode). */
+  hasAlpha: boolean;
+}
+
 export interface ProjectSettings {
   title: TitleConfig;
   ranksLayout: RankLayout;
+  sticker: StickerOverlay;
   playOrder: PlayOrder;
   transition: TransitionType;
   transitionDuration: number;

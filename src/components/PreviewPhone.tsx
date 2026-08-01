@@ -20,6 +20,7 @@ import {
   formatTime,
   effectiveSfxVolume,
   effectiveClipVolume,
+  defaultSticker,
 } from "@/lib/defaults";
 import { fontCss, type RankClip } from "@/lib/types";
 
@@ -43,6 +44,7 @@ export function PreviewPhone({
   const { settings } = project;
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgRef = useRef<HTMLVideoElement>(null);
+  const stickerVideoRef = useRef<HTMLVideoElement>(null);
   const firedSfxRef = useRef<Set<string>>(new Set());
   const activeSfxRef = useRef<HTMLAudioElement[]>([]);
   const scrubbingRef = useRef(false);
@@ -99,6 +101,23 @@ export function PreviewPhone({
   useEffect(() => {
     if (!dropAssetId && assets[0]?.id) setDropAssetId(assets[0].id);
   }, [assets, dropAssetId]);
+
+  const sticker = settings.sticker ?? defaultSticker();
+  const stickerVisible = Boolean(sticker.enabled && sticker.mediaUrl);
+
+  // Keep bottom sticker looping + speed in sync with settings
+  useEffect(() => {
+    const el = stickerVideoRef.current;
+    if (!el || !stickerVisible) return;
+    el.playbackRate = Math.max(0.25, Math.min(3, sticker.speed || 1));
+    el.muted = true;
+    const tryPlay = () => {
+      void el.play().catch(() => undefined);
+    };
+    if (el.readyState >= 2) tryPlay();
+    else el.addEventListener("loadeddata", tryPlay, { once: true });
+    return () => el.removeEventListener("loadeddata", tryPlay);
+  }, [stickerVisible, sticker.mediaUrl, sticker.speed]);
 
   function stopAllSfx() {
     for (const a of activeSfxRef.current) {
@@ -640,6 +659,23 @@ export function PreviewPhone({
                 );
               })}
             </div>
+          )}
+
+          {stickerVisible && (
+            <video
+              ref={stickerVideoRef}
+              key={sticker.mediaUrl || "sticker"}
+              className="sticker-overlay"
+              src={sticker.mediaUrl || undefined}
+              muted
+              loop
+              playsInline
+              preload="auto"
+              draggable={false}
+              style={{
+                transform: `translateX(-50%) scale(${Math.max(0.15, Math.min(1.5, sticker.scale || 1))})`,
+              }}
+            />
           )}
 
           {activeClip && (

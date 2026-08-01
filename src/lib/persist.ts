@@ -22,7 +22,7 @@ export function defaultLeftUi(): LeftUiState {
   };
 }
 
-/** Layout defaults exclude per-project media beds */
+/** Layout defaults exclude per-project music beds (sticker is kept as brand chrome). */
 export function layoutSettingsFromProject(settings: ProjectSettings): ProjectSettings {
   const next = JSON.parse(JSON.stringify(settings)) as ProjectSettings;
   next.musicMediaId = null;
@@ -61,6 +61,10 @@ export function loadLayoutDefault(): ProjectSettings | null {
       ranksLayout: {
         ...base.ranksLayout,
         ...(parsed.ranksLayout || {}),
+      },
+      sticker: {
+        ...base.sticker,
+        ...(parsed.sticker || {}),
       },
       rankColors: {
         ...base.rankColors,
@@ -156,6 +160,13 @@ export function loadProject(): EditorProject {
         ranksLayout: {
           ...fallback.settings.ranksLayout,
           ...(parsed.settings?.ranksLayout || {}),
+        },
+        sticker: {
+          ...fallback.settings.sticker,
+          ...(parsed.settings?.sticker || {}),
+          mediaUrl: parsed.settings?.sticker?.mediaId
+            ? `/api/media/${parsed.settings.sticker.mediaId}`
+            : parsed.settings?.sticker?.mediaUrl ?? fallback.settings.sticker.mediaUrl,
         },
         rankColors: {
           ...fallback.settings.rankColors,

@@ -56,3 +56,35 @@ export async function probeDuration(filePath: string): Promise<number> {
   const n = parseFloat(stdout.trim());
   return Number.isFinite(n) ? n : 0;
 }
+
+/** Detect VP9/WebM (or other) streams that carry a real alpha channel. */
+export async function probeHasAlpha(filePath: string): Promise<boolean> {
+  try {
+    const { stdout } = await runCommand("ffprobe", [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=pix_fmt:stream_tags=alpha_mode,ALPHA_MODE",
+      "-of",
+      "json",
+      filePath,
+    ]);
+    const parsed = JSON.parse(stdout) as {
+      streams?: Array<{
+        pix_fmt?: string;
+        tags?: Record<string, string>;
+      }>;
+    };
+    const stream = parsed.streams?.[0];
+    if (!stream) return false;
+    const pix = (stream.pix_fmt || "").toLowerCase();
+    if (pix.includes("yuva") || pix.includes("rgba") || pix.includes("gbra")) return true;
+    const tags = stream.tags || {};
+    const mode = tags.alpha_mode || tags.ALPHA_MODE || "";
+    return mode === "1" || mode.toLowerCase() === "true";
+  } catch {
+    return false;
+  }
+}

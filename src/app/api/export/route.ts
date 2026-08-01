@@ -66,6 +66,12 @@ interface ExportBody {
   width?: number;
   height?: number;
   fps?: number;
+  sticker?: {
+    enabled?: boolean;
+    mediaId?: string | null;
+    scale?: number;
+    speed?: number;
+  } | null;
   sfx?: {
     mediaId: string;
     startAt: number;
@@ -157,6 +163,9 @@ async function renderClipSegment(opts: {
   aspectMode: AspectMode;
   titleOverlay: string;
   ranksOverlay: string | null;
+  stickerPath: string | null;
+  stickerScale: number;
+  stickerSpeed: number;
   fps: number;
   clipVolume: number;
   crop?: { zoom: number; panX: number; panY: number };
@@ -174,6 +183,9 @@ async function renderClipSegment(opts: {
     aspectMode,
     titleOverlay,
     ranksOverlay,
+    stickerPath,
+    stickerScale,
+    stickerSpeed,
     fps,
     clipVolume,
     crop,
@@ -187,6 +199,8 @@ async function renderClipSegment(opts: {
   const panY = Math.max(0, Math.min(100, crop?.panY ?? 50)) / 100;
   const topPad = titleOverlap ? 0 : Math.max(0, Math.round(titleBarHeight));
   const contentH = Math.max(16, height - topPad);
+  const scale = Math.max(0.15, Math.min(1.5, stickerScale || 1));
+  const speed = Math.max(0.25, Math.min(3, stickerSpeed || 1));
 
   // Continuous zoom matching preview CSS:
   // cover-fit, then scale by zoom; overlay onto a black canvas so zoom < 1
@@ -200,14 +214,38 @@ async function renderClipSegment(opts: {
     `color=c=black:s=${width}x${contentH}:r=${fps}[czbg];` +
     `[czbg][czfg]overlay=x='(W-w)*${panX}':y='(H-h)*${panY}':shortest=1,setsar=1${padTop}`;
 
+  // Input layout: 0=clip, 1=title, [2=ranks], [2|3=sticker]
+  let nextInput = 2;
+  const ranksIdx = ranksOverlay ? nextInput++ : -1;
+  const stickerIdx = stickerPath ? nextInput++ : -1;
+
+  const stickFilter =
+    stickerIdx >= 0
+      ? `[${stickerIdx}:v]fps=${fps},scale=iw*${scale}:-1,setpts=PTS/${speed}[stk];`
+      : "";
+
+  function withOverlays(baseLabel: string) {
+    let last = baseLabel;
+    const parts: string[] = [];
+    if (ranksIdx >= 0) {
+      parts.push(`[${last}][${ranksIdx}:v]overlay=0:0:shortest=1[withranks]`);
+      last = "withranks";
+    }
+    parts.push(`[${last}][1:v]overlay=0:0:shortest=1[withtitle]`);
+    last = "withtitle";
+    if (stickerIdx >= 0) {
+      parts.push(
+        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:shortest=1:format=auto,format=yuv420p[vout]`
+      );
+    } else {
+      parts.push(`[${last}]format=yuv420p[vout]`);
+    }
+    return parts.join(";");
+  }
+
   const videoFilter =
     aspectMode === "crop-fill"
-      ? [
-          `${framed}[base]`,
-          ranksOverlay
-            ? `[base][2:v]overlay=0:0:shortest=1[withranks];[withranks][1:v]overlay=0:0:shortest=1,format=yuv420p[vout]`
-            : `[base][1:v]overlay=0:0:shortest=1,format=yuv420p[vout]`,
-        ].join(";")
+      ? [`${framed}[base]`, stickFilter + withOverlays("base")].filter(Boolean).join(";")
       : [
           // Blur bg still fills full frame; FG uses same crop framing
           `[0:v]fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},gblur=sigma=${blur},setsar=1[bg]`,
@@ -215,10 +253,10 @@ async function renderClipSegment(opts: {
           topPad > 0
             ? `[bg][fg]overlay=0:${topPad}[comp]`
             : `[bg][fg]overlay=(W-w)/2:(H-h)/2[comp]`,
-          ranksOverlay
-            ? `[comp][2:v]overlay=0:0:shortest=1[withranks];[withranks][1:v]overlay=0:0:shortest=1,format=yuv420p[vout]`
-            : `[comp][1:v]overlay=0:0:shortest=1,format=yuv420p[vout]`,
-        ].join(";");
+          stickFilter + withOverlays("comp"),
+        ]
+          .filter(Boolean)
+          .join(";");
 
   const commonArgs = [
     "-y",
@@ -240,6 +278,11 @@ async function renderClipSegment(opts: {
     commonArgs.push("-loop", "1", "-t", String(duration), "-i", ranksOverlay);
   }
 
+  if (stickerPath) {
+    // Loop the transparent WebM for the full clip length
+    commonArgs.push("-stream_loop", "-1", "-t", String(duration), "-i", stickerPath);
+  }
+
   const encodeArgs = [
     "-map",
     "[vout]",
@@ -254,6 +297,8 @@ async function renderClipSegment(opts: {
     output,
   ];
 
+  const silenceIdx = nextInput;
+
   try {
     await runCommand("ffmpeg", [
       ...commonArgs,
@@ -262,7 +307,6 @@ async function renderClipSegment(opts: {
       ...encodeArgs,
     ]);
   } catch {
-    const silenceIdx = ranksOverlay ? 3 : 2;
     await runCommand("ffmpeg", [
       ...commonArgs,
       "-f",
@@ -338,6 +382,18 @@ export async function POST(req: NextRequest) {
 
     const titleOverlay = path.join(jobDir, "title.png");
     const script = path.join(process.cwd(), "scripts", "generate-overlays.py");
+
+    const stickerEnabled = Boolean(body.sticker?.enabled && body.sticker?.mediaId);
+    let stickerPath: string | null = null;
+    if (stickerEnabled && body.sticker?.mediaId) {
+      try {
+        stickerPath = resolveMedia(body.sticker.mediaId);
+      } catch {
+        stickerPath = null;
+      }
+    }
+    const stickerScale = body.sticker?.scale ?? 0.55;
+    const stickerSpeed = body.sticker?.speed ?? 1;
 
     const segmentPaths: string[] = [];
 
@@ -420,6 +476,9 @@ export async function POST(req: NextRequest) {
         aspectMode: body.aspectMode || "crop-fill",
         titleOverlay,
         ranksOverlay: body.showRankList ? ranksOverlay : null,
+        stickerPath,
+        stickerScale,
+        stickerSpeed,
         fps,
         clipVolume: Math.max(
           0,

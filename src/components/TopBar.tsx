@@ -139,6 +139,14 @@ export function TopBar({
           width: settings.width,
           height: settings.height,
           fps: settings.fps,
+          sticker: settings.sticker
+            ? {
+                enabled: settings.sticker.enabled,
+                mediaId: settings.sticker.mediaId,
+                scale: settings.sticker.scale,
+                speed: settings.sticker.speed,
+              }
+            : null,
           sfx: sfxForExport,
         }),
       });
