@@ -91,4 +91,28 @@ assert.equal(
   true
 );
 
+// After start scrub + preview: seeking cleared, inside range → keep playing
+assert.equal(
+  nextPlaybackAction({
+    currentTime: 2.2,
+    seg: { start: 2.0, end: 5 },
+    previewAll: false,
+    segIndex: 0,
+    segCount: 1,
+  }),
+  "continue"
+);
+
+// Mid-seek before new in-point must not stop
+assert.equal(
+  nextPlaybackAction({
+    currentTime: 0.1,
+    seg: { start: 2.0, end: 5 },
+    previewAll: false,
+    segIndex: 0,
+    segCount: 1,
+  }),
+  "continue"
+);
+
 console.log("trimPreview tests passed");

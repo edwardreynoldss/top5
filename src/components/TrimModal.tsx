@@ -72,7 +72,7 @@ export function TrimModal({
     // Always clear — seeked may not fire if value is unchanged or metadata is thin
     seekClearTimer.current = setTimeout(() => {
       seekingRef.current = false;
-    }, 200);
+    }, 120);
   }
 
   function endSeek() {
@@ -84,9 +84,15 @@ export function TrimModal({
   }
 
   function seekVideo(v: HTMLVideoElement, t: number) {
+    const target = Math.max(0, t);
     beginSeek();
     try {
-      v.currentTime = t;
+      if (Math.abs(v.currentTime - target) > 0.02) {
+        v.currentTime = target;
+      } else {
+        // Already there — don't leave seeking stuck waiting for seeked
+        endSeek();
+      }
     } catch {
       endSeek();
     }
@@ -148,11 +154,14 @@ export function TrimModal({
     if (!v) return;
 
     let cancelled = false;
+    let initialized = false;
     setReady(false);
     setLoadError(null);
+    endSeek();
 
     const markReady = () => {
-      if (cancelled) return;
+      if (cancelled || initialized) return;
+      initialized = true;
       const d =
         Number.isFinite(v.duration) && v.duration > 0
           ? v.duration
@@ -168,7 +177,10 @@ export function TrimModal({
       setReady(true);
       try {
         const start = segmentsRef.current[0]?.start ?? 0;
-        if (start > 0 && Number.isFinite(start)) v.currentTime = start;
+        if (Number.isFinite(start) && start >= 0) {
+          v.currentTime = start;
+          setCurrent(start);
+        }
       } catch {
         // ignore seek errors before enough data
       }
@@ -187,22 +199,32 @@ export function TrimModal({
       if (duration > 0) setDur(duration);
     };
 
-    v.addEventListener("loadedmetadata", markReady);
+    // Only init once — canplay can re-fire while playing and used to reseek/reset preview
+    const onCanPlayOnce = () => {
+      if (v.readyState >= 2) markReady();
+    };
+    let failsafeTimer: number | null = null;
+
     v.addEventListener("loadeddata", markReady);
-    v.addEventListener("canplay", markReady);
     v.addEventListener("error", onErr);
 
-    // Metadata may already be available (cached / from #t=)
-    if (v.readyState >= 1) {
+    if (v.readyState >= 2) {
       markReady();
+    } else if (v.readyState >= 1) {
+      // Have metadata; wait for data, but don't loop on canplay
+      v.addEventListener("canplay", onCanPlayOnce, { once: true });
+      // Failsafe if canplay never comes
+      failsafeTimer = window.setTimeout(() => {
+        if (!cancelled && !initialized && v.readyState >= 1) markReady();
+      }, 400);
     }
 
     return () => {
       cancelled = true;
-      v.removeEventListener("loadedmetadata", markReady);
       v.removeEventListener("loadeddata", markReady);
-      v.removeEventListener("canplay", markReady);
+      v.removeEventListener("canplay", onCanPlayOnce);
       v.removeEventListener("error", onErr);
+      if (failsafeTimer != null) window.clearTimeout(failsafeTimer);
     };
   }, [open, src, duration]);
 
@@ -214,6 +236,7 @@ export function TrimModal({
     const onSeeked = () => endSeek();
 
     const onTime = () => {
+      // Don't permanently ignore updates if a seek guard got stuck
       if (seekingRef.current) return;
       const t = v.currentTime;
       setCurrent(t);
@@ -237,9 +260,11 @@ export function TrimModal({
       if (action === "advance") {
         const next = idx + 1;
         const nextSeg = segs[next];
+        if (!nextSeg) return;
         activeIdxRef.current = next;
         setActiveIdx(next);
         seekVideo(v, nextSeg.start);
+        void v.play().catch(() => undefined);
         return;
       }
 
@@ -249,15 +274,22 @@ export function TrimModal({
       setPlaying(false);
       setPreviewAll(false);
       seekVideo(v, seg.start);
+      setCurrent(seg.start);
     };
 
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("seeked", onSeeked);
+    // Some browsers throttle timeupdate — poll while playing as a backup
+    const poll = window.setInterval(() => {
+      if (!playingRef.current || seekingRef.current) return;
+      onTime();
+    }, 200);
+
     return () => {
       v.removeEventListener("timeupdate", onTime);
       v.removeEventListener("seeked", onSeeked);
+      window.clearInterval(poll);
     };
-    // seekVideo / endSeek use refs — intentionally omit from deps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing]);
 
@@ -295,7 +327,10 @@ export function TrimModal({
     const v = videoRef.current;
     if (!v) return;
     seekVideo(v, next);
+    setCurrent(next);
     if (playingRef.current) {
+      // Keep preview running from the new in-point
+      endSeek();
       void v.play().catch(() => undefined);
     }
   };
@@ -313,6 +348,8 @@ export function TrimModal({
     // If playhead is past the new out-point, jump back to in-point and keep going
     if (playingRef.current && v.currentTime >= next - 0.04) {
       seekVideo(v, active.start);
+      setCurrent(active.start);
+      endSeek();
       void v.play().catch(() => undefined);
     }
   };
@@ -348,20 +385,39 @@ export function TrimModal({
     try {
       endSeek();
       seekVideo(v, startAt);
-      // Wait briefly for seek so play starts from the new in-point
       await new Promise<void>((resolve) => {
+        let settled = false;
         const done = () => {
+          if (settled) return;
+          settled = true;
           v.removeEventListener("seeked", done);
           resolve();
         };
         v.addEventListener("seeked", done);
-        window.setTimeout(done, 180);
+        window.setTimeout(done, 250);
       });
       endSeek();
-      await v.play();
+      setCurrent(v.currentTime);
+
+      // Set playing flags before play() so the timeupdate effect attaches immediately
       playingRef.current = true;
       setPlaying(true);
       setLoadError(null);
+
+      await v.play();
+
+      // If play was interrupted (seek/load), retry once from the in-point
+      if (v.paused && playingRef.current) {
+        endSeek();
+        try {
+          v.currentTime = startAt;
+        } catch {
+          // ignore
+        }
+        await v.play().catch(() => {
+          throw new Error("play blocked");
+        });
+      }
       setCurrent(v.currentTime);
     } catch {
       playingRef.current = false;
@@ -560,8 +616,13 @@ export function TrimModal({
                 type="button"
                 className={`segment-tab ${i === activeIdx ? "active" : ""}`}
                 onClick={() => {
+                  activeIdxRef.current = i;
                   setActiveIdx(i);
-                  if (videoRef.current) videoRef.current.currentTime = seg.start;
+                  const media = videoRef.current;
+                  if (media) {
+                    seekVideo(media, seg.start);
+                    setCurrent(seg.start);
+                  }
                 }}
               >
                 Part {i + 1} ({(seg.end - seg.start).toFixed(1)}s)
