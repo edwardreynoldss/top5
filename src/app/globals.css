@@ -1371,10 +1371,20 @@ a {
   cursor: grab;
   user-select: none;
   flex-shrink: 0;
+  position: relative;
 }
 
-.crop-stage:active {
+.crop-stage:active,
+.crop-stage.dragging {
   cursor: grabbing;
+}
+
+.crop-drag-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  touch-action: none;
+  cursor: inherit;
 }
 
 .crop-guide {
@@ -1382,7 +1392,7 @@ a {
   position: absolute;
   inset: 0;
   border: 1px dashed rgba(200, 245, 66, 0.35);
-  z-index: 2;
+  z-index: 3;
 }
 
 .crop-hint {
@@ -1390,13 +1400,17 @@ a {
   left: 50%;
   bottom: 0.5rem;
   transform: translateX(-50%);
-  z-index: 3;
+  z-index: 4;
   font-size: 0.72rem;
   color: #fff;
   background: rgba(0, 0, 0, 0.55);
   border-radius: 999px;
   padding: 0.2rem 0.55rem;
   pointer-events: none;
+  white-space: nowrap;
+  max-width: calc(100% - 1rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .crop-controls {
@@ -1411,6 +1425,9 @@ a {
   object-fit: contain;
   display: block;
   background: #000;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .trim-loading {

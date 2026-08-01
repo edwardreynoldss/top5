@@ -214,6 +214,20 @@ export function cropDisplayScale(
   return cover * z;
 }
 
+/**
+ * Pan as a CSS translate so dragging the video moves it visibly.
+ * pan 50/50 = centered; 0 = bias toward left/top content; 100 = right/bottom.
+ */
+export function cropPanTranslatePct(crop: ClipCrop, scale: number) {
+  const s = Math.max(0.25, scale);
+  // More room to pan when punched in past the frame
+  const strength = Math.max(10, (s - 1) * 55 + 14);
+  return {
+    x: ((50 - (crop.panX ?? 50)) / 50) * strength,
+    y: ((50 - (crop.panY ?? 50)) / 50) * strength,
+  };
+}
+
 export function cropPreviewStyle(
   crop: ClipCrop,
   opts?: { frameAspect?: number; videoAspect?: number }
@@ -221,14 +235,17 @@ export function cropPreviewStyle(
   const frameAspect = opts?.frameAspect ?? 9 / 16;
   const videoAspect = opts?.videoAspect ?? frameAspect;
   const scale = cropDisplayScale(crop.zoom, frameAspect, videoAspect);
+  const pan = cropPanTranslatePct(crop, scale);
   return {
     // Contain + scale(coverFactor*zoom): zoom=1 fills like cover; zoom out is continuous
     objectFit: "contain" as const,
-    objectPosition: `${crop.panX}% ${crop.panY}%`,
-    transform: `scale(${scale})`,
-    transformOrigin: `${crop.panX}% ${crop.panY}%`,
+    objectPosition: "50% 50%",
+    // translate then scale (CSS applies right-to-left) so drag offsets feel natural
+    transform: `scale(${scale}) translate(${pan.x}%, ${pan.y}%)`,
+    transformOrigin: "center center",
     width: "100%",
     height: "100%",
+    willChange: "transform",
   };
 }
 

@@ -54,6 +54,7 @@ export function TrimModal({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const segmentsRef = useRef(segments);
   const activeIdxRef = useRef(activeIdx);
   const previewAllRef = useRef(previewAll);
@@ -260,6 +261,19 @@ export function TrimModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing]);
 
+  // Scroll-wheel zoom over the viewer (also keeps sliders in sync)
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el || !open) return;
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      const step = ev.deltaY > 0 ? -0.05 : 0.05;
+      setCrop((c) => ({ ...c, zoom: clampCropZoom(c.zoom + step) }));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [open]);
+
   if (!open) return null;
 
   function updateActive(patch: Partial<TrimSegment>) {
@@ -389,14 +403,20 @@ export function TrimModal({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
     e.preventDefault();
+    e.stopPropagation();
     stageRef.current?.setPointerCapture?.(e.pointerId);
     dragRef.current = { x: e.clientX, y: e.clientY, panX: crop.panX, panY: crop.panY };
+    setDragging(true);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (!dragRef.current || !stageRef.current) return;
+    e.preventDefault();
     const rect = stageRef.current.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+    // Drag the video with the pointer — 1 frame-width ≈ full pan range
     const dx = ((e.clientX - dragRef.current.x) / rect.width) * 100;
     const dy = ((e.clientY - dragRef.current.y) / rect.height) * 100;
     setCrop((c) => ({
@@ -406,8 +426,12 @@ export function TrimModal({
     }));
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (stageRef.current?.hasPointerCapture?.(e.pointerId)) {
+      stageRef.current.releasePointerCapture(e.pointerId);
+    }
     dragRef.current = null;
+    setDragging(false);
   };
 
   const sliderMax = Math.max(dur || 1, active?.end || 1, 1);
@@ -441,7 +465,9 @@ export function TrimModal({
         <div className="modal-scroll">
           <div
             ref={stageRef}
-            className={`trim-video-wrap ${portrait ? "portrait" : "landscape"} crop-stage`}
+            className={`trim-video-wrap ${portrait ? "portrait" : "landscape"} crop-stage ${
+              dragging ? "dragging" : ""
+            }`}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -455,9 +481,12 @@ export function TrimModal({
               preload="auto"
               muted
               controls={false}
+              draggable={false}
               className="trim-video"
               style={cropStyle}
             />
+            {/* Transparent hit target so drag always works over the video */}
+            <div className="crop-drag-layer" aria-hidden />
             <div className="crop-guide" />
             {!ready && !loadError && <div className="trim-loading">Loading preview…</div>}
             {loadError && (
@@ -466,12 +495,10 @@ export function TrimModal({
                 <p className="muted">You can still set trim times and click Use clip.</p>
               </div>
             )}
-            {crop.zoom !== 1 && (
-              <div className="crop-hint">
-                Drag to pan · zoom {crop.zoom.toFixed(2)}×
-                {crop.zoom < 1 ? " (out)" : " (in)"}
-              </div>
-            )}
+            <div className="crop-hint">
+              Drag to reposition · scroll to zoom · {crop.zoom.toFixed(2)}×
+              {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
+            </div>
           </div>
 
           <div className="crop-controls">
@@ -496,7 +523,7 @@ export function TrimModal({
               />
             </div>
             <div className="trim-row">
-              <label>Pan X {crop.panX.toFixed(0)}%</label>
+              <label>Pan X {crop.panX.toFixed(0)}% · or drag video</label>
               <input
                 type="range"
                 min={0}
@@ -507,7 +534,7 @@ export function TrimModal({
               />
             </div>
             <div className="trim-row">
-              <label>Pan Y {crop.panY.toFixed(0)}%</label>
+              <label>Pan Y {crop.panY.toFixed(0)}% · or drag video</label>
               <input
                 type="range"
                 min={0}
