@@ -234,8 +234,9 @@ async function renderClipSegment(opts: {
 
   const stickFilter =
     stickerIdx >= 0
-      ? // Force yuva so VP9 alpha isn't dropped (gray under-alpha → opaque slab otherwise)
-        `[${stickerIdx}:v]format=yuva420p,fps=${fps},scale=iw*${scale}:-1,setpts=PTS/${speed}[stk];`
+      ? // Keep VP9 alpha (yuva). Shift PTS by delay so enable=between(t,delay,…) has frames —
+        // without this, overlay only has sticker frames at t≈0 and shows nothing (or held gray).
+        `[${stickerIdx}:v]format=yuva420p,fps=${fps},scale=iw*${scale}:-1,setpts=PTS/${speed}+${delay}/TB[stk];`
       : "";
 
   function withOverlays(baseLabel: string) {
@@ -248,9 +249,9 @@ async function renderClipSegment(opts: {
     parts.push(`[${last}][1:v]overlay=0:0:shortest=1[withtitle]`);
     last = "withtitle";
     if (stickerIdx >= 0) {
-      // format=rgb keeps alpha blending; format=auto often treats gray under-alpha as opaque
+      // format=rgb preserves alpha; eof_action=pass avoids holding a transparent/gray frame
       parts.push(
-        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,${delay.toFixed(3)}\\,${endAt.toFixed(3)})':format=rgb,format=yuv420p[vout]`
+        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,${delay.toFixed(3)}\\,${endAt.toFixed(3)})':eof_action=pass:format=rgb,format=yuv420p[vout]`
       );
     } else {
       parts.push(`[${last}]format=yuv420p[vout]`);

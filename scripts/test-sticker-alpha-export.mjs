@@ -96,7 +96,7 @@ execFileSync(
     "-i",
     webm,
     "-filter_complex",
-    "[1:v]format=yuva420p,fps=30,scale=iw*0.55:-1,setpts=PTS/1[stk];[0:v][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,0.2\\,1.2)':format=rgb,format=yuv420p",
+    "[1:v]format=yuva420p,fps=30,scale=iw*0.55:-1,setpts=PTS/1+0.2/TB[stk];[0:v][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,0.2\\,1.2)':eof_action=pass:format=rgb,format=yuv420p",
     "-t",
     "1.2",
     "-c:v",

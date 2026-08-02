@@ -105,8 +105,8 @@ async function main() {
           rank: 5,
           label: "Test",
           trimStart: 0,
-          trimEnd: 1.2,
-          segments: [{ start: 0, end: 1.2 }],
+          trimEnd: 3.0,
+          segments: [{ start: 0, end: 3.0 }],
           crop: { zoom: 1, panX: 50, panY: 50 },
           volume: 1,
         },
@@ -144,7 +144,8 @@ async function main() {
         mediaId: sJson.mediaId,
         scale: 0.55,
         speed: 1,
-        startAt: 0.35,
+        // Delay inside the clip — catches PTS-shift regressions
+        startAt: 1.0,
         duration: sJson.duration || 2,
       },
       sfx: [],
@@ -167,7 +168,7 @@ async function main() {
     const { execFileSync } = require("node:child_process");
     execFileSync(
       "ffmpeg",
-      ["-y", "-hide_banner", "-loglevel", "error", "-ss", "0.4", "-i", outPath, "-frames:v", "1", frame],
+      ["-y", "-hide_banner", "-loglevel", "error", "-ss", "1.3", "-i", outPath, "-frames:v", "1", frame],
       { stdio: "inherit" }
     );
     const { createRequire: cr } = await import("node:module");
