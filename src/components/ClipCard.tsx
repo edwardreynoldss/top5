@@ -22,6 +22,7 @@ import {
   getClipSegments,
   clipPlayDuration,
   defaultCrop,
+  normalizeCrop,
   getClipCrop,
   getClipVolume,
 } from "@/lib/defaults";
@@ -221,7 +222,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       sourceUrl: meta?.sourceUrl ?? clip.sourceUrl,
       duration: meta?.duration ?? clip.duration,
       segments,
-      crop,
+      crop: normalizeCrop(crop),
       trimStart: first?.start ?? 0,
       trimEnd: last?.end ?? DEFAULT_CLIP_DURATION,
       error: undefined,
@@ -370,6 +371,10 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                     {segs.length} part{segs.length > 1 ? "s" : ""} · {clipPlayDuration(clip).toFixed(1)}s
                     {getClipCrop(clip).zoom !== 1
                       ? ` · ${getClipCrop(clip).zoom.toFixed(1)}× zoom`
+                      : ""}
+                    {(getClipCrop(clip).cropTop || 0) > 0.001 ||
+                    (getClipCrop(clip).cropBottom || 0) > 0.001
+                      ? ` · edge cropped`
                       : ""}
                     {" · drop a new video to replace"}
                   </p>

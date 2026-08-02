@@ -74,8 +74,45 @@ export function createSegment(start: number, end: number): TrimSegment {
   return { id: uuidv4(), start, end };
 }
 
+/** Max fraction of height removable from one edge */
+export const MAX_EDGE_CROP = 0.45;
+/** Keep at least this much of the source height after top+bottom crop */
+export const MIN_VISIBLE_HEIGHT = 0.2;
+
 export function defaultCrop(): ClipCrop {
-  return { zoom: 1, panX: 50, panY: 50 };
+  return { zoom: 1, panX: 50, panY: 50, cropTop: 0, cropBottom: 0 };
+}
+
+export function clampCropEdge(value: number) {
+  return Math.max(0, Math.min(MAX_EDGE_CROP, Number.isFinite(value) ? value : 0));
+}
+
+/** Clamp and rebalance top/bottom so enough of the frame remains. */
+export function normalizeVerticalCrop(cropTop = 0, cropBottom = 0) {
+  let top = clampCropEdge(cropTop);
+  let bottom = clampCropEdge(cropBottom);
+  const maxSum = 1 - MIN_VISIBLE_HEIGHT;
+  if (top + bottom > maxSum) {
+    const scale = maxSum / (top + bottom);
+    top *= scale;
+    bottom *= scale;
+  }
+  return { top, bottom, visibleH: Math.max(MIN_VISIBLE_HEIGHT, 1 - top - bottom) };
+}
+
+/** Merge partial/legacy crop with defaults and clamp all fields. */
+export function normalizeCrop(crop?: Partial<ClipCrop> | null): ClipCrop {
+  const d = defaultCrop();
+  const edges = normalizeVerticalCrop(crop?.cropTop ?? 0, crop?.cropBottom ?? 0);
+  const panX = typeof crop?.panX === "number" && Number.isFinite(crop.panX) ? crop.panX : d.panX;
+  const panY = typeof crop?.panY === "number" && Number.isFinite(crop.panY) ? crop.panY : d.panY;
+  return {
+    zoom: clampCropZoom(crop?.zoom ?? d.zoom),
+    panX: Math.max(0, Math.min(100, panX)),
+    panY: Math.max(0, Math.min(100, panY)),
+    cropTop: edges.top,
+    cropBottom: edges.bottom,
+  };
 }
 
 export function normalizeSegments(segments: TrimSegment[]): TrimSegment[] {
@@ -205,7 +242,7 @@ export function getClipSegments(clip: RankClip): TrimSegment[] {
 }
 
 export function getClipCrop(clip: RankClip): ClipCrop {
-  return clip.crop || defaultCrop();
+  return normalizeCrop(clip.crop);
 }
 
 /** Per-clip volume (0–2), default 1 */
@@ -279,20 +316,42 @@ export function cropPanTranslatePct(crop: ClipCrop, scale: number) {
   };
 }
 
+/**
+ * Effective source aspect after vertical edge crop (width unchanged, height shrinks).
+ */
+export function cropEffectiveAspect(videoAspect: number, crop: ClipCrop) {
+  const { visibleH } = normalizeVerticalCrop(crop.cropTop, crop.cropBottom);
+  if (!Number.isFinite(videoAspect) || videoAspect <= 0) return 16 / 9;
+  return videoAspect / visibleH;
+}
+
 export function cropPreviewStyle(
   crop: ClipCrop,
   opts?: { frameAspect?: number; videoAspect?: number }
 ) {
   const frameAspect = opts?.frameAspect ?? 9 / 16;
   const videoAspect = opts?.videoAspect ?? frameAspect;
-  const scale = cropDisplayScale(crop.zoom, frameAspect, videoAspect);
-  const pan = cropPanTranslatePct(crop, scale);
+  const normalized = normalizeCrop(crop);
+  const { top, visibleH } = normalizeVerticalCrop(
+    normalized.cropTop,
+    normalized.cropBottom
+  );
+  // Treat the kept band as the source so cover/zoom match export's crop→scale chain
+  const effectiveAspect = cropEffectiveAspect(videoAspect, normalized);
+  const scale = cropDisplayScale(normalized.zoom, frameAspect, effectiveAspect);
+  const pan = cropPanTranslatePct(normalized, scale);
+
+  // Asymmetric top/bottom: shift so the kept band stays centered before pan
+  const visibleCenter = top + visibleH / 2;
+  const containHFrac = Math.min(1, frameAspect / Math.max(videoAspect, 0.01));
+  const edgeBiasY = (0.5 - visibleCenter) * containHFrac * 100;
+
   return {
     // Contain + scale(coverFactor*zoom): zoom=1 fills like cover; zoom out is continuous
     objectFit: "contain" as const,
     objectPosition: "50% 50%",
     // translate then scale (CSS applies right-to-left) so drag offsets feel natural
-    transform: `scale(${scale}) translate(${pan.x}%, ${pan.y}%)`,
+    transform: `scale(${scale}) translate(${pan.x}%, ${pan.y + edgeBiasY}%)`,
     transformOrigin: "center center",
     width: "100%",
     height: "100%",

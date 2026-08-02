@@ -8,6 +8,7 @@ import {
   resolveSfxStartAt,
   effectiveSfxVolume,
   getClipVolume,
+  getClipCrop,
 } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
 import { useEditor } from "@/lib/store";
@@ -197,7 +198,7 @@ export function TopBar({
               ? c.segments
               : [{ start: c.trimStart, end: c.trimEnd }]
             ).map((s) => ({ start: s.start, end: s.end })),
-            crop: c.crop || { zoom: 1, panX: 50, panY: 50 },
+            crop: getClipCrop(c),
             volume: getClipVolume(c),
           })),
           title: titlePayload,

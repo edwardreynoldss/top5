@@ -9,7 +9,7 @@ export interface TrimSegment {
   end: number;
 }
 
-/** Zoom/pan framing for fit-to-screen crop */
+/** Zoom/pan framing for fit-to-screen crop, plus optional edge crop */
 export interface ClipCrop {
   /**
    * Continuous zoom relative to cover-fill.
@@ -21,6 +21,16 @@ export interface ClipCrop {
   panX: number;
   /** 0–100 vertical focus (50 = center) */
   panY: number;
+  /**
+   * Fraction of source height to cut from the top (0–0.45).
+   * Use to remove letterbox text / watermarks above the picture.
+   */
+  cropTop?: number;
+  /**
+   * Fraction of source height to cut from the bottom (0–0.45).
+   * Use to remove letterbox text / watermarks below the picture.
+   */
+  cropBottom?: number;
 }
 
 export interface RankClip {

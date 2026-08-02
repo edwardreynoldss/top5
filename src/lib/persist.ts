@@ -1,4 +1,4 @@
-import { builtInDefaultSettings, createDefaultProject, defaultCrop, createSegment } from "./defaults";
+import { builtInDefaultSettings, createDefaultProject, normalizeCrop, createSegment } from "./defaults";
 import type { EditorProject, ProjectSettings, RankClip } from "./types";
 import { DEFAULT_CLIP_DURATION } from "./types";
 
@@ -95,7 +95,7 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
       clip.segments && clip.segments.length > 0
         ? clip.segments
         : [createSegment(clip.trimStart ?? 0, clip.trimEnd ?? DEFAULT_CLIP_DURATION)],
-    crop: clip.crop || defaultCrop(),
+    crop: normalizeCrop(clip.crop),
     volume:
       typeof clip.volume === "number" && Number.isFinite(clip.volume)
         ? Math.max(0, Math.min(2, clip.volume))

@@ -39,7 +39,7 @@ interface ExportClip {
   trimStart: number;
   trimEnd: number;
   segments?: { start: number; end: number }[];
-  crop?: { zoom: number; panX: number; panY: number };
+  crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number };
   /** Per-clip gain 0–2; multiplied by body.clipVolume */
   volume?: number;
 }
@@ -183,7 +183,7 @@ async function renderClipSegment(opts: {
   stickerSourceSeek: number;
   fps: number;
   clipVolume: number;
-  crop?: { zoom: number; panX: number; panY: number };
+  crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number };
   titleOverlap?: boolean;
   titleBarHeight?: number;
 }) {
@@ -216,6 +216,20 @@ async function renderClipSegment(opts: {
   const zoom = Math.max(0.25, Math.min(3, crop?.zoom ?? 1));
   const panX = Math.max(0, Math.min(100, crop?.panX ?? 50)) / 100;
   const panY = Math.max(0, Math.min(100, crop?.panY ?? 50)) / 100;
+  // Edge crop: cut letterbox / watermark bands before cover-fill framing
+  let cropTop = Math.max(0, Math.min(0.45, crop?.cropTop ?? 0));
+  let cropBottom = Math.max(0, Math.min(0.45, crop?.cropBottom ?? 0));
+  const maxEdgeSum = 0.8;
+  if (cropTop + cropBottom > maxEdgeSum) {
+    const s = maxEdgeSum / (cropTop + cropBottom);
+    cropTop *= s;
+    cropBottom *= s;
+  }
+  const visibleH = Math.max(0.2, 1 - cropTop - cropBottom);
+  const edgeCrop =
+    cropTop > 0.0005 || cropBottom > 0.0005
+      ? `crop=iw:floor(ih*${visibleH}/2)*2:0:floor(ih*${cropTop}/2)*2,`
+      : "";
   const topPad = titleOverlap ? 0 : Math.max(0, Math.round(titleBarHeight));
   const contentH = Math.max(16, height - topPad);
   const scale = Math.max(0.15, Math.min(1.5, stickerScale || 1));
@@ -223,12 +237,12 @@ async function renderClipSegment(opts: {
   const delay = Math.max(0, stickerDelay || 0);
 
   // Continuous zoom matching preview CSS:
-  // cover-fit, then scale by zoom; overlay onto a black canvas so zoom < 1
-  // letterboxes gradually instead of jumping to a tiny contain frame.
+  // 1) optional edge crop  2) cover-fit  3) zoom  4) pan overlay on black
   const padTop =
     topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
   const framed =
     `[0:v]fps=${fps},` +
+    edgeCrop +
     `scale=${width}:${contentH}:force_original_aspect_ratio=increase,` +
     `scale=iw*${zoom}:ih*${zoom}[czfg];` +
     `color=c=black:s=${width}x${contentH}:r=${fps}[czbg];` +
@@ -552,7 +566,7 @@ export async function POST(req: NextRequest) {
           0,
           Math.min(2, (clip.volume ?? 1) * (body.clipVolume ?? 1))
         ),
-        crop: clip.crop || { zoom: 1, panX: 50, panY: 50 },
+        crop: clip.crop || { zoom: 1, panX: 50, panY: 50, cropTop: 0, cropBottom: 0 },
         titleOverlap: !titleEnabled ? true : body.titleOverlap !== false,
         titleBarHeight: barH,
       });

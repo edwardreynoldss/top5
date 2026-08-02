@@ -7,8 +7,11 @@ import {
   segmentsDuration,
   normalizeSegments,
   defaultCrop,
+  normalizeCrop,
   cropPreviewStyle,
   clampCropZoom,
+  clampCropEdge,
+  MAX_EDGE_CROP,
 } from "@/lib/defaults";
 import { MAX_CLIP_DURATION, type ClipCrop, type TrimSegment } from "@/lib/types";
 import { nextPlaybackAction } from "@/lib/trimPreview";
@@ -43,7 +46,7 @@ export function TrimModal({
       ? normalizeSegments(initialSegments)
       : [createSegment(0, Math.min(4, duration || 4))]
   );
-  const [crop, setCrop] = useState<ClipCrop>(initialCrop || defaultCrop());
+  const [crop, setCrop] = useState<ClipCrop>(() => normalizeCrop(initialCrop));
   const [activeIdx, setActiveIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [previewAll, setPreviewAll] = useState(false);
@@ -112,7 +115,7 @@ export function TrimModal({
       .map((s) => `${Number(s.start).toFixed(3)}-${Number(s.end).toFixed(3)}`)
       .join("|");
     const cropKey = initialCrop
-      ? `${initialCrop.zoom}:${initialCrop.panX}:${initialCrop.panY}`
+      ? `${initialCrop.zoom}:${initialCrop.panX}:${initialCrop.panY}:${initialCrop.cropTop ?? 0}:${initialCrop.cropBottom ?? 0}`
       : "default";
     const sessionKey = `${src}::${duration}::${segKey}::${cropKey}`;
     if (sessionRef.current === sessionKey) return;
@@ -123,7 +126,7 @@ export function TrimModal({
         ? normalizeSegments(initialSegments)
         : [createSegment(0, Math.min(4, duration || 4))];
     setSegments(segs);
-    setCrop(initialCrop || defaultCrop());
+    setCrop(normalizeCrop(initialCrop));
     setActiveIdx(0);
     setPlaying(false);
     setPreviewAll(false);
@@ -510,7 +513,7 @@ export function TrimModal({
           <div>
             <h3>Trim & crop</h3>
             <p className="muted">
-              {fileName || "Cut ranges, then zoom/pan the frame"} · max {MAX_CLIP_DURATION}s
+              {fileName || "Cut ranges, crop edges, then zoom/pan"} · max {MAX_CLIP_DURATION}s
             </p>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
@@ -552,12 +555,49 @@ export function TrimModal({
               </div>
             )}
             <div className="crop-hint">
-              Drag to reposition · scroll to zoom · {crop.zoom.toFixed(2)}×
+              Drag to reposition · scroll to zoom · crop top/bottom to cut text
+              {" · "}
+              {crop.zoom.toFixed(2)}×
               {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
             </div>
           </div>
 
           <div className="crop-controls">
+            <div className="trim-row">
+              <label>
+                Crop top {Math.round((normalizeCrop(crop).cropTop || 0) * 100)}% · cut text / bars
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={MAX_EDGE_CROP}
+                step={0.01}
+                value={clampCropEdge(crop.cropTop ?? 0)}
+                onChange={(e) =>
+                  setCrop((c) =>
+                    normalizeCrop({ ...c, cropTop: clampCropEdge(parseFloat(e.target.value)) })
+                  )
+                }
+              />
+            </div>
+            <div className="trim-row">
+              <label>
+                Crop bottom {Math.round((normalizeCrop(crop).cropBottom || 0) * 100)}% · cut text /
+                bars
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={MAX_EDGE_CROP}
+                step={0.01}
+                value={clampCropEdge(crop.cropBottom ?? 0)}
+                onChange={(e) =>
+                  setCrop((c) =>
+                    normalizeCrop({ ...c, cropBottom: clampCropEdge(parseFloat(e.target.value)) })
+                  )
+                }
+              />
+            </div>
             <div className="trim-row">
               <label>
                 Zoom {crop.zoom.toFixed(2)}×
@@ -709,7 +749,7 @@ export function TrimModal({
           <button
             className="btn primary"
             disabled={!canUseClip}
-            onClick={() => onConfirm(normalizeSegments(segments), crop)}
+            onClick={() => onConfirm(normalizeSegments(segments), normalizeCrop(crop))}
           >
             <Check size={16} />
             Use clip ({totalSelected.toFixed(1)}s)
