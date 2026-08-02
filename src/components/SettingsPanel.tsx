@@ -270,7 +270,7 @@ export function SettingsPanel() {
               />
             </label>
             <label className="field">
-              <span>Size ({Math.round(sticker.scale * 100)}%)</span>
+              <span>Size ({Math.round(sticker.scale * 100)}% of preview frame)</span>
               <input
                 type="range"
                 min={0.15}

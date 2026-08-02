@@ -28,7 +28,7 @@ function analyze(png) {
       `
 from PIL import Image
 im=Image.open(${JSON.stringify(png)}).convert('RGB')
-bot=im.getpixel((im.width//2, im.height-80))
+bot=im.getpixel((im.width//2, im.height-20))
 mid=im.getpixel((im.width//2, im.height//2))
 gray=0; total=0
 for y in range(im.height//2, im.height, 6):
@@ -53,7 +53,10 @@ print(gray/total)
 const delay = 1.2;
 const outMp4 = path.join(root, "delayed-fixed.mp4");
 const filter =
-  `[1:v]format=yuva420p,fps=30,scale=iw*0.55:-1,setpts=PTS/1+${delay}/TB[stk];` +
+  `[1:v]format=yuva420p,fps=30,` +
+  `scale=1080:864:force_original_aspect_ratio=decrease,` +
+  `scale=iw*0.55:ih*0.55,` +
+  `setpts=PTS/1+${delay}/TB[stk];` +
   `[0:v][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,${delay}\\,${delay + 1.5})':eof_action=pass:format=rgb,format=yuv420p`;
 
 execFileSync(

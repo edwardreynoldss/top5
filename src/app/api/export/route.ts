@@ -232,11 +232,15 @@ async function renderClipSegment(opts: {
   const ranksIdx = ranksOverlay ? nextInput++ : -1;
   const stickerIdx = stickerPath ? nextInput++ : -1;
 
+  // Match PreviewPhone: fit into (100% × 45% height) with contain, then multiply by scale.
+  // Using iw*scale alone makes full-frame WebMs much larger than preview.
+  const fitH = Math.max(16, Math.round(height * 0.45));
   const stickFilter =
     stickerIdx >= 0
-      ? // Keep VP9 alpha (yuva). Shift PTS by delay so enable=between(t,delay,…) has frames —
-        // without this, overlay only has sticker frames at t≈0 and shows nothing (or held gray).
-        `[${stickerIdx}:v]format=yuva420p,fps=${fps},scale=iw*${scale}:-1,setpts=PTS/${speed}+${delay}/TB[stk];`
+      ? `[${stickerIdx}:v]format=yuva420p,fps=${fps},` +
+        `scale=${width}:${fitH}:force_original_aspect_ratio=decrease,` +
+        `scale=iw*${scale}:ih*${scale},` +
+        `setpts=PTS/${speed}+${delay}/TB[stk];`
       : "";
 
   function withOverlays(baseLabel: string) {

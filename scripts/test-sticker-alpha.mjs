@@ -177,7 +177,7 @@ async function main() {
 from PIL import Image
 im=Image.open(${JSON.stringify(frame)}).convert('RGB')
 top=im.getpixel((im.width//2, 40))
-bot=im.getpixel((im.width//2, im.height-80))
+bot=im.getpixel((im.width//2, im.height-20))
 mid=im.getpixel((im.width//2, im.height//2))
 gray=0; total=0
 for y in range(im.height//2, im.height, 6):

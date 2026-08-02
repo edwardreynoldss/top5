@@ -26,7 +26,7 @@ for y in range(im.height//2, im.height, 6):
   for x in range(0, im.width, 6):
     r,g,b=im.getpixel((x,y)); total+=1
     if abs(r-g)<15 and abs(g-b)<15 and 50<=r<=140: gray+=1
-bot=im.getpixel((im.width//2, im.height-80))
+bot=im.getpixel((im.width//2, im.height-20))
 mid=im.getpixel((im.width//2, im.height//2))
 print(gray/total)
 print(bot[0], bot[1], bot[2])
@@ -96,7 +96,7 @@ execFileSync(
     "-i",
     webm,
     "-filter_complex",
-    "[1:v]format=yuva420p,fps=30,scale=iw*0.55:-1,setpts=PTS/1+0.2/TB[stk];[0:v][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,0.2\\,1.2)':eof_action=pass:format=rgb,format=yuv420p",
+    "[1:v]format=yuva420p,fps=30,scale=1080:864:force_original_aspect_ratio=decrease,scale=iw*0.55:ih*0.55,setpts=PTS/1+0.2/TB[stk];[0:v][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,0.2\\,1.2)':eof_action=pass:format=rgb,format=yuv420p",
     "-t",
     "1.2",
     "-c:v",
