@@ -36,7 +36,7 @@ async function loadProbe() {
   };
 }
 
-const PORT = 3021;
+const PORT = 3027;
 const BASE = `http://127.0.0.1:${PORT}`;
 
 async function waitForHealth(timeoutMs = 90000) {
