@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import path from "path";
 import { copyFile, writeFile } from "fs/promises";
-import { ensureDirs, mediaPath } from "@/lib/paths";
+import { ensureDirs, mediaPath, UPLOAD_DIR } from "@/lib/paths";
 import { probeDuration, probeHasAlpha, runCommand } from "@/lib/ffmpeg";
 import { whichTools } from "@/lib/bins";
+import { channelSlug, channelStickerMediaId } from "@/lib/channels";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -57,7 +59,12 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
-      const outPath = mediaPath(id, safeExt);
+      // Per-channel stickers use a stable filename so re-uploads replace in place
+      const channel = String(form.get("channelSlug") || "").trim();
+      const mediaId = channel
+        ? channelStickerMediaId(channel)
+        : `${id}.${safeExt}`;
+      const outPath = path.join(UPLOAD_DIR, mediaId);
       // Remux/copy to normalize container; fall back to raw bytes if copy fails
       try {
         await runCommand("ffmpeg", ["-y", "-i", rawPath, "-c", "copy", outPath]);
@@ -66,7 +73,6 @@ export async function POST(req: NextRequest) {
       }
       const hasAlpha = await probeHasAlpha(outPath);
       const duration = await probeDuration(outPath);
-      const mediaId = pathBasename(outPath);
       return NextResponse.json({
         mediaId,
         mediaUrl: `/api/media/${mediaId}`,
@@ -74,6 +80,7 @@ export async function POST(req: NextRequest) {
         fileName: originalName,
         hasAlpha,
         purpose: "sticker",
+        channelSlug: channel ? channelSlug(channel) : null,
       });
     }
 

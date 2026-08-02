@@ -22,11 +22,15 @@ export function defaultLeftUi(): LeftUiState {
   };
 }
 
-/** Layout defaults exclude per-project music beds (sticker is kept as brand chrome). */
+/**
+ * Layout defaults exclude per-project music beds and stickers.
+ * Stickers are saved per upload channel instead.
+ */
 export function layoutSettingsFromProject(settings: ProjectSettings): ProjectSettings {
   const next = JSON.parse(JSON.stringify(settings)) as ProjectSettings;
   next.musicMediaId = null;
   next.musicUrl = null;
+  next.sticker = builtInDefaultSettings().sticker;
   return next;
 }
 

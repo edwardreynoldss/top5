@@ -7,14 +7,24 @@ import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
 import { defaultSticker } from "@/lib/defaults";
 
 export function SettingsPanel() {
-  const { project, updateSettings, setPlayOrder, setTransition, saveLayoutAsDefault } =
-    useEditor();
+  const {
+    project,
+    channelState,
+    updateSettings,
+    updateSticker,
+    setPlayOrder,
+    setTransition,
+    saveLayoutAsDefault,
+  } = useEditor();
   const { settings } = project;
   const musicRef = useRef<HTMLInputElement>(null);
   const stickerRef = useRef<HTMLInputElement>(null);
   const [layoutFlash, setLayoutFlash] = useState(false);
   const [stickerBusy, setStickerBusy] = useState(false);
   const sticker = settings.sticker ?? defaultSticker();
+  const activeChannel =
+    channelState.channels.find((c) => c.slug === channelState.activeSlug) ||
+    channelState.channels[0];
 
   async function uploadMusic(file: File) {
     const fd = new FormData();
@@ -34,23 +44,22 @@ export function SettingsPanel() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("purpose", "sticker");
+      fd.append("channelSlug", channelState.activeSlug);
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) {
         alert(data.error || "Sticker upload failed");
         return;
       }
-      updateSettings({
-        sticker: {
-          ...sticker,
-          enabled: true,
-          mediaId: data.mediaId,
-          mediaUrl: data.mediaUrl,
-          fileName: data.fileName || file.name,
-          hasAlpha: Boolean(data.hasAlpha),
-          duration: typeof data.duration === "number" ? data.duration : 0,
-          startAt: Number.isFinite(sticker.startAt) ? sticker.startAt : 20,
-        },
+      updateSticker({
+        ...sticker,
+        enabled: true,
+        mediaId: data.mediaId,
+        mediaUrl: data.mediaUrl,
+        fileName: data.fileName || file.name,
+        hasAlpha: Boolean(data.hasAlpha),
+        duration: typeof data.duration === "number" ? data.duration : 0,
+        startAt: Number.isFinite(sticker.startAt) ? sticker.startAt : 20,
       });
       if (!data.hasAlpha) {
         alert(
@@ -83,8 +92,8 @@ export function SettingsPanel() {
           {layoutFlash ? "Saved as default" : "Save as default layout"}
         </button>
         <p className="muted">
-          Remembers title, ranks position, colors, sticker, and look. Reset clears clips but keeps
-          this layout.
+          Remembers title, ranks position, colors, and look. Subscribe stickers are saved per
+          channel. Reset clears clips but keeps this layout.
         </p>
       </div>
 
@@ -203,17 +212,17 @@ export function SettingsPanel() {
       <div className="music-block sticker-block">
         <div className="music-head">
           <Sparkles size={16} />
-          <span>Bottom sticker (transparent WebM)</span>
+          <span>Subscribe sticker — {activeChannel?.name || "channel"}</span>
         </div>
         <p className="muted">
-          Plays once at a time you choose on the ranking timeline (default 20s). Always muted —
-          never loops for the whole video. Use a VP9 alpha WebM (Profounder{" "}
+          Saved per channel. Switch Channel in the top bar to edit another channel&apos;s popup.
+          Plays once on the timeline (default 20s), muted. Use a VP9 alpha WebM (Profounder{" "}
           <code>webm_transparent</code>).
         </p>
         {sticker.mediaUrl ? (
           <div className="music-ready">
             <video
-              key={sticker.mediaUrl}
+              key={`${channelState.activeSlug}:${sticker.mediaUrl}`}
               src={sticker.mediaUrl}
               muted
               playsInline
@@ -229,9 +238,7 @@ export function SettingsPanel() {
               <input
                 type="checkbox"
                 checked={sticker.enabled}
-                onChange={(e) =>
-                  updateSettings({ sticker: { ...sticker, enabled: e.target.checked } })
-                }
+                onChange={(e) => updateSticker({ ...sticker, enabled: e.target.checked })}
               />
               <span>Show on preview &amp; export</span>
             </label>
@@ -244,9 +251,7 @@ export function SettingsPanel() {
                 step={0.5}
                 value={Math.max(0, Math.min(60, sticker.startAt ?? 20))}
                 onChange={(e) =>
-                  updateSettings({
-                    sticker: { ...sticker, startAt: parseFloat(e.target.value) },
-                  })
+                  updateSticker({ ...sticker, startAt: parseFloat(e.target.value) })
                 }
               />
             </label>
@@ -260,11 +265,9 @@ export function SettingsPanel() {
                 step={0.5}
                 value={Number.isFinite(sticker.startAt) ? sticker.startAt : 20}
                 onChange={(e) =>
-                  updateSettings({
-                    sticker: {
-                      ...sticker,
-                      startAt: Math.max(0, parseFloat(e.target.value) || 0),
-                    },
+                  updateSticker({
+                    ...sticker,
+                    startAt: Math.max(0, parseFloat(e.target.value) || 0),
                   })
                 }
               />
@@ -278,9 +281,7 @@ export function SettingsPanel() {
                 step={0.05}
                 value={sticker.scale}
                 onChange={(e) =>
-                  updateSettings({
-                    sticker: { ...sticker, scale: parseFloat(e.target.value) },
-                  })
+                  updateSticker({ ...sticker, scale: parseFloat(e.target.value) })
                 }
               />
             </label>
@@ -293,14 +294,12 @@ export function SettingsPanel() {
                 step={0.05}
                 value={sticker.speed}
                 onChange={(e) =>
-                  updateSettings({
-                    sticker: { ...sticker, speed: parseFloat(e.target.value) },
-                  })
+                  updateSticker({ ...sticker, speed: parseFloat(e.target.value) })
                 }
               />
             </label>
             <p className="muted">
-              {sticker.fileName || "sticker.webm"}
+              {activeChannel?.name || "Channel"} · {sticker.fileName || "sticker.webm"}
               {sticker.hasAlpha ? " · alpha OK" : " · no alpha detected"}
               {" · muted"}
               {sticker.duration > 0
@@ -318,16 +317,14 @@ export function SettingsPanel() {
               <button
                 className="btn ghost small"
                 onClick={() =>
-                  updateSettings({
-                    sticker: {
-                      ...sticker,
-                      enabled: false,
-                      mediaId: null,
-                      mediaUrl: null,
-                      fileName: null,
-                      hasAlpha: false,
-                      duration: 0,
-                    },
+                  updateSticker({
+                    ...sticker,
+                    enabled: false,
+                    mediaId: null,
+                    mediaUrl: null,
+                    fileName: null,
+                    hasAlpha: false,
+                    duration: 0,
                   })
                 }
               >
@@ -341,7 +338,10 @@ export function SettingsPanel() {
             disabled={stickerBusy}
             onClick={() => stickerRef.current?.click()}
           >
-            <Upload size={14} /> {stickerBusy ? "Uploading…" : "Upload transparent WebM"}
+            <Upload size={14} />{" "}
+            {stickerBusy
+              ? "Uploading…"
+              : `Upload for ${activeChannel?.name || "channel"}`}
           </button>
         )}
         <input

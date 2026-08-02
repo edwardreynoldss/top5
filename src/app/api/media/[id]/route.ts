@@ -23,6 +23,18 @@ function resolveFile(id: string) {
           path.join(UPLOAD_DIR, parts[0]),
           path.join(EXPORT_DIR, parts[0]),
         ];
+
+  // channel-animals-sticker.webm → public/stickers/channels/animals.webm
+  if (parts.length === 1) {
+    const channelMatch = /^channel-([a-z0-9-]+)-sticker\.webm$/i.exec(parts[0]);
+    if (channelMatch) {
+      candidates.push(
+        path.join(process.cwd(), "public", "stickers", "channels", `${channelMatch[1]}.webm`),
+        path.join(process.cwd(), "assets", "stickers", "channels", `${channelMatch[1]}.webm`)
+      );
+    }
+  }
+
   const filePath = candidates.find((p) => existsSync(p));
   return filePath || null;
 }

@@ -14,11 +14,7 @@ import { ensureSfxOnServer } from "@/lib/sfxLibrary";
 import { useEditor } from "@/lib/store";
 import {
   channelExportBaseName,
-  channelSlug,
-  loadChannelState,
   planChannelExport,
-  saveChannelState,
-  type ChannelExportState,
 } from "@/lib/channels";
 
 export function TopBar({
@@ -28,7 +24,16 @@ export function TopBar({
   isPlaying: boolean;
   onTogglePlay: () => void;
 }) {
-  const { project, resetProject, setExportSlot, saveLayoutAsDefault } = useEditor();
+  const {
+    project,
+    channelState,
+    resetProject,
+    setExportSlot,
+    saveLayoutAsDefault,
+    setActiveChannel,
+    addChannel,
+    setChannelState,
+  } = useEditor();
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [savedExport, setSavedExport] = useState<{
@@ -39,9 +44,6 @@ export function TopBar({
   const [toolsOk, setToolsOk] = useState<boolean | null>(null);
   const [toolsHint, setToolsHint] = useState<string | null>(null);
   const [layoutSavedFlash, setLayoutSavedFlash] = useState(false);
-  const [channelState, setChannelState] = useState<ChannelExportState>(() =>
-    loadChannelState()
-  );
   const [addingChannel, setAddingChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState("");
 
@@ -64,10 +66,6 @@ export function TopBar({
       planned.slot.version
     );
   }, [channelState, project.exportSlot]);
-
-  useEffect(() => {
-    saveChannelState(channelState);
-  }, [channelState]);
 
   useEffect(() => {
     // Ensure default channel folders exist once
@@ -108,34 +106,11 @@ export function TopBar({
       });
   }, []);
 
-  async function addChannel() {
-    const name = newChannelName.trim();
-    if (!name) return;
-    let slug = channelSlug(name);
-    const existing = new Set(channelState.channels.map((c) => c.slug));
-    if (existing.has(slug)) {
-      let i = 2;
-      while (existing.has(`${slug}-${i}`)) i += 1;
-      slug = `${slug}-${i}`;
-    }
-    const next: ChannelExportState = {
-      ...channelState,
-      channels: [...channelState.channels, { name, slug }],
-      activeSlug: slug,
-      nextNumber: { ...channelState.nextNumber, [slug]: 1 },
-    };
-    setChannelState(next);
+  async function handleAddChannel() {
+    const slug = await addChannel(newChannelName);
+    if (!slug) return;
     setNewChannelName("");
     setAddingChannel(false);
-    try {
-      await fetch("/api/channels", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, name }),
-      });
-    } catch {
-      // folder created on export anyway
-    }
   }
 
   async function exportVideo() {
@@ -240,7 +215,6 @@ export function TopBar({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Export failed");
-
       setExportSlot(planned.slot);
       const fileName = data.fileName || planned.fileName;
       const savedPath = data.savedPath || planned.relativePath;
@@ -277,15 +251,16 @@ export function TopBar({
       </div>
 
       <div className="topbar-actions">
-        <div className="channel-picker" title="Upload channel — sets export folder & filename">
+        <div
+          className="channel-picker"
+          title="Upload channel — sets export folder, filename, and subscribe sticker"
+        >
           <label className="channel-label">
             <span>Channel</span>
             <select
               className="input channel-select"
               value={channelState.activeSlug}
-              onChange={(e) =>
-                setChannelState((s) => ({ ...s, activeSlug: e.target.value }))
-              }
+              onChange={(e) => setActiveChannel(e.target.value)}
             >
               {channelState.channels.map((c) => (
                 <option key={c.slug} value={c.slug}>
@@ -303,14 +278,18 @@ export function TopBar({
                 autoFocus
                 onChange={(e) => setNewChannelName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") void addChannel();
+                  if (e.key === "Enter") void handleAddChannel();
                   if (e.key === "Escape") {
                     setAddingChannel(false);
                     setNewChannelName("");
                   }
                 }}
               />
-              <button type="button" className="btn ghost small" onClick={() => void addChannel()}>
+              <button
+                type="button"
+                className="btn ghost small"
+                onClick={() => void handleAddChannel()}
+              >
                 Add
               </button>
               <button
@@ -346,7 +325,7 @@ export function TopBar({
             setLayoutSavedFlash(true);
             window.setTimeout(() => setLayoutSavedFlash(false), 1800);
           }}
-          title="Save current title, ranks, and look as the default layout for Reset"
+          title="Save current title, ranks, and look as the default layout for Reset (stickers stay per channel)"
         >
           <Bookmark size={16} />
           {layoutSavedFlash ? "Layout saved" : "Save layout"}
@@ -356,13 +335,13 @@ export function TopBar({
           onClick={() => {
             if (
               window.confirm(
-                `Clear all clips for a new ${activeChannel?.name || "channel"} video?\n\nYour channel selector and video counters are kept. The next export will be a new number (e.g. ranking-${activeChannel?.slug || "animals"}-${channelState.nextNumber[activeChannel?.slug || "animals"] || 1}).`
+                `Clear all clips for a new ${activeChannel?.name || "channel"} video?\n\nYour channel selector, video counters, and per-channel subscribe stickers are kept. The next export will be a new number (e.g. ranking-${activeChannel?.slug || "animals"}-${channelState.nextNumber[activeChannel?.slug || "animals"] || 1}).`
               )
             ) {
               resetProject();
             }
           }}
-          title="Clear clips for a new video — keeps channel & counters"
+          title="Clear clips for a new video — keeps channel, counters & stickers"
         >
           <RotateCcw size={16} />
           Reset

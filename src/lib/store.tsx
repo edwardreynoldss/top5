@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createDefaultProject, createWord } from "./defaults";
+import { createDefaultProject, createWord, normalizeSticker } from "./defaults";
 import {
   clearSavedProject,
   loadLayoutDefault,
@@ -19,6 +19,15 @@ import {
   saveProject,
 } from "./persist";
 import { hydrateSfxAssets, loadSfxLibrary, upsertSfxLibraryAsset } from "./sfxLibrary";
+import {
+  channelSlug,
+  defaultChannelState,
+  loadChannelState,
+  saveChannelState,
+  stickerForChannel,
+  withChannelSticker,
+  type ChannelExportState,
+} from "./channels";
 import type {
   EditorProject,
   PlayOrder,
@@ -27,6 +36,7 @@ import type {
   RankLayout,
   SfxAsset,
   SfxPlacement,
+  StickerOverlay,
   TitleConfig,
   TitleLine,
   TransitionType,
@@ -37,6 +47,7 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface EditorContextValue {
   project: EditorProject;
+  channelState: ChannelExportState;
   selectedClipId: string | null;
   saveStatus: SaveStatus;
   setSelectedClipId: (id: string | null) => void;
@@ -51,6 +62,11 @@ interface EditorContextValue {
   addTitleWord: (lineId: string, text?: string, color?: string) => void;
   removeTitleWord: (lineId: string, wordId: string) => void;
   updateSettings: (patch: Partial<ProjectSettings>) => void;
+  /** Update live sticker + persist it on the active channel */
+  updateSticker: (sticker: StickerOverlay | Partial<StickerOverlay>) => void;
+  setActiveChannel: (slug: string) => void;
+  addChannel: (name: string) => Promise<string | null>;
+  setChannelState: (state: ChannelExportState) => void;
   updateClip: (id: string, patch: Partial<RankClip>) => void;
   reorderClips: (activeId: string, overId: string) => void;
   addSfxAsset: (asset: Omit<SfxAsset, "id"> & { id?: string }) => string;
@@ -74,15 +90,28 @@ const EditorContext = createContext<EditorContextValue | null>(null);
 
 export function EditorProvider({ children }: { children: ReactNode }) {
   const [project, setProject] = useState<EditorProject>(() => createDefaultProject());
+  const [channelState, setChannelStateRaw] = useState<ChannelExportState>(() =>
+    defaultChannelState()
+  );
   const [hydrated, setHydrated] = useState(false);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [selectedSfxPlacementId, setSelectedSfxPlacementId] = useState<string | null>(null);
   const [sfxTabNonce, setSfxTabNonce] = useState(0);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const channelStateRef = useRef(channelState);
+  channelStateRef.current = channelState;
+  const projectRef = useRef(project);
+  projectRef.current = project;
 
   const requestSfxTab = useCallback(() => {
     setSfxTabNonce((n) => n + 1);
+  }, []);
+
+  const setChannelState = useCallback((state: ChannelExportState) => {
+    channelStateRef.current = state;
+    setChannelStateRaw(state);
+    saveChannelState(state);
   }, []);
 
   useEffect(() => {
@@ -97,8 +126,65 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       }
       const merged = { ...loaded, sfxAssets: Array.from(byId.values()) };
       const hydratedAssets = await hydrateSfxAssets(merged.sfxAssets);
+
+      let channels = loadChannelState();
+      // Migrate: if active channel has no saved sticker but project does, keep it
+      if (
+        merged.settings.sticker?.mediaId &&
+        !channels.stickersBySlug?.[channels.activeSlug]?.mediaId
+      ) {
+        channels = withChannelSticker(
+          channels,
+          channels.activeSlug,
+          merged.settings.sticker
+        );
+      }
+
+      // Seed empty channels from bundled public/stickers/channels/{slug}.webm
+      try {
+        const res = await fetch("/api/channels/stickers");
+        if (res.ok) {
+          const data = (await res.json()) as {
+            stickers?: Record<
+              string,
+              {
+                mediaId: string;
+                mediaUrl: string;
+                fileName: string;
+                duration: number;
+                hasAlpha: boolean;
+              }
+            >;
+          };
+          for (const [slug, meta] of Object.entries(data.stickers || {})) {
+            if (channels.stickersBySlug?.[slug]?.mediaId) continue;
+            channels = withChannelSticker(channels, slug, {
+              enabled: true,
+              mediaId: meta.mediaId,
+              mediaUrl: meta.mediaUrl,
+              fileName: meta.fileName,
+              duration: meta.duration,
+              hasAlpha: meta.hasAlpha,
+              scale: 0.55,
+              speed: 1,
+              startAt: 20,
+            });
+          }
+        }
+      } catch {
+        // offline / first paint — bundled sticker still works via stickerForChannel
+      }
+
+      const activeSticker = stickerForChannel(channels, channels.activeSlug);
       if (cancelled) return;
-      setProject({ ...merged, sfxAssets: hydratedAssets });
+      channelStateRef.current = channels;
+      setChannelStateRaw(channels);
+      saveChannelState(channels);
+      setProject({
+        ...merged,
+        sfxAssets: hydratedAssets,
+        settings: { ...merged.settings, sticker: activeSticker },
+      });
       setHydrated(true);
     }
     void boot();
@@ -214,10 +300,107 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateSettings = useCallback((patch: Partial<ProjectSettings>) => {
+    setProject((prev) => {
+      const nextSettings = { ...prev.settings, ...patch };
+      if (patch.sticker) {
+        const sticker = normalizeSticker({
+          ...prev.settings.sticker,
+          ...patch.sticker,
+        });
+        nextSettings.sticker = sticker;
+        const ch = withChannelSticker(
+          channelStateRef.current,
+          channelStateRef.current.activeSlug,
+          sticker
+        );
+        channelStateRef.current = ch;
+        setChannelStateRaw(ch);
+        saveChannelState(ch);
+      }
+      return { ...prev, settings: nextSettings };
+    });
+  }, []);
+
+  const updateSticker = useCallback(
+    (sticker: StickerOverlay | Partial<StickerOverlay>) => {
+      setProject((prev) => {
+        const next = normalizeSticker({ ...prev.settings.sticker, ...sticker });
+        const ch = withChannelSticker(
+          channelStateRef.current,
+          channelStateRef.current.activeSlug,
+          next
+        );
+        channelStateRef.current = ch;
+        setChannelStateRaw(ch);
+        saveChannelState(ch);
+        return { ...prev, settings: { ...prev.settings, sticker: next } };
+      });
+    },
+    []
+  );
+
+  const setActiveChannel = useCallback((slug: string) => {
+    const safe = channelSlug(slug);
+    const prevCh = channelStateRef.current;
+    if (prevCh.activeSlug === safe) return;
+    const saved = withChannelSticker(
+      prevCh,
+      prevCh.activeSlug,
+      projectRef.current.settings.sticker
+    );
+    const next = { ...saved, activeSlug: safe };
+    channelStateRef.current = next;
+    setChannelStateRaw(next);
+    saveChannelState(next);
+    const sticker = stickerForChannel(next, safe);
     setProject((prev) => ({
       ...prev,
-      settings: { ...prev.settings, ...patch },
+      settings: { ...prev.settings, sticker },
     }));
+  }, []);
+
+  const addChannel = useCallback(async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    let slug = channelSlug(trimmed);
+    const existing = new Set(channelStateRef.current.channels.map((c) => c.slug));
+    if (existing.has(slug)) {
+      let i = 2;
+      while (existing.has(`${slug}-${i}`)) i += 1;
+      slug = `${slug}-${i}`;
+    }
+    const prevCh = withChannelSticker(
+      channelStateRef.current,
+      channelStateRef.current.activeSlug,
+      projectRef.current.settings.sticker
+    );
+    const next: ChannelExportState = {
+      ...prevCh,
+      channels: [...prevCh.channels, { name: trimmed, slug }],
+      activeSlug: slug,
+      nextNumber: { ...prevCh.nextNumber, [slug]: 1 },
+      stickersBySlug: {
+        ...prevCh.stickersBySlug,
+        [slug]: normalizeSticker(null),
+      },
+    };
+    channelStateRef.current = next;
+    setChannelStateRaw(next);
+    saveChannelState(next);
+    setProject((prev) => ({
+      ...prev,
+      settings: { ...prev.settings, sticker: stickerForChannel(next, slug) },
+    }));
+    try {
+      await fetch("/api/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, name: trimmed }),
+      });
+    } catch {
+      // folder created on export anyway
+    }
+    return slug;
   }, []);
 
   const updateClip = useCallback((id: string, patch: Partial<RankClip>) => {
@@ -343,7 +526,17 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     const base = createDefaultProject(layout || undefined);
     // Keep durable SFX library samples; clear placements, clips, and export version slot
     const lib = loadSfxLibrary();
-    setProject({ ...base, sfxAssets: lib, exportSlot: null });
+    // Keep the active channel's subscribe sticker across Reset
+    const sticker = stickerForChannel(
+      channelStateRef.current,
+      channelStateRef.current.activeSlug
+    );
+    setProject({
+      ...base,
+      sfxAssets: lib,
+      exportSlot: null,
+      settings: { ...base.settings, sticker },
+    });
     setSelectedClipId(null);
     setSelectedSfxPlacementId(null);
     setSaveStatus("saved");
@@ -379,6 +572,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       project,
+      channelState,
       selectedClipId,
       selectedSfxPlacementId,
       sfxTabNonce,
@@ -393,6 +587,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       addTitleWord,
       removeTitleWord,
       updateSettings,
+      updateSticker,
+      setActiveChannel,
+      addChannel,
+      setChannelState,
       updateClip,
       reorderClips,
       addSfxAsset,
@@ -409,6 +607,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     }),
     [
       project,
+      channelState,
       selectedClipId,
       selectedSfxPlacementId,
       sfxTabNonce,
@@ -421,6 +620,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       addTitleWord,
       removeTitleWord,
       updateSettings,
+      updateSticker,
+      setActiveChannel,
+      addChannel,
+      setChannelState,
       updateClip,
       reorderClips,
       addSfxAsset,

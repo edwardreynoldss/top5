@@ -1,7 +1,11 @@
 /**
- * Upload channels — control export folder + filename prefix.
- * Counters live in localStorage (not by scanning exports/).
+ * Upload channels — control export folder + filename prefix,
+ * and per-channel subscribe / bottom-sticker settings.
+ * Counters + stickers live in localStorage (not by scanning exports/).
  */
+
+import type { StickerOverlay } from "./types";
+import { defaultSticker, normalizeSticker } from "./defaults";
 
 export const CHANNELS_STORAGE_KEY = "rankshorts-channels-v1";
 
@@ -21,6 +25,8 @@ export interface ChannelExportState {
    * Incremented when starting a NEW video (reset / first export of a set).
    */
   nextNumber: Record<string, number>;
+  /** Subscribe / bottom sticker saved per channel slug */
+  stickersBySlug: Record<string, StickerOverlay>;
 }
 
 /** Bound to the current clip set — cleared on Reset */
@@ -34,6 +40,34 @@ export interface ProjectExportSlot {
    * 2+ = re-export → ranking-animals-1.2
    */
   version: number;
+}
+
+/** Stable upload id for a channel's subscribe sticker (overwrites on re-upload). */
+export function channelStickerMediaId(slug: string) {
+  return `channel-${channelSlug(slug)}-sticker.webm`;
+}
+
+/**
+ * Bundled defaults shipped in public/stickers/channels/{slug}.webm.
+ * Used when a channel has no user-saved sticker yet and the file exists.
+ */
+export function bundledChannelSticker(slug: string): StickerOverlay | null {
+  const safe = channelSlug(slug);
+  // Only declare channels we ship a file for. Server probes confirm presence.
+  if (safe === "animals") {
+    return normalizeSticker({
+      enabled: true,
+      mediaId: channelStickerMediaId("animals"),
+      mediaUrl: "/stickers/channels/animals.webm",
+      fileName: "animals-subscribe.webm",
+      scale: 0.55,
+      speed: 1,
+      startAt: 20,
+      duration: 0,
+      hasAlpha: true,
+    });
+  }
+  return null;
 }
 
 export function channelSlug(name: string): string {
@@ -53,7 +87,29 @@ export function defaultChannelState(): ChannelExportState {
     ],
     activeSlug: "animals",
     nextNumber: { animals: 1, funny: 1 },
+    stickersBySlug: {},
   };
+}
+
+function normalizeStickersBySlug(
+  raw: unknown,
+  channels: ExportChannel[]
+): Record<string, StickerOverlay> {
+  const out: Record<string, StickerOverlay> = {};
+  const src =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, Partial<StickerOverlay>>)
+      : {};
+  for (const c of channels) {
+    if (src[c.slug]) {
+      out[c.slug] = normalizeSticker(src[c.slug]);
+    }
+  }
+  // Keep any extra saved slugs (channel removed but sticker retained)
+  for (const [slug, sticker] of Object.entries(src)) {
+    if (!out[slug] && sticker) out[slug] = normalizeSticker(sticker);
+  }
+  return out;
 }
 
 export function loadChannelState(): ChannelExportState {
@@ -82,7 +138,8 @@ export function loadChannelState(): ChannelExportState {
       channels.some((c) => c.slug === parsed.activeSlug) && parsed.activeSlug
         ? parsed.activeSlug
         : channels[0].slug;
-    return { channels, activeSlug, nextNumber };
+    const stickersBySlug = normalizeStickersBySlug(parsed.stickersBySlug, channels);
+    return { channels, activeSlug, nextNumber, stickersBySlug };
   } catch {
     return defaultChannelState();
   }
@@ -95,6 +152,29 @@ export function saveChannelState(state: ChannelExportState) {
   } catch {
     // quota / private mode
   }
+}
+
+export function stickerForChannel(state: ChannelExportState, slug: string): StickerOverlay {
+  const safe = channelSlug(slug);
+  const saved = state.stickersBySlug?.[safe];
+  if (saved?.mediaId) return normalizeSticker(saved);
+  const bundled = bundledChannelSticker(safe);
+  return bundled || defaultSticker();
+}
+
+export function withChannelSticker(
+  state: ChannelExportState,
+  slug: string,
+  sticker: StickerOverlay | Partial<StickerOverlay> | null | undefined
+): ChannelExportState {
+  const safe = channelSlug(slug);
+  return {
+    ...state,
+    stickersBySlug: {
+      ...state.stickersBySlug,
+      [safe]: normalizeSticker(sticker),
+    },
+  };
 }
 
 /** ranking-animals-1 or ranking-animals-1.2 */
@@ -128,7 +208,12 @@ export function planChannelExport(
       ? state.activeSlug
       : state.channels[0]?.slug || "animals";
 
-  let nextState = { ...state, activeSlug: slug, nextNumber: { ...state.nextNumber } };
+  let nextState = {
+    ...state,
+    activeSlug: slug,
+    nextNumber: { ...state.nextNumber },
+    stickersBySlug: { ...state.stickersBySlug },
+  };
   let nextSlot: ProjectExportSlot;
 
   if (slot && slot.channelSlug === slug && slot.number >= 1) {

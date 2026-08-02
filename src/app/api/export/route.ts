@@ -109,6 +109,23 @@ function resolveMedia(mediaId: string) {
   if (existsSync(p)) return p;
   const exp = path.join(EXPORT_DIR, clean);
   if (existsSync(exp)) return exp;
+
+  // Bundled / channel subscribe stickers:
+  // channel-animals-sticker.webm → public/stickers/channels/animals.webm
+  const channelMatch = /^channel-([a-z0-9-]+)-sticker\.webm$/i.exec(clean);
+  if (channelMatch) {
+    const slug = channelMatch[1];
+    const bundled = [
+      path.join(process.cwd(), "public", "stickers", "channels", `${slug}.webm`),
+      path.join(process.cwd(), "assets", "stickers", "channels", `${slug}.webm`),
+    ];
+    const hit = bundled.find((cand) => existsSync(cand));
+    if (hit) return hit;
+  }
+  const base = path.basename(clean);
+  const publicSticker = path.join(process.cwd(), "public", "stickers", "channels", base);
+  if (existsSync(publicSticker)) return publicSticker;
+
   throw new Error(`Missing media: ${clean}`);
 }
 

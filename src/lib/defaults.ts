@@ -25,6 +25,39 @@ export function defaultSticker(): StickerOverlay {
   };
 }
 
+/** Merge partial/legacy sticker with defaults and clamp fields. */
+export function normalizeSticker(sticker?: Partial<StickerOverlay> | null): StickerOverlay {
+  const d = defaultSticker();
+  const scale =
+    typeof sticker?.scale === "number" && Number.isFinite(sticker.scale) ? sticker.scale : d.scale;
+  const speed =
+    typeof sticker?.speed === "number" && Number.isFinite(sticker.speed) ? sticker.speed : d.speed;
+  const startAt =
+    typeof sticker?.startAt === "number" && Number.isFinite(sticker.startAt)
+      ? sticker.startAt
+      : d.startAt;
+  const duration =
+    typeof sticker?.duration === "number" && Number.isFinite(sticker.duration)
+      ? sticker.duration
+      : d.duration;
+  const mediaId = sticker?.mediaId ?? d.mediaId;
+  const wantsEnabled =
+    typeof sticker?.enabled === "boolean" ? sticker.enabled : Boolean(mediaId);
+  return {
+    enabled: Boolean(wantsEnabled && mediaId),
+    mediaId,
+    mediaUrl:
+      sticker?.mediaUrl ??
+      (mediaId ? `/api/media/${mediaId}` : d.mediaUrl),
+    fileName: sticker?.fileName ?? d.fileName,
+    scale: Math.max(0.15, Math.min(1.5, scale)),
+    speed: Math.max(0.25, Math.min(3, speed)),
+    startAt: Math.max(0, startAt),
+    duration: Math.max(0, duration),
+    hasAlpha: Boolean(sticker?.hasAlpha),
+  };
+}
+
 /** How long the sticker occupies on the timeline (source duration ÷ speed). */
 export function stickerPlayDuration(sticker: Pick<StickerOverlay, "duration" | "speed">) {
   const speed = Math.max(0.25, Math.min(3, sticker.speed || 1));
