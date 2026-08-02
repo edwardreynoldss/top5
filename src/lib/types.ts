@@ -50,6 +50,11 @@ export interface RankClip {
   crop: ClipCrop;
   /** Per-clip gain 0–2 (1 = unchanged). Multiplied by project clipVolume on preview/export. */
   volume: number;
+  /**
+   * Playback rate 0.5–2 (1 = normal).
+   * Speeds up / slows down preview + export; timeline length = source ÷ speed.
+   */
+  speed: number;
   status: "empty" | "loading" | "ready" | "error";
   error?: string;
 }
@@ -146,6 +151,10 @@ export interface ProjectSettings {
   musicMediaId: string | null;
   musicUrl: string | null;
   musicVolume: number;
+  /**
+   * When true and no music is selected, auto-pick a bed from the music/ folder.
+   */
+  musicAutoFromFolder: boolean;
   clipVolume: number;
 }
 

@@ -750,6 +750,47 @@ a {
   font-size: 0.85rem;
 }
 
+.music-folder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.music-folder-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+  max-height: 12rem;
+  overflow: auto;
+}
+
+.music-folder-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.music-folder-item:hover {
+  border-color: var(--accent, #c8f542);
+}
+
+.music-folder-item.active {
+  border-color: var(--accent, #c8f542);
+  background: rgba(200, 245, 66, 0.08);
+}
+
 .preview-shell {
   width: 100%;
   display: flex;
@@ -1286,6 +1327,12 @@ a {
   gap: 0.45rem;
   max-width: 100%;
   min-width: 0;
+}
+
+.clip-controls {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 9.5rem;
 }
 
 .clip-volume {

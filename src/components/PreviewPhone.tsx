@@ -20,6 +20,7 @@ import {
   formatTime,
   effectiveSfxVolume,
   effectiveClipVolume,
+  getClipSpeed,
   defaultSticker,
   stickerPlayDuration,
 } from "@/lib/defaults";
@@ -45,6 +46,7 @@ export function PreviewPhone({
   const { settings } = project;
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgRef = useRef<HTMLVideoElement>(null);
+  const musicRef = useRef<HTMLAudioElement | null>(null);
   const stickerVideoRef = useRef<HTMLVideoElement>(null);
   const stickerArmedRef = useRef(false);
   const firedSfxRef = useRef<Set<string>>(new Set());
@@ -446,6 +448,54 @@ export function PreviewPhone({
     if (!fg || !activeClip) return;
     fg.volume = Math.min(1, effectiveClipVolume(activeClip, settings.clipVolume));
   }, [activeClip, activeClip?.volume, settings.clipVolume]);
+
+  // Per-clip speed (preview playbackRate; timeline length uses clipPlayDuration)
+  useEffect(() => {
+    const fg = videoRef.current;
+    const bg = bgRef.current;
+    if (!fg || !activeClip) return;
+    const rate = getClipSpeed(activeClip);
+    fg.playbackRate = rate;
+    if (bg) bg.playbackRate = rate;
+  }, [activeClip, activeClip?.speed]);
+
+  // Looping background music bed under the full ranking preview
+  useEffect(() => {
+    const url = settings.musicUrl;
+    if (!url) {
+      if (musicRef.current) {
+        musicRef.current.pause();
+        musicRef.current = null;
+      }
+      return;
+    }
+    let audio = musicRef.current;
+    if (!audio || audio.getAttribute("data-src") !== url) {
+      audio?.pause();
+      audio = new Audio(url);
+      audio.loop = true;
+      audio.setAttribute("data-src", url);
+      musicRef.current = audio;
+    }
+    audio.volume = Math.min(1, Math.max(0, settings.musicVolume ?? 0.35));
+    if (isPlaying && totalDur > 0) {
+      void audio.play().catch(() => undefined);
+    } else {
+      audio.pause();
+    }
+    return () => {
+      // keep instance across play/pause; cleared when url changes / unmount
+    };
+  }, [settings.musicUrl, settings.musicVolume, isPlaying, totalDur]);
+
+  useEffect(() => {
+    return () => {
+      if (musicRef.current) {
+        musicRef.current.pause();
+        musicRef.current = null;
+      }
+    };
+  }, []);
 
   function seekAbsolute(t: number) {
     if (offsets.length === 0 || sequence.length === 0) return;

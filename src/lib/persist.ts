@@ -1,4 +1,10 @@
-import { builtInDefaultSettings, createDefaultProject, normalizeCrop, createSegment } from "./defaults";
+import {
+  builtInDefaultSettings,
+  createDefaultProject,
+  normalizeCrop,
+  createSegment,
+  clampClipSpeed,
+} from "./defaults";
 import type { EditorProject, ProjectSettings, RankClip } from "./types";
 import { DEFAULT_CLIP_DURATION } from "./types";
 
@@ -76,6 +82,10 @@ export function loadLayoutDefault(): ProjectSettings | null {
       },
       musicMediaId: null,
       musicUrl: null,
+      musicAutoFromFolder:
+        typeof parsed.musicAutoFromFolder === "boolean"
+          ? parsed.musicAutoFromFolder
+          : base.musicAutoFromFolder,
     };
   } catch {
     return null;
@@ -104,6 +114,9 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
       typeof clip.volume === "number" && Number.isFinite(clip.volume)
         ? Math.max(0, Math.min(2, clip.volume))
         : 1,
+    speed: clampClipSpeed(
+      typeof clip.speed === "number" && Number.isFinite(clip.speed) ? clip.speed : 1
+    ),
     // Don't restore blob: URLs; keep server media paths
     mediaUrl:
       clip.mediaUrl && clip.mediaUrl.startsWith("/api/media/")
@@ -191,6 +204,31 @@ export function loadProject(): EditorProject {
           ...fallback.settings.rankColors,
           ...(parsed.settings?.rankColors || {}),
         },
+        musicAutoFromFolder:
+          typeof parsed.settings?.musicAutoFromFolder === "boolean"
+            ? parsed.settings.musicAutoFromFolder
+            : fallback.settings.musicAutoFromFolder,
+        musicMediaId: parsed.settings?.musicMediaId ?? fallback.settings.musicMediaId,
+        musicUrl: (() => {
+          const id = parsed.settings?.musicMediaId;
+          if (id && String(id).startsWith("music__")) {
+            const name = String(id).slice("music__".length);
+            return `/api/music/file/${encodeURIComponent(name)}`;
+          }
+          if (parsed.settings?.musicUrl?.startsWith("/api/music/")) {
+            return parsed.settings.musicUrl;
+          }
+          if (parsed.settings?.musicUrl?.startsWith("/api/media/")) {
+            return parsed.settings.musicUrl;
+          }
+          if (id) return `/api/media/${id}`;
+          return null;
+        })(),
+        musicVolume:
+          typeof parsed.settings?.musicVolume === "number" &&
+          Number.isFinite(parsed.settings.musicVolume)
+            ? Math.max(0, Math.min(1, parsed.settings.musicVolume))
+            : fallback.settings.musicVolume,
       },
     };
   } catch {

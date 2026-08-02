@@ -56,3 +56,8 @@ exports/*
 sfx/*
 !sfx/README.md
 !sfx/.gitkeep
+
+# user-dropped background music beds (keep readme)
+music/*
+!music/README.md
+!music/.gitkeep

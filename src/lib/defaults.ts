@@ -178,6 +178,7 @@ export function createEmptyClip(rank: number): RankClip {
     segments: [seg],
     crop: defaultCrop(),
     volume: 1,
+    speed: 1,
     status: "empty",
   };
 }
@@ -238,6 +239,7 @@ export function builtInDefaultSettings(): ProjectSettings {
     musicMediaId: null,
     musicUrl: null,
     musicVolume: 0.35,
+    musicAutoFromFolder: true,
     clipVolume: 1,
   };
 }
@@ -289,8 +291,45 @@ export function effectiveClipVolume(clip: RankClip, master = 1) {
   return Math.max(0, Math.min(2, getClipVolume(clip) * m));
 }
 
-export function clipPlayDuration(clip: RankClip) {
+/** Clamp clip playback rate (0.5×–2×). */
+export function clampClipSpeed(speed: number) {
+  return Math.max(0.5, Math.min(2, Number.isFinite(speed) ? speed : 1));
+}
+
+export function getClipSpeed(clip: RankClip) {
+  return clampClipSpeed(
+    typeof clip.speed === "number" && Number.isFinite(clip.speed) ? clip.speed : 1
+  );
+}
+
+/** Selected source seconds (trim ranges), before speed. */
+export function clipSourceDuration(clip: RankClip) {
   return Math.max(0.2, Math.min(MAX_CLIP_DURATION, segmentsDuration(getClipSegments(clip))));
+}
+
+/** Wall-clock play length on the timeline (= source ÷ speed). */
+export function clipPlayDuration(clip: RankClip) {
+  return Math.max(0.2, clipSourceDuration(clip) / getClipSpeed(clip));
+}
+
+/**
+ * Build an ffmpeg atempo chain for rate (0.5–2 per filter).
+ * `speed` 2 = twice as fast (shorter).
+ */
+export function ffmpegAtempoChain(speed: number) {
+  let rate = clampClipSpeed(speed);
+  const parts: string[] = [];
+  // Should already be in 0.5–2; keep chain logic for safety
+  while (rate > 2.0001) {
+    parts.push("atempo=2");
+    rate /= 2;
+  }
+  while (rate < 0.4999) {
+    parts.push("atempo=0.5");
+    rate /= 0.5;
+  }
+  parts.push(`atempo=${Number(rate.toFixed(4))}`);
+  return parts.join(",");
 }
 
 export function formatTime(seconds: number) {
@@ -444,6 +483,7 @@ export function effectiveSfxVolume(
 }
 
 /** How far into a clip's *played* timeline we are (merged segments). */
+/** Wall-clock progress into the clip from a source-time playhead. */
 export function clipLocalPlayProgress(
   clip: RankClip,
   segIndex: number,
@@ -459,14 +499,14 @@ export function clipLocalPlayProgress(
   if (seg) {
     t += Math.max(0, Math.min(sourceTime, seg.end) - seg.start);
   }
-  return t;
+  return t / getClipSpeed(clip);
 }
 
-/** Map a local play offset back to source seek + segment index. */
+/** Map a wall-clock local play offset back to source seek + segment index. */
 export function sourceSeekFromLocalPlay(clip: RankClip, localPlay: number) {
   const segs = getClipSegments(clip);
   if (segs.length === 0) return { segIndex: 0, sourceTime: 0 };
-  let remaining = Math.max(0, localPlay);
+  let remaining = Math.max(0, localPlay) * getClipSpeed(clip);
   for (let i = 0; i < segs.length; i++) {
     const len = Math.max(0.05, segs[i].end - segs[i].start);
     if (remaining <= len || i === segs.length - 1) {

@@ -12,6 +12,7 @@ import {
   Loader2,
   X,
   Volume2,
+  Gauge,
 } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import type { ClipCrop, RankClip, TrimSegment } from "@/lib/types";
@@ -25,6 +26,8 @@ import {
   normalizeCrop,
   getClipCrop,
   getClipVolume,
+  getClipSpeed,
+  clampClipSpeed,
 } from "@/lib/defaults";
 
 function isVideoFile(file: File) {
@@ -247,6 +250,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       segments: [createSegment(0, DEFAULT_CLIP_DURATION)],
       crop: defaultCrop(),
       volume: 1,
+      speed: 1,
       error: undefined,
     });
     setUrl("");
@@ -254,6 +258,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
 
   const segs = getClipSegments(clip);
   const clipVol = getClipVolume(clip);
+  const clipSpeed = getClipSpeed(clip);
 
   // New ingest (upload/fetch) uses pendingMeta → fresh trim defaults.
   // Re-edit (scissors) only sets pendingSrc so existing trim/crop are kept.
@@ -368,7 +373,9 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                 <div className="clip-meta">
                   <p className="truncate">{clip.fileName || "Clip ready"}</p>
                   <p className="muted">
-                    {segs.length} part{segs.length > 1 ? "s" : ""} · {clipPlayDuration(clip).toFixed(1)}s
+                    {segs.length} part{segs.length > 1 ? "s" : ""} ·{" "}
+                    {clipPlayDuration(clip).toFixed(1)}s
+                    {clipSpeed !== 1 ? ` · ${clipSpeed.toFixed(2)}×` : ""}
                     {getClipCrop(clip).zoom !== 1
                       ? ` · ${getClipCrop(clip).zoom.toFixed(1)}× zoom`
                       : ""}
@@ -380,27 +387,42 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                   </p>
                 </div>
               </div>
-              <label
-                className="clip-volume"
-                onClick={(e) => e.stopPropagation()}
-                title="Volume for this clip"
-              >
-                <Volume2 size={14} className="muted-icon" />
-                <span>{Math.round(clipVol * 100)}%</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  value={clipVol}
-                  aria-label={`Volume for rank ${clip.rank}`}
-                  onChange={(e) =>
-                    updateClip(clip.id, {
-                      volume: Math.max(0, Math.min(2, parseFloat(e.target.value) || 0)),
-                    })
-                  }
-                />
-              </label>
+              <div className="clip-controls" onClick={(e) => e.stopPropagation()}>
+                <label className="clip-volume" title="Speed for this clip">
+                  <Gauge size={14} className="muted-icon" />
+                  <span>{clipSpeed.toFixed(2)}×</span>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={2}
+                    step={0.05}
+                    value={clipSpeed}
+                    aria-label={`Speed for rank ${clip.rank}`}
+                    onChange={(e) =>
+                      updateClip(clip.id, {
+                        speed: clampClipSpeed(parseFloat(e.target.value) || 1),
+                      })
+                    }
+                  />
+                </label>
+                <label className="clip-volume" title="Volume for this clip">
+                  <Volume2 size={14} className="muted-icon" />
+                  <span>{Math.round(clipVol * 100)}%</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={clipVol}
+                    aria-label={`Volume for rank ${clip.rank}`}
+                    onChange={(e) =>
+                      updateClip(clip.id, {
+                        volume: Math.max(0, Math.min(2, parseFloat(e.target.value) || 0)),
+                      })
+                    }
+                  />
+                </label>
+              </div>
             </div>
           ) : (
             <div className="clip-import" onClick={(e) => e.stopPropagation()}>

@@ -7,6 +7,8 @@ import { channelSlug } from "@/lib/channels";
 import { runCommand } from "@/lib/ffmpeg";
 import { ensurePillow, whichTools } from "@/lib/bins";
 import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
+import { resolveMusicDropFile, isMusicDropMediaId } from "@/lib/musicFolder";
+import { ffmpegAtempoChain } from "@/lib/defaults";
 import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -42,6 +44,8 @@ interface ExportClip {
   crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number };
   /** Per-clip gain 0–2; multiplied by body.clipVolume */
   volume?: number;
+  /** Playback rate 0.5–2 (1 = normal) */
+  speed?: number;
 }
 
 interface ExportBody {
@@ -93,7 +97,8 @@ interface ExportBody {
 function resolveMedia(mediaId: string) {
   const clean = mediaId
     .replace(/^\/api\/media\//, "")
-    .replace(/^\/api\/sfx\/file\//, "");
+    .replace(/^\/api\/sfx\/file\//, "")
+    .replace(/^\/api\/music\/file\//, "");
   if (isDropSfxMediaId(clean) || mediaId.includes("/api/sfx/file/")) {
     const name = isDropSfxMediaId(clean)
       ? clean
@@ -104,6 +109,14 @@ function resolveMedia(mediaId: string) {
   // Plain filename that lives in sfx/
   const dropDirect = resolveSfxDropFile(clean);
   if (dropDirect) return dropDirect;
+
+  if (isMusicDropMediaId(clean) || mediaId.includes("/api/music/file/")) {
+    const name = isMusicDropMediaId(clean) ? clean : decodeURIComponent(clean);
+    const drop = resolveMusicDropFile(name);
+    if (drop) return drop;
+  }
+  const musicDirect = resolveMusicDropFile(clean);
+  if (musicDirect) return musicDirect;
 
   const p = path.join(UPLOAD_DIR, clean);
   if (existsSync(p)) return p;
@@ -182,7 +195,12 @@ async function renderClipSegment(opts: {
   input: string;
   output: string;
   trimStart: number;
+  /** Source media duration to read (before speed) */
   duration: number;
+  /** Wall-clock output duration after speed (defaults to duration) */
+  wallDuration?: number;
+  /** Clip playback rate 0.5–2 */
+  playbackSpeed?: number;
   width: number;
   height: number;
   blurAmount: number;
@@ -209,6 +227,8 @@ async function renderClipSegment(opts: {
     output,
     trimStart,
     duration,
+    wallDuration: wallDurationOpt,
+    playbackSpeed = 1,
     width,
     height,
     blurAmount,
@@ -228,6 +248,13 @@ async function renderClipSegment(opts: {
     titleBarHeight = 150,
   } = opts;
   void _stickerEnd;
+
+  const clipSpeed = Math.max(0.5, Math.min(2, playbackSpeed || 1));
+  const wallDuration = Math.max(0.2, wallDurationOpt ?? duration / clipSpeed);
+  const speedFilter =
+    Math.abs(clipSpeed - 1) > 0.001 ? `setpts=PTS/${clipSpeed},` : "";
+  const audioTempo =
+    Math.abs(clipSpeed - 1) > 0.001 ? `${ffmpegAtempoChain(clipSpeed)},` : "";
 
   const blur = Math.max(2, Math.min(64, Math.round(blurAmount / 2)));
   const zoom = Math.max(0.25, Math.min(3, crop?.zoom ?? 1));
@@ -254,15 +281,16 @@ async function renderClipSegment(opts: {
   const delay = Math.max(0, stickerDelay || 0);
 
   // Continuous zoom matching preview CSS:
-  // 1) optional edge crop  2) cover-fit  3) zoom  4) pan overlay on black
+  // 1) optional edge crop  2) speed  3) cover-fit  4) zoom  5) pan overlay on black
   const padTop =
     topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
   const framed =
     `[0:v]fps=${fps},` +
     edgeCrop +
+    speedFilter +
     `scale=${width}:${contentH}:force_original_aspect_ratio=increase,` +
     `scale=iw*${zoom}:ih*${zoom}[czfg];` +
-    `color=c=black:s=${width}x${contentH}:r=${fps}[czbg];` +
+    `color=c=black:s=${width}x${contentH}:r=${fps}:d=${wallDuration}[czbg];` +
     `[czbg][czfg]overlay=x='(W-w)*${panX}':y='(H-h)*${panY}':shortest=1,setsar=1${padTop}`;
 
   // Input layout: 0=clip, 1=title, [2=ranks], [2|3=sticker]
@@ -306,8 +334,8 @@ async function renderClipSegment(opts: {
     aspectMode === "crop-fill"
       ? [`${framed}[base]`, stickFilter + withOverlays("base")].filter(Boolean).join(";")
       : [
-          // Blur bg still fills full frame; FG uses same crop framing
-          `[0:v]fps=${fps},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},gblur=sigma=${blur},setsar=1[bg]`,
+          // Blur bg still fills full frame; FG uses same crop framing + speed
+          `[0:v]fps=${fps},${speedFilter}scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},gblur=sigma=${blur},setsar=1[bg]`,
           `${framed}[fg]`,
           topPad > 0
             ? `[bg][fg]overlay=0:${topPad}[comp]`
@@ -328,13 +356,13 @@ async function renderClipSegment(opts: {
     "-loop",
     "1",
     "-t",
-    String(duration),
+    String(wallDuration),
     "-i",
     titleOverlay,
   ];
 
   if (ranksOverlay) {
-    commonArgs.push("-loop", "1", "-t", String(duration), "-i", ranksOverlay);
+    commonArgs.push("-loop", "1", "-t", String(wallDuration), "-i", ranksOverlay);
   }
 
   if (stickerPath) {
@@ -370,7 +398,7 @@ async function renderClipSegment(opts: {
     await runCommand("ffmpeg", [
       ...commonArgs,
       "-filter_complex",
-      `${videoFilter};[0:a]volume=${clipVolume},aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[aout]`,
+      `${videoFilter};[0:a]volume=${clipVolume},${audioTempo}aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[aout]`,
       ...encodeArgs,
     ]);
   } catch {
@@ -379,11 +407,11 @@ async function renderClipSegment(opts: {
       "-f",
       "lavfi",
       "-t",
-      String(duration),
+      String(wallDuration),
       "-i",
       "anullsrc=r=44100:cl=stereo",
       "-filter_complex",
-      `${videoFilter};[${silenceIdx}:a]volume=${clipVolume}[aout]`,
+      `${videoFilter};[${silenceIdx}:a]volume=${clipVolume},aresample=44100[aout]`,
       ...encodeArgs,
     ]);
   }
@@ -480,10 +508,11 @@ export async function POST(req: NextRequest) {
         clip.segments && clip.segments.length > 0
           ? clip.segments
           : [{ start: clip.trimStart, end: clip.trimEnd }];
-      const duration = Math.max(
+      const sourceDuration = Math.max(
         0.2,
         ranges.reduce((sum, s) => sum + Math.max(0.2, s.end - s.start), 0)
       );
+      const clipSpeed = Math.max(0.5, Math.min(2, clip.speed ?? 1));
       const source = resolveMedia(clip.mediaId);
       let input = source;
       let trimStart = ranges[0].start;
@@ -498,10 +527,11 @@ export async function POST(req: NextRequest) {
         trimStart = ranges[0].start;
       }
 
-      const renderDuration =
+      const renderSourceDuration =
         ranges.length > 1
-          ? duration
+          ? sourceDuration
           : Math.max(0.2, ranges[0].end - ranges[0].start);
+      const renderWallDuration = Math.max(0.2, renderSourceDuration / clipSpeed);
 
       // Keep labels for this clip and every earlier clip in playback order
       const ranksOverlay = body.showRankList ? path.join(jobDir, `ranks-${i}.png`) : null;
@@ -545,7 +575,7 @@ export async function POST(req: NextRequest) {
 
       const clipAbsStart = timelineCursor;
       const stickerAbsEnd = stickerStartAt + stickerPlayDur;
-      const clipAbsEnd = clipAbsStart + renderDuration;
+      const clipAbsEnd = clipAbsStart + renderWallDuration;
       const stickerOverlaps =
         Boolean(stickerPath) &&
         stickerAbsEnd > clipAbsStart + 0.01 &&
@@ -554,7 +584,7 @@ export async function POST(req: NextRequest) {
         ? Math.max(0, stickerStartAt - clipAbsStart)
         : 0;
       const stickerEndLocal = stickerOverlaps
-        ? Math.min(renderDuration, stickerAbsEnd - clipAbsStart)
+        ? Math.min(renderWallDuration, stickerAbsEnd - clipAbsStart)
         : 0;
       const stickerSourceSeek =
         stickerOverlaps && clipAbsStart > stickerStartAt
@@ -565,7 +595,9 @@ export async function POST(req: NextRequest) {
         input,
         output: seg,
         trimStart: ranges.length > 1 ? 0 : trimStart,
-        duration: renderDuration,
+        duration: renderSourceDuration,
+        wallDuration: renderWallDuration,
+        playbackSpeed: clipSpeed,
         width,
         height,
         blurAmount: body.blurAmount ?? 28,
@@ -588,7 +620,7 @@ export async function POST(req: NextRequest) {
         titleBarHeight: barH,
       });
 
-      timelineCursor += renderDuration;
+      timelineCursor += renderWallDuration;
 
       // Optional flash/zoom transition frames baked as a short cut — flash via fade
       if (body.transition === "flash" && i < ordered.length - 1) {
@@ -599,7 +631,7 @@ export async function POST(req: NextRequest) {
           "-i",
           seg,
           "-vf",
-          `fade=t=out:st=${Math.max(0, renderDuration - td)}:d=${td}:color=white,format=yuv420p`,
+          `fade=t=out:st=${Math.max(0, renderWallDuration - td)}:d=${td}:color=white,format=yuv420p`,
           ...H264_COMPAT,
           ...AAC_COMPAT,
           ...MP4_FASTSTART,
@@ -614,7 +646,7 @@ export async function POST(req: NextRequest) {
           "-i",
           seg,
           "-vf",
-          `zoompan=z='if(gte(time,${Math.max(0, renderDuration - td)}),1+0.35*(time-(${Math.max(0, renderDuration - td)}))/${td},1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps},format=yuv420p`,
+          `zoompan=z='if(gte(time,${Math.max(0, renderWallDuration - td)}),1+0.35*(time-(${Math.max(0, renderWallDuration - td)}))/${td},1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps},format=yuv420p`,
           ...H264_COMPAT,
           ...AAC_COMPAT,
           ...MP4_FASTSTART,

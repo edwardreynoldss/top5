@@ -1,10 +1,18 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEditor } from "@/lib/store";
-import { Upload, Music2, Bookmark, Sparkles } from "lucide-react";
+import { Upload, Music2, Bookmark, Sparkles, RefreshCw } from "lucide-react";
 import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
 import { defaultSticker } from "@/lib/defaults";
+
+type MusicFolderItem = {
+  id: string;
+  fileName: string;
+  mediaId: string;
+  mediaUrl: string;
+  duration: number;
+};
 
 export function SettingsPanel() {
   const {
@@ -21,10 +29,41 @@ export function SettingsPanel() {
   const stickerRef = useRef<HTMLInputElement>(null);
   const [layoutFlash, setLayoutFlash] = useState(false);
   const [stickerBusy, setStickerBusy] = useState(false);
+  const [musicFolder, setMusicFolder] = useState<MusicFolderItem[]>([]);
+  const [musicFolderBusy, setMusicFolderBusy] = useState(false);
   const sticker = settings.sticker ?? defaultSticker();
   const activeChannel =
     channelState.channels.find((c) => c.slug === channelState.activeSlug) ||
     channelState.channels[0];
+  const musicAuto = settings.musicAutoFromFolder !== false;
+
+  async function refreshMusicFolder(opts?: { autoPick?: boolean }) {
+    setMusicFolderBusy(true);
+    try {
+      const res = await fetch("/api/music/library");
+      const data = await res.json();
+      const items: MusicFolderItem[] = Array.isArray(data.items) ? data.items : [];
+      setMusicFolder(items);
+      const auto = opts?.autoPick ?? musicAuto;
+      if (auto && !settings.musicMediaId && items.length > 0) {
+        const pick = items[0];
+        updateSettings({
+          musicMediaId: pick.mediaId,
+          musicUrl: pick.mediaUrl,
+          musicAutoFromFolder: true,
+        });
+      }
+    } catch {
+      setMusicFolder([]);
+    } finally {
+      setMusicFolderBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshMusicFolder({ autoPick: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function uploadMusic(file: File) {
     const fd = new FormData();
@@ -35,7 +74,19 @@ export function SettingsPanel() {
       alert(data.error || "Music upload failed");
       return;
     }
-    updateSettings({ musicMediaId: data.mediaId, musicUrl: data.mediaUrl });
+    updateSettings({
+      musicMediaId: data.mediaId,
+      musicUrl: data.mediaUrl,
+      musicAutoFromFolder: false,
+    });
+  }
+
+  function selectFolderBed(item: MusicFolderItem) {
+    updateSettings({
+      musicMediaId: item.mediaId,
+      musicUrl: item.mediaUrl,
+      musicAutoFromFolder: true,
+    });
   }
 
   async function uploadSticker(file: File) {
@@ -360,13 +411,72 @@ export function SettingsPanel() {
       <div className="music-block">
         <div className="music-head">
           <Music2 size={16} />
-          <span>Background music (optional)</span>
+          <span>Background music</span>
         </div>
+        <p className="muted">
+          Drop beds into the project <code>music/</code> folder — they loop under the whole
+          video so silent clips still have atmosphere. No need to attach music per clip.
+        </p>
+
+        <div className="music-folder-head">
+          <strong>Folder (music/)</strong>
+          <button
+            type="button"
+            className="btn ghost small"
+            disabled={musicFolderBusy}
+            onClick={() => void refreshMusicFolder({ autoPick: false })}
+          >
+            <RefreshCw size={14} className={musicFolderBusy ? "spin" : undefined} />
+            Refresh
+          </button>
+        </div>
+        <label className="field check">
+          <input
+            type="checkbox"
+            checked={musicAuto}
+            onChange={(e) => {
+              const on = e.target.checked;
+              updateSettings({ musicAutoFromFolder: on });
+              if (on && !settings.musicMediaId && musicFolder.length > 0) {
+                selectFolderBed(musicFolder[0]);
+              }
+            }}
+          />
+          <span>Auto-pick from folder when none selected</span>
+        </label>
+        {musicFolder.length > 0 ? (
+          <ul className="music-folder-list">
+            {musicFolder.map((item) => {
+              const active = settings.musicMediaId === item.mediaId;
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className={`music-folder-item ${active ? "active" : ""}`}
+                    onClick={() => selectFolderBed(item)}
+                  >
+                    <span className="truncate">{item.fileName}</span>
+                    <span className="muted">
+                      {item.duration > 0 ? `${item.duration.toFixed(1)}s` : "—"}
+                      {active ? " · selected" : ""}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="muted">
+            No beds yet. Add <code>.mp3</code>/<code>.wav</code> files to <code>music/</code>{" "}
+            then Refresh.
+          </p>
+        )}
+
         {settings.musicUrl ? (
           <div className="music-ready">
-            <audio src={settings.musicUrl} controls />
+            <audio key={settings.musicUrl} src={settings.musicUrl} controls />
             <label className="field">
-              <span>Music volume</span>
+              <span>Music volume ({Math.round((settings.musicVolume ?? 0.35) * 100)}%)</span>
               <input
                 type="range"
                 min={0}
@@ -378,31 +488,43 @@ export function SettingsPanel() {
                 }
               />
             </label>
-            <button
-              className="btn ghost small"
-              onClick={() => updateSettings({ musicMediaId: null, musicUrl: null })}
-            >
-              Remove
-            </button>
+            <div className="sticker-actions">
+              <button
+                className="btn ghost small"
+                onClick={() => musicRef.current?.click()}
+              >
+                <Upload size={14} /> Upload instead
+              </button>
+              <button
+                className="btn ghost small"
+                onClick={() =>
+                  updateSettings({
+                    musicMediaId: null,
+                    musicUrl: null,
+                    musicAutoFromFolder: false,
+                  })
+                }
+              >
+                Clear music
+              </button>
+            </div>
           </div>
         ) : (
-          <>
-            <button className="btn ghost small" onClick={() => musicRef.current?.click()}>
-              <Upload size={14} /> Upload audio / video bed
-            </button>
-            <input
-              ref={musicRef}
-              type="file"
-              accept="audio/*,video/*"
-              hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void uploadMusic(f);
-                e.target.value = "";
-              }}
-            />
-          </>
+          <button className="btn ghost small" onClick={() => musicRef.current?.click()}>
+            <Upload size={14} /> Upload audio / video bed
+          </button>
         )}
+        <input
+          ref={musicRef}
+          type="file"
+          accept="audio/*,video/*"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void uploadMusic(f);
+            e.target.value = "";
+          }}
+        />
       </div>
     </section>
   );

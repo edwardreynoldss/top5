@@ -8,6 +8,7 @@ import {
   resolveSfxStartAt,
   effectiveSfxVolume,
   getClipVolume,
+  getClipSpeed,
   getClipCrop,
 } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
@@ -175,6 +176,7 @@ export function TopBar({
             ).map((s) => ({ start: s.start, end: s.end })),
             crop: getClipCrop(c),
             volume: getClipVolume(c),
+            speed: getClipSpeed(c),
           })),
           title: titlePayload,
           ranksLayout: settings.ranksLayout,
