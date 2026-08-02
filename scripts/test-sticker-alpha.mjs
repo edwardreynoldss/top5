@@ -54,9 +54,9 @@ async function waitForHealth(timeoutMs = 90000) {
 }
 
 async function main() {
-  const sticker = path.resolve("public/stickers/demo-alpha.webm");
+  const sticker = path.resolve("public/stickers/gray-under-alpha.webm");
   const landscape = path.resolve("tmp/preview-test/landscape.mp4");
-  assert.ok(fs.existsSync(sticker), "missing demo-alpha.webm");
+  assert.ok(fs.existsSync(sticker), "missing gray-under-alpha.webm");
   assert.ok(fs.existsSync(landscape), "missing landscape.mp4");
 
   const probe = await loadProbe();
@@ -81,7 +81,7 @@ async function main() {
     // Upload sticker with purpose=sticker (must keep WebM + alpha)
     const stickerBuf = fs.readFileSync(sticker);
     const sfd = new FormData();
-    sfd.append("file", new Blob([stickerBuf], { type: "video/webm" }), "demo-alpha.webm");
+    sfd.append("file", new Blob([stickerBuf], { type: "video/webm" }), "gray-under-alpha.webm");
     sfd.append("purpose", "sticker");
     const sRes = await fetch(`${BASE}/api/upload`, { method: "POST", body: sfd });
     const sJson = await sRes.json();
@@ -176,13 +176,23 @@ async function main() {
 from PIL import Image
 im=Image.open(${JSON.stringify(frame)}).convert('RGB')
 top=im.getpixel((im.width//2, 40))
-bot=im.getpixel((im.width//2, im.height-50))
-print(top, bot)
+bot=im.getpixel((im.width//2, im.height-80))
+mid=im.getpixel((im.width//2, im.height//2))
+gray=0; total=0
+for y in range(im.height//2, im.height, 6):
+  for x in range(0, im.width, 6):
+    r,g,b=im.getpixel((x,y)); total+=1
+    if abs(r-g)<15 and abs(g-b)<15 and 50<=r<=140: gray+=1
+print(top, bot, mid)
+print('gray', gray/total)
 print('diff', abs(top[0]-bot[0])+abs(top[1]-bot[1])+abs(top[2]-bot[2]))
 `;
     const out = execFileSync("python3", ["-c", py], { encoding: "utf8" });
     console.log(out.trim());
-    const diffLine = out.trim().split("\n").pop();
+    const lines = out.trim().split("\n");
+    const gray = parseFloat(lines[1].replace(/[^\d.]/g, "") || "1");
+    assert.ok(gray < 0.08, `export must not show gray alpha slab (got ${gray})`);
+    const diffLine = lines[2];
     const diff = parseInt(String(diffLine).replace(/\D+/g, "") || "0", 10);
     assert.ok(diff > 30, "exported frame should show sticker at bottom");
 

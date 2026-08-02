@@ -234,7 +234,8 @@ async function renderClipSegment(opts: {
 
   const stickFilter =
     stickerIdx >= 0
-      ? `[${stickerIdx}:v]fps=${fps},scale=iw*${scale}:-1,setpts=PTS/${speed}[stk];`
+      ? // Force yuva so VP9 alpha isn't dropped (gray under-alpha → opaque slab otherwise)
+        `[${stickerIdx}:v]format=yuva420p,fps=${fps},scale=iw*${scale}:-1,setpts=PTS/${speed}[stk];`
       : "";
 
   function withOverlays(baseLabel: string) {
@@ -247,9 +248,9 @@ async function renderClipSegment(opts: {
     parts.push(`[${last}][1:v]overlay=0:0:shortest=1[withtitle]`);
     last = "withtitle";
     if (stickerIdx >= 0) {
-      // One-shot timed overlay — not looping for the whole clip
+      // format=rgb keeps alpha blending; format=auto often treats gray under-alpha as opaque
       parts.push(
-        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,${delay.toFixed(3)}\\,${endAt.toFixed(3)})':format=auto,format=yuv420p[vout]`
+        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,${delay.toFixed(3)}\\,${endAt.toFixed(3)})':format=rgb,format=yuv420p[vout]`
       );
     } else {
       parts.push(`[${last}]format=yuv420p[vout]`);
@@ -293,9 +294,14 @@ async function renderClipSegment(opts: {
   }
 
   if (stickerPath) {
-    // Play once (no stream_loop), muted, optionally seek if clip starts mid-sticker
+    // Play once (no stream_loop), muted, optionally seek if clip starts mid-sticker.
+    // libvpx-vp9 is required to decode VP9 alpha — otherwise transparent gray becomes opaque.
     if (stickerSourceSeek > 0.01) {
       commonArgs.push("-ss", String(stickerSourceSeek));
+    }
+    const lower = stickerPath.toLowerCase();
+    if (lower.endsWith(".webm")) {
+      commonArgs.push("-c:v", "libvpx-vp9");
     }
     commonArgs.push("-an", "-i", stickerPath);
   }
