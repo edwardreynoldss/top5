@@ -1,10 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Loader2, Play, Pause, RotateCcw, Bookmark } from "lucide-react";
-import { clipPlayDuration, getPlaybackOrder, resolveSfxStartAt, effectiveSfxVolume, getClipVolume } from "@/lib/defaults";
+import { Download, Loader2, Play, Pause, RotateCcw, Bookmark, Plus } from "lucide-react";
+import {
+  clipPlayDuration,
+  getPlaybackOrder,
+  resolveSfxStartAt,
+  effectiveSfxVolume,
+  getClipVolume,
+} from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
 import { useEditor } from "@/lib/store";
+import {
+  channelExportBaseName,
+  channelSlug,
+  loadChannelState,
+  planChannelExport,
+  saveChannelState,
+  type ChannelExportState,
+} from "@/lib/channels";
 
 export function TopBar({
   isPlaying,
@@ -13,7 +27,7 @@ export function TopBar({
   isPlaying: boolean;
   onTogglePlay: () => void;
 }) {
-  const { project, resetProject, saveLayoutAsDefault } = useEditor();
+  const { project, resetProject, setExportSlot, saveLayoutAsDefault } = useEditor();
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [savedExport, setSavedExport] = useState<{
@@ -24,6 +38,11 @@ export function TopBar({
   const [toolsOk, setToolsOk] = useState<boolean | null>(null);
   const [toolsHint, setToolsHint] = useState<string | null>(null);
   const [layoutSavedFlash, setLayoutSavedFlash] = useState(false);
+  const [channelState, setChannelState] = useState<ChannelExportState>(() =>
+    loadChannelState()
+  );
+  const [addingChannel, setAddingChannel] = useState(false);
+  const [newChannelName, setNewChannelName] = useState("");
 
   const readyClips = useMemo(
     () => getPlaybackOrder(project.clips, project.settings.playOrder),
@@ -31,6 +50,35 @@ export function TopBar({
   );
 
   const totalDuration = readyClips.reduce((sum, c) => sum + clipPlayDuration(c), 0);
+
+  const activeChannel =
+    channelState.channels.find((c) => c.slug === channelState.activeSlug) ||
+    channelState.channels[0];
+
+  const nextPreviewName = useMemo(() => {
+    const planned = planChannelExport(channelState, project.exportSlot);
+    return channelExportBaseName(
+      planned.slot.channelSlug,
+      planned.slot.number,
+      planned.slot.version
+    );
+  }, [channelState, project.exportSlot]);
+
+  useEffect(() => {
+    saveChannelState(channelState);
+  }, [channelState]);
+
+  useEffect(() => {
+    // Ensure default channel folders exist once
+    for (const c of channelState.channels) {
+      void fetch("/api/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: c.slug, name: c.name }),
+      }).catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     void fetch("/api/health")
@@ -59,6 +107,36 @@ export function TopBar({
       });
   }, []);
 
+  async function addChannel() {
+    const name = newChannelName.trim();
+    if (!name) return;
+    let slug = channelSlug(name);
+    const existing = new Set(channelState.channels.map((c) => c.slug));
+    if (existing.has(slug)) {
+      let i = 2;
+      while (existing.has(`${slug}-${i}`)) i += 1;
+      slug = `${slug}-${i}`;
+    }
+    const next: ChannelExportState = {
+      ...channelState,
+      channels: [...channelState.channels, { name, slug }],
+      activeSlug: slug,
+      nextNumber: { ...channelState.nextNumber, [slug]: 1 },
+    };
+    setChannelState(next);
+    setNewChannelName("");
+    setAddingChannel(false);
+    try {
+      await fetch("/api/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, name }),
+      });
+    } catch {
+      // folder created on export anyway
+    }
+  }
+
   async function exportVideo() {
     if (readyClips.length === 0) {
       setError("Add and trim at least one clip first.");
@@ -69,7 +147,9 @@ export function TopBar({
     setSavedExport(null);
     setProgress("Preparing sound effects…");
     try {
-      // Re-upload any SFX that vanished from tmp/ but still live in IndexedDB
+      const planned = planChannelExport(channelState, project.exportSlot);
+      setChannelState(planned.state);
+
       const restoredAssets = [];
       for (const asset of project.sfxAssets || []) {
         restoredAssets.push(await ensureSfxOnServer(asset));
@@ -97,7 +177,7 @@ export function TopBar({
         })
         .filter(Boolean);
 
-      setProgress("Rendering vertical segments…");
+      setProgress(`Rendering ${planned.fileName}…`);
       const { settings } = project;
       const titlePayload =
         settings.title.enabled === false
@@ -149,18 +229,22 @@ export function TopBar({
                 duration: settings.sticker.duration ?? 0,
               }
             : null,
+          channelExport: {
+            channelSlug: planned.slot.channelSlug,
+            number: planned.slot.number,
+            version: planned.slot.version,
+          },
           sfx: sfxForExport,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Export failed");
-      const fileName = data.fileName || "ranking-short.mp4";
-      const savedPath = data.savedPath || `exports/${fileName}`;
+
+      setExportSlot(planned.slot);
+      const fileName = data.fileName || planned.fileName;
+      const savedPath = data.savedPath || planned.relativePath;
       setProgress(`Saved to ${savedPath}`);
-      setSavedExport({
-        fileName,
-        savedPath,
-      });
+      setSavedExport({ fileName, savedPath });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");
       setProgress(null);
@@ -192,6 +276,68 @@ export function TopBar({
       </div>
 
       <div className="topbar-actions">
+        <div className="channel-picker" title="Upload channel — sets export folder & filename">
+          <label className="channel-label">
+            <span>Channel</span>
+            <select
+              className="input channel-select"
+              value={channelState.activeSlug}
+              onChange={(e) =>
+                setChannelState((s) => ({ ...s, activeSlug: e.target.value }))
+              }
+            >
+              {channelState.channels.map((c) => (
+                <option key={c.slug} value={c.slug}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {addingChannel ? (
+            <div className="channel-add-row">
+              <input
+                className="input"
+                placeholder="New channel name"
+                value={newChannelName}
+                autoFocus
+                onChange={(e) => setNewChannelName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void addChannel();
+                  if (e.key === "Escape") {
+                    setAddingChannel(false);
+                    setNewChannelName("");
+                  }
+                }}
+              />
+              <button type="button" className="btn ghost small" onClick={() => void addChannel()}>
+                Add
+              </button>
+              <button
+                type="button"
+                className="btn ghost small"
+                onClick={() => {
+                  setAddingChannel(false);
+                  setNewChannelName("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn ghost small"
+              onClick={() => setAddingChannel(true)}
+              title="Add another upload channel"
+            >
+              <Plus size={14} /> Channel
+            </button>
+          )}
+          <span className="channel-next muted" title="Next export filename">
+            {nextPreviewName}
+          </span>
+        </div>
+
         <button
           className="btn ghost"
           onClick={() => {
@@ -209,15 +355,16 @@ export function TopBar({
           onClick={() => {
             if (
               window.confirm(
-                "Clear all clips and placements? Your saved default layout (title/ranks/look) will be kept."
+                `Clear all clips for a new ${activeChannel?.name || "channel"} video?\n\nYour channel selector and video counters are kept. The next export will be a new number (e.g. ranking-${activeChannel?.slug || "animals"}-${channelState.nextNumber[activeChannel?.slug || "animals"] || 1}).`
               )
             ) {
               resetProject();
             }
           }}
-          title="Clear clips — keeps your saved default layout"
+          title="Clear clips for a new video — keeps channel & counters"
         >
           <RotateCcw size={16} />
+          Reset
         </button>
         <button className="btn" onClick={onTogglePlay} disabled={readyClips.length === 0}>
           {isPlaying ? <Pause size={16} /> : <Play size={16} />}
@@ -236,7 +383,7 @@ export function TopBar({
           {progress && !error && <p>{progress}</p>}
           {savedExport && !error && (
             <p className="muted export-saved-path" title={savedExport.savedPath}>
-              {savedExport.fileName}
+              {savedExport.savedPath}
             </p>
           )}
         </div>

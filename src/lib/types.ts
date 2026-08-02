@@ -170,6 +170,15 @@ export interface EditorProject {
   settings: ProjectSettings;
   sfxAssets: SfxAsset[];
   sfxPlacements: SfxPlacement[];
+  /**
+   * Export identity for the current clip set (cleared on Reset).
+   * First export → ranking-{channel}-{n}; re-export → ranking-{channel}-{n}.{v}
+   */
+  exportSlot?: {
+    channelSlug: string;
+    number: number;
+    version: number;
+  } | null;
 }
 
 export const OUTPUT_WIDTH = 1080;

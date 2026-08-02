@@ -1,5 +1,6 @@
-import { mkdirSync, readdirSync, copyFileSync, existsSync } from "fs";
+import { mkdirSync, readdirSync, copyFileSync, existsSync, writeFileSync } from "fs";
 import path from "path";
+import { channelSlug, channelExportFileName } from "./channels";
 
 export const DATA_ROOT = path.join(process.cwd(), "tmp");
 export const UPLOAD_DIR = path.join(DATA_ROOT, "uploads");
@@ -24,7 +25,24 @@ export function exportPath(id: string) {
   return path.join(EXPORT_DIR, `${id}.mp4`);
 }
 
-/** Next free N for exports/ranking-short-N.mp4 */
+/** Ensure exports/{slug}/ exists (and a .gitkeep for empty dirs). */
+export function ensureChannelExportDir(slug: string) {
+  ensureDirs();
+  const safe = channelSlug(slug);
+  const dir = path.join(PROJECT_EXPORTS_DIR, safe);
+  mkdirSync(dir, { recursive: true });
+  const keep = path.join(dir, ".gitkeep");
+  if (!existsSync(keep)) {
+    try {
+      writeFileSync(keep, "");
+    } catch {
+      // ignore
+    }
+  }
+  return dir;
+}
+
+/** @deprecated Prefer planChannelExport + publishChannelExport — kept for old tests */
 export function nextExportNumber(): number {
   ensureDirs();
   let max = 0;
@@ -43,7 +61,7 @@ export function projectExportPath(n: number) {
   return path.join(PROJECT_EXPORTS_DIR, projectExportFileName(n));
 }
 
-/** Copy finished render into exports/ranking-short-N.mp4 */
+/** Copy finished render into exports/ranking-short-N.mp4 (legacy flat layout) */
 export function publishProjectExport(sourceMp4: string): {
   number: number;
   fileName: string;
@@ -62,5 +80,38 @@ export function publishProjectExport(sourceMp4: string): {
     fileName,
     absolutePath,
     relativePath: path.join("exports", fileName),
+  };
+}
+
+/** Copy finished render into exports/{channel}/ranking-{channel}-{n}[.v].mp4 */
+export function publishChannelExport(
+  sourceMp4: string,
+  opts: { channelSlug: string; number: number; version: number }
+): {
+  number: number;
+  version: number;
+  channelSlug: string;
+  fileName: string;
+  absolutePath: string;
+  relativePath: string;
+  downloadId: string;
+} {
+  if (!existsSync(sourceMp4)) {
+    throw new Error(`Export source missing: ${sourceMp4}`);
+  }
+  const slug = channelSlug(opts.channelSlug);
+  const dir = ensureChannelExportDir(slug);
+  const fileName = channelExportFileName(slug, opts.number, opts.version);
+  const absolutePath = path.join(dir, fileName);
+  copyFileSync(sourceMp4, absolutePath);
+  const downloadId = `${slug}/${fileName}`;
+  return {
+    number: opts.number,
+    version: opts.version,
+    channelSlug: slug,
+    fileName,
+    absolutePath,
+    relativePath: path.join("exports", slug, fileName),
+    downloadId,
   };
 }

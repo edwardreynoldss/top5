@@ -50,6 +50,7 @@ tmp/**
 exports/*
 !exports/.gitkeep
 !exports/README.md
+!exports/**/.gitkeep
 
 # user-dropped SFX library (keep readme)
 sfx/*

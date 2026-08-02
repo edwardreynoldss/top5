@@ -7,14 +7,22 @@ import { UPLOAD_DIR, EXPORT_DIR, PROJECT_EXPORTS_DIR } from "@/lib/paths";
 export const runtime = "nodejs";
 
 function resolveFile(id: string) {
-  if (!id || id.includes("..") || id.includes("/") || id.includes("\\")) {
-    return null;
-  }
-  const candidates = [
-    path.join(PROJECT_EXPORTS_DIR, id),
-    path.join(UPLOAD_DIR, id),
-    path.join(EXPORT_DIR, id),
-  ];
+  if (!id) return null;
+  const decoded = decodeURIComponent(id);
+  // Allow one safe subdirectory: animals/ranking-animals-1.mp4
+  if (decoded.includes("..") || decoded.includes("\\")) return null;
+  const parts = decoded.split("/").filter(Boolean);
+  if (parts.length === 0 || parts.length > 2) return null;
+  if (parts.some((p) => !p || p === "." || p.includes(".."))) return null;
+
+  const candidates =
+    parts.length === 2
+      ? [path.join(PROJECT_EXPORTS_DIR, parts[0], parts[1])]
+      : [
+          path.join(PROJECT_EXPORTS_DIR, parts[0]),
+          path.join(UPLOAD_DIR, parts[0]),
+          path.join(EXPORT_DIR, parts[0]),
+        ];
   const filePath = candidates.find((p) => existsSync(p));
   return filePath || null;
 }
@@ -37,7 +45,8 @@ function baseHeaders(id: string, size: number, asDownload: boolean): HeadersInit
     "Cache-Control": "private, max-age=3600",
   };
   if (asDownload) {
-    headers["Content-Disposition"] = `attachment; filename="${id.replace(/"/g, "")}"`;
+    const base = id.includes("/") ? id.split("/").pop() || id : id;
+    headers["Content-Disposition"] = `attachment; filename="${base.replace(/"/g, "")}"`;
   }
   return headers;
 }

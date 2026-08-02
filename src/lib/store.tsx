@@ -64,6 +64,7 @@ interface EditorContextValue {
   sfxTabNonce: number;
   requestSfxTab: () => void;
   resetProject: () => void;
+  setExportSlot: (slot: EditorProject["exportSlot"]) => void;
   saveLayoutAsDefault: () => void;
   setPlayOrder: (order: PlayOrder) => void;
   setTransition: (t: TransitionType) => void;
@@ -340,12 +341,16 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     clearSavedProject();
     const layout = loadLayoutDefault();
     const base = createDefaultProject(layout || undefined);
-    // Keep durable SFX library samples; clear placements and clips
+    // Keep durable SFX library samples; clear placements, clips, and export version slot
     const lib = loadSfxLibrary();
-    setProject({ ...base, sfxAssets: lib });
+    setProject({ ...base, sfxAssets: lib, exportSlot: null });
     setSelectedClipId(null);
     setSelectedSfxPlacementId(null);
     setSaveStatus("saved");
+  }, []);
+
+  const setExportSlot = useCallback((slot: EditorProject["exportSlot"]) => {
+    setProject((prev) => ({ ...prev, exportSlot: slot ?? null }));
   }, []);
 
   const saveLayoutAsDefault = useCallback(() => {
@@ -397,6 +402,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateSfxPlacement,
       removeSfxPlacement,
       resetProject,
+      setExportSlot,
       saveLayoutAsDefault,
       setPlayOrder,
       setTransition,
@@ -424,6 +430,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateSfxPlacement,
       removeSfxPlacement,
       resetProject,
+      setExportSlot,
       saveLayoutAsDefault,
       setPlayOrder,
       setTransition,

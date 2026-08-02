@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { existsSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
-import { ensureDirs, EXPORT_DIR, UPLOAD_DIR, exportPath, publishProjectExport } from "@/lib/paths";
+import { ensureDirs, EXPORT_DIR, UPLOAD_DIR, exportPath, publishChannelExport, publishProjectExport } from "@/lib/paths";
+import { channelSlug } from "@/lib/channels";
 import { runCommand } from "@/lib/ffmpeg";
 import { ensurePillow, whichTools } from "@/lib/bins";
 import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
@@ -73,6 +74,12 @@ interface ExportBody {
     speed?: number;
     startAt?: number;
     duration?: number;
+  } | null;
+  /** Channel export naming — preferred over legacy flat ranking-short-N */
+  channelExport?: {
+    channelSlug: string;
+    number: number;
+    version: number;
   } | null;
   sfx?: {
     mediaId: string;
@@ -736,15 +743,39 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const published = publishProjectExport(finalOut);
+    const published =
+      body.channelExport &&
+      body.channelExport.channelSlug &&
+      Number.isFinite(body.channelExport.number) &&
+      body.channelExport.number >= 1
+        ? publishChannelExport(finalOut, {
+            channelSlug: channelSlug(body.channelExport.channelSlug),
+            number: Math.floor(body.channelExport.number),
+            version: Math.max(1, Math.floor(body.channelExport.version || 1)),
+          })
+        : (() => {
+            const legacy = publishProjectExport(finalOut);
+            return {
+              ...legacy,
+              version: 1,
+              channelSlug: "",
+              downloadId: legacy.fileName,
+            };
+          })();
 
     return NextResponse.json({
       exportId: published.fileName,
       fileName: published.fileName,
       exportNumber: published.number,
+      exportVersion: "version" in published ? published.version : 1,
+      channelSlug: "channelSlug" in published ? published.channelSlug : "",
       /** Saved on disk under the project exports/ folder */
       savedPath: published.relativePath,
-      downloadUrl: `/api/media/${published.fileName}?download=1`,
+      downloadUrl: `/api/media/${encodeURIComponent(
+        "downloadId" in published && published.downloadId
+          ? published.downloadId
+          : published.fileName
+      )}?download=1`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Export failed";

@@ -145,6 +145,13 @@ export function loadProject(): EditorProject {
         mediaUrl: a.mediaId ? `/api/media/${a.mediaId}` : a.mediaUrl,
       })),
       sfxPlacements: parsed.sfxPlacements || [],
+      exportSlot: parsed.exportSlot
+        ? {
+            channelSlug: String(parsed.exportSlot.channelSlug || ""),
+            number: Math.max(1, Math.floor(Number(parsed.exportSlot.number) || 1)),
+            version: Math.max(1, Math.floor(Number(parsed.exportSlot.version) || 1)),
+          }
+        : null,
       settings: {
         ...fallback.settings,
         ...(parsed.settings || {}),

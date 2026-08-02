@@ -187,6 +187,7 @@ export function createDefaultProject(settings?: ProjectSettings): EditorProject 
     clips: ranks.map((rank) => createEmptyClip(rank)),
     sfxAssets: [],
     sfxPlacements: [],
+    exportSlot: null,
     settings: settings ? cloneSettings(settings) : builtInDefaultSettings(),
   };
 }

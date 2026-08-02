@@ -126,8 +126,54 @@ a {
 
 .topbar-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+}
+
+.channel-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-right: 0.35rem;
+  padding-right: 0.55rem;
+  border-right: 1px solid var(--border);
+}
+
+.channel-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.channel-select {
+  min-width: 7.5rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.channel-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.channel-add-row .input {
+  width: 9rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.channel-next {
+  font-size: 0.72rem;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .export-toast {
