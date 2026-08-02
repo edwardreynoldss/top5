@@ -304,7 +304,7 @@ export function SettingsPanel() {
               {sticker.hasAlpha ? " · alpha OK" : " · no alpha detected"}
               {" · muted"}
               {sticker.duration > 0
-                ? ` · plays ${(sticker.duration / Math.max(0.25, sticker.speed)).toFixed(1)}s`
+                ? ` · ~${(sticker.duration / Math.max(0.25, sticker.speed)).toFixed(1)}s clip`
                 : ""}
             </p>
             <div className="sticker-actions">

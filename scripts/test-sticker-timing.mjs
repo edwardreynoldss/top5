@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 function stickerPlayDuration(sticker) {
   const speed = Math.max(0.25, Math.min(3, sticker.speed || 1));
   const dur = Number.isFinite(sticker.duration) && sticker.duration > 0 ? sticker.duration : 3;
-  return Math.max(0.2, dur / speed);
+  const padded = dur * 1.35 + 0.75;
+  return Math.max(0.2, padded / speed);
 }
 
 function stickerPlacementInClip(sticker, clipStart, clipDuration) {
@@ -45,7 +46,10 @@ assert.equal(stickerPlacementInClip(base, 12, 4), null);
   assert.equal(p.sourceSeek, 1);
 }
 
-// Faster speed shortens visible window
-assert.equal(stickerPlayDuration({ duration: 2, speed: 2 }), 1);
+// Faster speed shortens visible window (with pad)
+{
+  const d = stickerPlayDuration({ duration: 2, speed: 2 });
+  assert.ok(d > 1 && d < 2.5, `padded playDur at 2x speed, got ${d}`);
+}
 
 console.log("sticker timing tests passed");

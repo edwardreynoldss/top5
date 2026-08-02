@@ -28,7 +28,7 @@ const filter =
   `scale=${W}:${fitH}:force_original_aspect_ratio=decrease,` +
   `scale=iw*${scale}:ih*${scale},` +
   `setpts=PTS/1+${delay}/TB[stk];` +
-  `[0:v][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,${delay}\\,2)':eof_action=pass:format=rgb,format=yuv420p`;
+  `[0:v][stk]overlay=x=(W-w)/2:y=H-h:enable='gte(t\\,${delay})':eof_action=pass:format=rgb,format=yuv420p`;
 
 execFileSync(
   "ffmpeg",

@@ -107,10 +107,12 @@ export function PreviewPhone({
   const sticker = settings.sticker ?? defaultSticker();
   const stickerStartAt = Math.max(0, Number.isFinite(sticker.startAt) ? sticker.startAt : 20);
   const stickerEndAt = stickerStartAt + stickerPlayDuration(sticker);
+  const [stickerMediaDone, setStickerMediaDone] = useState(false);
   const stickerActive =
     Boolean(sticker.enabled && sticker.mediaUrl) &&
     absTime >= stickerStartAt - 0.02 &&
-    absTime < stickerEndAt;
+    absTime < stickerEndAt &&
+    !stickerMediaDone;
 
   // Play sticker once when the timeline crosses startAt — never loop, always muted
   useEffect(() => {
@@ -125,32 +127,52 @@ export function PreviewPhone({
     el.playbackRate = Math.max(0.25, Math.min(3, sticker.speed || 1));
     el.loop = false;
 
-    if (!stickerActive) {
+    const onEnded = () => setStickerMediaDone(true);
+    el.addEventListener("ended", onEnded);
+
+    if (absTime < stickerStartAt - 0.02) {
       stickerArmedRef.current = false;
+      setStickerMediaDone(false);
       try {
         el.pause();
       } catch {
         // ignore
       }
-      return;
+      return () => el.removeEventListener("ended", onEnded);
+    }
+
+    if (absTime >= stickerEndAt || stickerMediaDone) {
+      try {
+        el.pause();
+      } catch {
+        // ignore
+      }
+      return () => el.removeEventListener("ended", onEnded);
     }
 
     if (!stickerArmedRef.current) {
       stickerArmedRef.current = true;
+      setStickerMediaDone(false);
       const localOffset = Math.max(0, absTime - stickerStartAt);
       try {
-        el.currentTime = localOffset * el.playbackRate;
+        // currentTime is in media seconds; playbackRate stretches wall-clock
+        el.currentTime = Math.min(
+          Math.max(0, localOffset * el.playbackRate),
+          Math.max(0, (el.duration || 0) - 0.05)
+        );
       } catch {
         // ignore
       }
       void el.play().catch(() => undefined);
     }
+    return () => el.removeEventListener("ended", onEnded);
   }, [
-    stickerActive,
     sticker.enabled,
     sticker.mediaUrl,
     sticker.speed,
     stickerStartAt,
+    stickerEndAt,
+    stickerMediaDone,
     absTime,
   ]);
 

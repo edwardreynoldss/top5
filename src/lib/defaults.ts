@@ -25,11 +25,14 @@ export function defaultSticker(): StickerOverlay {
   };
 }
 
-/** How long the sticker is visible on the timeline (source duration ÷ speed). */
+/** How long the sticker occupies on the timeline (source duration ÷ speed). */
 export function stickerPlayDuration(sticker: Pick<StickerOverlay, "duration" | "speed">) {
   const speed = Math.max(0.25, Math.min(3, sticker.speed || 1));
   const dur = Number.isFinite(sticker.duration) && sticker.duration > 0 ? sticker.duration : 3;
-  return Math.max(0.2, dur / speed);
+  // WebM duration tags often end before the visual outro finishes — pad so we
+  // don't hide/cut the transition-out early in preview or clip-overlap math.
+  const padded = dur * 1.35 + 0.75;
+  return Math.max(0.2, padded / speed);
 }
 
 /**

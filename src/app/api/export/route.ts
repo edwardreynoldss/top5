@@ -195,7 +195,7 @@ async function renderClipSegment(opts: {
     stickerScale,
     stickerSpeed,
     stickerDelay,
-    stickerEnd,
+    stickerEnd: _stickerEnd,
     stickerSourceSeek,
     fps,
     clipVolume,
@@ -203,6 +203,7 @@ async function renderClipSegment(opts: {
     titleOverlap = true,
     titleBarHeight = 150,
   } = opts;
+  void _stickerEnd;
 
   const blur = Math.max(2, Math.min(64, Math.round(blurAmount / 2)));
   const zoom = Math.max(0.25, Math.min(3, crop?.zoom ?? 1));
@@ -213,7 +214,6 @@ async function renderClipSegment(opts: {
   const scale = Math.max(0.15, Math.min(1.5, stickerScale || 1));
   const speed = Math.max(0.25, Math.min(3, stickerSpeed || 1));
   const delay = Math.max(0, stickerDelay || 0);
-  const endAt = Math.max(delay + 0.05, stickerEnd || duration);
 
   // Continuous zoom matching preview CSS:
   // cover-fit, then scale by zoom; overlay onto a black canvas so zoom < 1
@@ -253,9 +253,10 @@ async function renderClipSegment(opts: {
     parts.push(`[${last}][1:v]overlay=0:0:shortest=1[withtitle]`);
     last = "withtitle";
     if (stickerIdx >= 0) {
-      // format=rgb preserves alpha; eof_action=pass avoids holding a transparent/gray frame
+      // Start at delay; do NOT hard-end on probed duration (cuts the outro).
+      // eof_action=pass lets the WebM finish its transition-out naturally.
       parts.push(
-        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:enable='between(t\\,${delay.toFixed(3)}\\,${endAt.toFixed(3)})':eof_action=pass:format=rgb,format=yuv420p[vout]`
+        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:enable='gte(t\\,${delay.toFixed(3)})':eof_action=pass:format=rgb,format=yuv420p[vout]`
       );
     } else {
       parts.push(`[${last}]format=yuv420p[vout]`);
