@@ -10,6 +10,7 @@ import {
   getClipVolume,
   getClipSpeed,
   getClipCrop,
+  getClipBedMusic,
 } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
 import { useEditor } from "@/lib/store";
@@ -177,6 +178,16 @@ export function TopBar({
             crop: getClipCrop(c),
             volume: getClipVolume(c),
             speed: getClipSpeed(c),
+            bedMusic: (() => {
+              const bed = getClipBedMusic(c);
+              return bed?.mediaId
+                ? {
+                    mediaId: bed.mediaId,
+                    startAt: bed.startAt,
+                    volume: bed.volume,
+                  }
+                : null;
+            })(),
           })),
           title: titlePayload,
           ranksLayout: settings.ranksLayout,

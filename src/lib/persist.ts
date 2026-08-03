@@ -2,6 +2,7 @@ import {
   builtInDefaultSettings,
   createDefaultProject,
   normalizeCrop,
+  normalizeBedMusic,
   createSegment,
   clampClipSpeed,
 } from "./defaults";
@@ -128,6 +129,7 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
     speed: clampClipSpeed(
       typeof clip.speed === "number" && Number.isFinite(clip.speed) ? clip.speed : 1
     ),
+    bedMusic: normalizeBedMusic(clip.bedMusic),
     // Don't restore blob: URLs; keep server media paths
     mediaUrl:
       clip.mediaUrl && clip.mediaUrl.startsWith("/api/media/")

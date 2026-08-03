@@ -33,6 +33,17 @@ export interface ClipCrop {
   cropBottom?: number;
 }
 
+/** Optional background bed for a single clip (from music/ folder). */
+export interface ClipBedMusic {
+  mediaId: string | null;
+  mediaUrl: string | null;
+  fileName: string | null;
+  /** Start offset into the bed source (seconds). */
+  startAt: number;
+  /** 0–1 bed gain under this clip. */
+  volume: number;
+}
+
 export interface RankClip {
   id: string;
   rank: number;
@@ -55,6 +66,11 @@ export interface RankClip {
    * Speeds up / slows down preview + export; timeline length = source ÷ speed.
    */
   speed: number;
+  /**
+   * Optional bed from music/ for this clip only.
+   * Plays under the clip and is hard-capped to the clip's wall-clock duration.
+   */
+  bedMusic?: ClipBedMusic;
   status: "empty" | "loading" | "ready" | "error";
   error?: string;
 }

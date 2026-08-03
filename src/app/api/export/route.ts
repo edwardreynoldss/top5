@@ -46,6 +46,12 @@ interface ExportClip {
   volume?: number;
   /** Playback rate 0.5–2 (1 = normal) */
   speed?: number;
+  /** Optional per-clip bed from music/ — capped to this clip's wall duration */
+  bedMusic?: {
+    mediaId: string;
+    startAt?: number;
+    volume?: number;
+  } | null;
 }
 
 interface ExportBody {
@@ -221,6 +227,10 @@ async function renderClipSegment(opts: {
   crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number };
   titleOverlap?: boolean;
   titleBarHeight?: number;
+  /** Optional bed file mixed under this clip only (capped by wallDuration) */
+  bedMusicPath?: string | null;
+  bedStartAt?: number;
+  bedVolume?: number;
 }) {
   const {
     input,
@@ -246,6 +256,9 @@ async function renderClipSegment(opts: {
     crop,
     titleOverlap = true,
     titleBarHeight = 150,
+    bedMusicPath = null,
+    bedStartAt = 0,
+    bedVolume = 0.35,
   } = opts;
   void _stickerEnd;
 
@@ -293,10 +306,13 @@ async function renderClipSegment(opts: {
     `color=c=black:s=${width}x${contentH}:r=${fps}:d=${wallDuration}[czbg];` +
     `[czbg][czfg]overlay=x='(W-w)*${panX}':y='(H-h)*${panY}':shortest=1,setsar=1${padTop}`;
 
-  // Input layout: 0=clip, 1=title, [2=ranks], [2|3=sticker]
+  // Input layout: 0=clip, 1=title, [2=ranks], [2|3=sticker], [n=bed]
   let nextInput = 2;
   const ranksIdx = ranksOverlay ? nextInput++ : -1;
   const stickerIdx = stickerPath ? nextInput++ : -1;
+  const bedIdx = bedMusicPath ? nextInput++ : -1;
+  const bedVol = Math.max(0, Math.min(1, bedVolume ?? 0.35));
+  const bedSeek = Math.max(0, bedStartAt || 0);
 
   // Match PreviewPhone: fit into (100% × 45% height) with contain, then multiply by scale.
   // Using iw*scale alone makes full-frame WebMs much larger than preview.
@@ -378,6 +394,14 @@ async function renderClipSegment(opts: {
     commonArgs.push("-an", "-i", stickerPath);
   }
 
+  if (bedMusicPath && bedIdx >= 0) {
+    // Seek into bed; no loop — amix duration=first + -shortest caps to clip wall length
+    if (bedSeek > 0.01) {
+      commonArgs.push("-ss", String(bedSeek));
+    }
+    commonArgs.push("-t", String(wallDuration), "-i", bedMusicPath);
+  }
+
   const encodeArgs = [
     "-map",
     "[vout]",
@@ -386,6 +410,8 @@ async function renderClipSegment(opts: {
     ...H264_COMPAT,
     ...AAC_COMPAT,
     "-shortest",
+    "-t",
+    String(wallDuration),
     "-r",
     String(fps),
     ...MP4_FASTSTART,
@@ -393,16 +419,26 @@ async function renderClipSegment(opts: {
   ];
 
   const silenceIdx = nextInput;
+  const clipAudio = `[0:a]volume=${clipVolume},${audioTempo}aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo`;
+  const bedAudio =
+    bedIdx >= 0
+      ? `[${bedIdx}:a]volume=${bedVol},aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[abed]`
+      : "";
+  const mixedWithBed =
+    bedIdx >= 0
+      ? `${clipAudio}[aclip];${bedAudio};[aclip][abed]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`
+      : `${clipAudio}[aout]`;
 
   try {
     await runCommand("ffmpeg", [
       ...commonArgs,
       "-filter_complex",
-      `${videoFilter};[0:a]volume=${clipVolume},${audioTempo}aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[aout]`,
+      `${videoFilter};${mixedWithBed}`,
       ...encodeArgs,
     ]);
   } catch {
-    await runCommand("ffmpeg", [
+    // Silent clip (or audio decode fail): synthesize silence, still mix bed if present
+    const silentArgs = [
       ...commonArgs,
       "-f",
       "lavfi",
@@ -410,8 +446,15 @@ async function renderClipSegment(opts: {
       String(wallDuration),
       "-i",
       "anullsrc=r=44100:cl=stereo",
+    ];
+    const silentMix =
+      bedIdx >= 0
+        ? `${videoFilter};[${silenceIdx}:a]volume=${clipVolume},aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[aclip];[${bedIdx}:a]volume=${bedVol},aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[abed];[aclip][abed]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`
+        : `${videoFilter};[${silenceIdx}:a]volume=${clipVolume},aresample=44100[aout]`;
+    await runCommand("ffmpeg", [
+      ...silentArgs,
       "-filter_complex",
-      `${videoFilter};[${silenceIdx}:a]volume=${clipVolume},aresample=44100[aout]`,
+      silentMix,
       ...encodeArgs,
     ]);
   }
@@ -591,6 +634,19 @@ export async function POST(req: NextRequest) {
           ? Math.max(0, (clipAbsStart - stickerStartAt) * Math.max(0.25, Math.min(3, stickerSpeed)))
           : 0;
 
+      let bedMusicPath: string | null = null;
+      let bedStartAt = 0;
+      let bedVolume = 0.35;
+      if (clip.bedMusic?.mediaId) {
+        try {
+          bedMusicPath = resolveMedia(clip.bedMusic.mediaId);
+          bedStartAt = Math.max(0, clip.bedMusic.startAt ?? 0);
+          bedVolume = Math.max(0, Math.min(1, clip.bedMusic.volume ?? 0.35));
+        } catch {
+          bedMusicPath = null;
+        }
+      }
+
       await renderClipSegment({
         input,
         output: seg,
@@ -618,6 +674,9 @@ export async function POST(req: NextRequest) {
         crop: clip.crop || { zoom: 1, panX: 50, panY: 50, cropTop: 0, cropBottom: 0 },
         titleOverlap: !titleEnabled ? true : body.titleOverlap !== false,
         titleBarHeight: barH,
+        bedMusicPath,
+        bedStartAt,
+        bedVolume,
       });
 
       timelineCursor += renderWallDuration;

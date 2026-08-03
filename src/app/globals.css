@@ -791,6 +791,14 @@ a {
   background: rgba(200, 245, 66, 0.08);
 }
 
+.trim-bed-block {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 0.55rem;
+}
+
 .preview-shell {
   width: 100%;
   display: flex;

@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import type {
+  ClipBedMusic,
   ClipCrop,
   EditorProject,
   ProjectSettings,
@@ -160,6 +161,49 @@ export function normalizeSegments(segments: TrimSegment[]): TrimSegment[] {
 
 export function segmentsDuration(segments: TrimSegment[]) {
   return normalizeSegments(segments).reduce((sum, s) => sum + (s.end - s.start), 0);
+}
+
+export function defaultBedMusic(): ClipBedMusic {
+  return {
+    mediaId: null,
+    mediaUrl: null,
+    fileName: null,
+    startAt: 0,
+    volume: 0.35,
+  };
+}
+
+/** Normalize / clear a per-clip bed. Returns undefined when no media is set. */
+export function normalizeBedMusic(
+  bed?: Partial<ClipBedMusic> | null
+): ClipBedMusic | undefined {
+  if (!bed?.mediaId) return undefined;
+  const mediaId = String(bed.mediaId);
+  let mediaUrl = bed.mediaUrl ?? null;
+  if (!mediaUrl || mediaUrl.startsWith("blob:")) {
+    if (mediaId.startsWith("music__")) {
+      mediaUrl = `/api/music/file/${encodeURIComponent(mediaId.slice("music__".length))}`;
+    } else {
+      mediaUrl = `/api/media/${mediaId}`;
+    }
+  }
+  const startAt =
+    typeof bed.startAt === "number" && Number.isFinite(bed.startAt) ? Math.max(0, bed.startAt) : 0;
+  const volume =
+    typeof bed.volume === "number" && Number.isFinite(bed.volume)
+      ? Math.max(0, Math.min(1, bed.volume))
+      : 0.35;
+  return {
+    mediaId,
+    mediaUrl,
+    fileName: bed.fileName ?? null,
+    startAt,
+    volume,
+  };
+}
+
+export function getClipBedMusic(clip: RankClip): ClipBedMusic | undefined {
+  return normalizeBedMusic(clip.bedMusic);
 }
 
 export function createEmptyClip(rank: number): RankClip {

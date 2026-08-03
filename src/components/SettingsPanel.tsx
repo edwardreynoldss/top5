@@ -414,8 +414,8 @@ export function SettingsPanel() {
           <span>Background music</span>
         </div>
         <p className="muted">
-          Drop beds into the project <code>music/</code> folder — they loop under the whole
-          video so silent clips still have atmosphere. No need to attach music per clip.
+          Optional full-timeline bed from <code>music/</code> (loops under the whole video).
+          For music on a single clip, set it in <strong>Trim &amp; crop</strong> instead.
         </p>
 
         <div className="music-folder-head">

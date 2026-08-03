@@ -8,14 +8,28 @@ import {
   normalizeSegments,
   defaultCrop,
   normalizeCrop,
+  normalizeBedMusic,
   cropPreviewStyle,
   clampCropZoom,
   clampCropEdge,
   MAX_EDGE_CROP,
 } from "@/lib/defaults";
-import { MAX_CLIP_DURATION, type ClipCrop, type TrimSegment } from "@/lib/types";
+import {
+  MAX_CLIP_DURATION,
+  type ClipBedMusic,
+  type ClipCrop,
+  type TrimSegment,
+} from "@/lib/types";
 import { nextPlaybackAction } from "@/lib/trimPreview";
-import { X, Play, Pause, Check, Plus, Trash2, RotateCcw } from "lucide-react";
+import { X, Play, Pause, Check, Plus, Trash2, RotateCcw, Music2, RefreshCw } from "lucide-react";
+
+type MusicFolderItem = {
+  id: string;
+  fileName: string;
+  mediaId: string;
+  mediaUrl: string;
+  duration: number;
+};
 
 interface TrimModalProps {
   open: boolean;
@@ -23,9 +37,14 @@ interface TrimModalProps {
   fileName?: string | null;
   initialSegments: TrimSegment[];
   initialCrop?: ClipCrop;
+  initialBedMusic?: ClipBedMusic | null;
   duration: number;
   onClose: () => void;
-  onConfirm: (segments: TrimSegment[], crop: ClipCrop) => void;
+  onConfirm: (
+    segments: TrimSegment[],
+    crop: ClipCrop,
+    bedMusic?: ClipBedMusic
+  ) => void;
 }
 
 export function TrimModal({
@@ -34,12 +53,14 @@ export function TrimModal({
   fileName,
   initialSegments,
   initialCrop,
+  initialBedMusic,
   duration,
   onClose,
   onConfirm,
 }: TrimModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const bedAudioRef = useRef<HTMLAudioElement | null>(null);
   const sessionRef = useRef<string | null>(null);
   const [segments, setSegments] = useState<TrimSegment[]>(() =>
     initialSegments.length > 0
@@ -47,6 +68,11 @@ export function TrimModal({
       : [createSegment(0, Math.min(4, duration || 4))]
   );
   const [crop, setCrop] = useState<ClipCrop>(() => normalizeCrop(initialCrop));
+  const [bedMusic, setBedMusic] = useState<ClipBedMusic | undefined>(() =>
+    normalizeBedMusic(initialBedMusic)
+  );
+  const [musicFolder, setMusicFolder] = useState<MusicFolderItem[]>([]);
+  const [musicBusy, setMusicBusy] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [previewAll, setPreviewAll] = useState(false);
@@ -104,11 +130,12 @@ export function TrimModal({
   const active = segments[activeIdx] || segments[0];
   const totalSelected = useMemo(() => segmentsDuration(segments), [segments]);
 
-  // Reset trim state once per open session. Key includes saved trim/crop so
+  // Reset trim state once per open session. Key includes saved trim/crop/bed so
   // re-edit restores the clip's settings instead of a blank default.
   useEffect(() => {
     if (!open) {
       sessionRef.current = null;
+      bedAudioRef.current?.pause();
       return;
     }
     const segKey = initialSegments
@@ -117,7 +144,10 @@ export function TrimModal({
     const cropKey = initialCrop
       ? `${initialCrop.zoom}:${initialCrop.panX}:${initialCrop.panY}:${initialCrop.cropTop ?? 0}:${initialCrop.cropBottom ?? 0}`
       : "default";
-    const sessionKey = `${src}::${duration}::${segKey}::${cropKey}`;
+    const bedKey = initialBedMusic?.mediaId
+      ? `${initialBedMusic.mediaId}:${initialBedMusic.startAt}:${initialBedMusic.volume}`
+      : "none";
+    const sessionKey = `${src}::${duration}::${segKey}::${cropKey}::${bedKey}`;
     if (sessionRef.current === sessionKey) return;
     sessionRef.current = sessionKey;
 
@@ -127,6 +157,7 @@ export function TrimModal({
         : [createSegment(0, Math.min(4, duration || 4))];
     setSegments(segs);
     setCrop(normalizeCrop(initialCrop));
+    setBedMusic(normalizeBedMusic(initialBedMusic));
     setActiveIdx(0);
     setPlaying(false);
     setPreviewAll(false);
@@ -139,7 +170,90 @@ export function TrimModal({
     playingRef.current = false;
     previewAllRef.current = false;
     activeIdxRef.current = 0;
-  }, [open, src, duration, initialSegments, initialCrop]);
+  }, [open, src, duration, initialSegments, initialCrop, initialBedMusic]);
+
+  async function refreshMusicFolder() {
+    setMusicBusy(true);
+    try {
+      const res = await fetch("/api/music/library");
+      const data = await res.json();
+      setMusicFolder(Array.isArray(data.items) ? data.items : []);
+    } catch {
+      setMusicFolder([]);
+    } finally {
+      setMusicBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    void refreshMusicFolder();
+  }, [open]);
+
+  // Wall-clock progress into the clip for bed sync (trim preview is 1× source)
+  const bedWallElapsed = useMemo(() => {
+    if (!active) return 0;
+    if (!previewAll) {
+      return Math.max(0, current - active.start);
+    }
+    let t = 0;
+    for (let i = 0; i < activeIdx; i++) {
+      const s = segments[i];
+      if (s) t += Math.max(0, s.end - s.start);
+    }
+    t += Math.max(0, current - active.start);
+    return t;
+  }, [active, previewAll, current, activeIdx, segments]);
+
+  const bedWindowSec = useMemo(() => {
+    if (!previewAll && active) return Math.max(0.2, active.end - active.start);
+    return Math.max(0.2, totalSelected);
+  }, [previewAll, active, totalSelected]);
+
+  // Sync optional bed under the trim preview — never past the clip window
+  useEffect(() => {
+    if (!open) return;
+    const url = bedMusic?.mediaUrl;
+    if (!url) {
+      bedAudioRef.current?.pause();
+      return;
+    }
+    let audio = bedAudioRef.current;
+    if (!audio || audio.getAttribute("data-src") !== url) {
+      audio?.pause();
+      audio = new Audio(url);
+      audio.preload = "auto";
+      audio.setAttribute("data-src", url);
+      bedAudioRef.current = audio;
+    }
+    audio.volume = Math.min(1, Math.max(0, bedMusic.volume ?? 0.35));
+    const startAt = Math.max(0, bedMusic.startAt ?? 0);
+    const target = startAt + bedWallElapsed;
+    const maxBed = startAt + bedWindowSec;
+    if (bedWallElapsed >= bedWindowSec - 0.03) {
+      audio.pause();
+      return;
+    }
+    if (Math.abs(audio.currentTime - target) > 0.18) {
+      try {
+        audio.currentTime = Math.min(target, maxBed - 0.05);
+      } catch {
+        // ignore
+      }
+    }
+    if (playing) {
+      void audio.play().catch(() => undefined);
+    } else {
+      audio.pause();
+    }
+  }, [open, bedMusic, bedWallElapsed, bedWindowSec, playing]);
+
+  useEffect(() => {
+    return () => {
+      bedAudioRef.current?.pause();
+      bedAudioRef.current = null;
+    };
+  }, []);
 
   // Lock page scroll while modal is open; backdrop/modal handle scrolling.
   useEffect(() => {
@@ -735,6 +849,122 @@ export function TrimModal({
               </p>
             </div>
           )}
+
+          <div className="trim-bed-block">
+            <div className="music-head">
+              <Music2 size={16} />
+              <span>Clip bed music (optional)</span>
+            </div>
+            <p className="muted">
+              Pick a track from <code>music/</code> for this clip only. Choose where the song
+              starts — it stops when the clip ends (never runs past the clip).
+            </p>
+            <div className="music-folder-head">
+              <strong>Folder (music/)</strong>
+              <button
+                type="button"
+                className="btn ghost small"
+                disabled={musicBusy}
+                onClick={() => void refreshMusicFolder()}
+              >
+                <RefreshCw size={14} className={musicBusy ? "spin" : undefined} />
+                Refresh
+              </button>
+            </div>
+            {musicFolder.length > 0 ? (
+              <ul className="music-folder-list">
+                {musicFolder.map((item) => {
+                  const activeBed = bedMusic?.mediaId === item.mediaId;
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        className={`music-folder-item ${activeBed ? "active" : ""}`}
+                        onClick={() =>
+                          setBedMusic(
+                            normalizeBedMusic({
+                              mediaId: item.mediaId,
+                              mediaUrl: item.mediaUrl,
+                              fileName: item.fileName,
+                              startAt: bedMusic?.mediaId === item.mediaId ? bedMusic.startAt : 0,
+                              volume: bedMusic?.volume ?? 0.35,
+                            })
+                          )
+                        }
+                      >
+                        <span className="truncate">{item.fileName}</span>
+                        <span className="muted">
+                          {item.duration > 0 ? `${item.duration.toFixed(1)}s` : "—"}
+                          {activeBed ? " · selected" : ""}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="muted">
+                No beds in <code>music/</code> yet. Drop audio files there and Refresh.
+              </p>
+            )}
+            {bedMusic?.mediaId ? (
+              <div className="music-ready">
+                <label className="field">
+                  <span>
+                    Start in song ({formatTime(bedMusic.startAt)}) · plays{" "}
+                    {totalSelected.toFixed(1)}s max
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(
+                      0,
+                      (musicFolder.find((m) => m.mediaId === bedMusic.mediaId)?.duration || 60) -
+                        0.5
+                    )}
+                    step={0.1}
+                    value={bedMusic.startAt}
+                    onChange={(e) =>
+                      setBedMusic(
+                        normalizeBedMusic({
+                          ...bedMusic,
+                          startAt: Math.max(0, parseFloat(e.target.value) || 0),
+                        })
+                      )
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Bed volume ({Math.round(bedMusic.volume * 100)}%)</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={bedMusic.volume}
+                    onChange={(e) =>
+                      setBedMusic(
+                        normalizeBedMusic({
+                          ...bedMusic,
+                          volume: parseFloat(e.target.value),
+                        })
+                      )
+                    }
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  onClick={() => {
+                    bedAudioRef.current?.pause();
+                    setBedMusic(undefined);
+                  }}
+                >
+                  Clear clip bed
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="modal-actions sticky-actions">
@@ -749,7 +979,13 @@ export function TrimModal({
           <button
             className="btn primary"
             disabled={!canUseClip}
-            onClick={() => onConfirm(normalizeSegments(segments), normalizeCrop(crop))}
+            onClick={() =>
+              onConfirm(
+                normalizeSegments(segments),
+                normalizeCrop(crop),
+                normalizeBedMusic(bedMusic)
+              )
+            }
           >
             <Check size={16} />
             Use clip ({totalSelected.toFixed(1)}s)

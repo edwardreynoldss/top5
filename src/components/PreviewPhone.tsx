@@ -21,6 +21,7 @@ import {
   effectiveSfxVolume,
   effectiveClipVolume,
   getClipSpeed,
+  getClipBedMusic,
   defaultSticker,
   stickerPlayDuration,
 } from "@/lib/defaults";
@@ -47,6 +48,7 @@ export function PreviewPhone({
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgRef = useRef<HTMLVideoElement>(null);
   const musicRef = useRef<HTMLAudioElement | null>(null);
+  const clipBedRef = useRef<HTMLAudioElement | null>(null);
   const stickerVideoRef = useRef<HTMLVideoElement>(null);
   const stickerArmedRef = useRef(false);
   const firedSfxRef = useRef<Set<string>>(new Set());
@@ -535,11 +537,54 @@ export function PreviewPhone({
     };
   }, [settings.musicUrl, settings.musicVolume, isPlaying, totalDur]);
 
+  // Optional per-clip bed from music/ — only under the active clip, capped to clip length
+  useEffect(() => {
+    const bed = activeClip ? getClipBedMusic(activeClip) : undefined;
+    const url = bed?.mediaUrl;
+    if (!url || !activeClip) {
+      clipBedRef.current?.pause();
+      return;
+    }
+    const clipDur = clipPlayDuration(activeClip);
+    if (localPlay >= clipDur - 0.03) {
+      clipBedRef.current?.pause();
+      return;
+    }
+    let audio = clipBedRef.current;
+    if (!audio || audio.getAttribute("data-src") !== url) {
+      audio?.pause();
+      audio = new Audio(url);
+      audio.preload = "auto";
+      audio.loop = false;
+      audio.setAttribute("data-src", url);
+      clipBedRef.current = audio;
+    }
+    audio.volume = Math.min(1, Math.max(0, bed.volume ?? 0.35));
+    const startAt = Math.max(0, bed.startAt ?? 0);
+    const target = startAt + Math.max(0, localPlay);
+    if (Math.abs(audio.currentTime - target) > 0.18) {
+      try {
+        audio.currentTime = target;
+      } catch {
+        // ignore
+      }
+    }
+    if (isPlaying) {
+      void audio.play().catch(() => undefined);
+    } else {
+      audio.pause();
+    }
+  }, [activeClip, activeClip?.bedMusic, localPlay, isPlaying]);
+
   useEffect(() => {
     return () => {
       if (musicRef.current) {
         musicRef.current.pause();
         musicRef.current = null;
+      }
+      if (clipBedRef.current) {
+        clipBedRef.current.pause();
+        clipBedRef.current = null;
       }
     };
   }, []);

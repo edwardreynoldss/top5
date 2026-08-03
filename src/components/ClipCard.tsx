@@ -15,7 +15,7 @@ import {
   Gauge,
 } from "lucide-react";
 import { useEditor } from "@/lib/store";
-import type { ClipCrop, RankClip, TrimSegment } from "@/lib/types";
+import type { ClipBedMusic, ClipCrop, RankClip, TrimSegment } from "@/lib/types";
 import { TrimModal } from "./TrimModal";
 import { DEFAULT_CLIP_DURATION } from "@/lib/types";
 import {
@@ -24,7 +24,9 @@ import {
   clipPlayDuration,
   defaultCrop,
   normalizeCrop,
+  normalizeBedMusic,
   getClipCrop,
+  getClipBedMusic,
   getClipVolume,
   getClipSpeed,
   clampClipSpeed,
@@ -212,7 +214,11 @@ export function ClipCard({ clip }: { clip: RankClip }) {
     }
   }
 
-  function confirmTrim(segments: TrimSegment[], crop: ClipCrop) {
+  function confirmTrim(
+    segments: TrimSegment[],
+    crop: ClipCrop,
+    bedMusic?: ClipBedMusic
+  ) {
     if (!pendingMeta && !clip.mediaUrl) return;
     const meta = pendingMeta;
     const first = segments[0];
@@ -226,6 +232,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       duration: meta?.duration ?? clip.duration,
       segments,
       crop: normalizeCrop(crop),
+      bedMusic: normalizeBedMusic(bedMusic),
       trimStart: first?.start ?? 0,
       trimEnd: last?.end ?? DEFAULT_CLIP_DURATION,
       error: undefined,
@@ -251,6 +258,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       crop: defaultCrop(),
       volume: 1,
       speed: 1,
+      bedMusic: undefined,
       error: undefined,
     });
     setUrl("");
@@ -259,6 +267,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
   const segs = getClipSegments(clip);
   const clipVol = getClipVolume(clip);
   const clipSpeed = getClipSpeed(clip);
+  const clipBed = getClipBedMusic(clip);
 
   // New ingest (upload/fetch) uses pendingMeta → fresh trim defaults.
   // Re-edit (scissors) only sets pendingSrc so existing trim/crop are kept.
@@ -290,6 +299,11 @@ export function ClipCard({ clip }: { clip: RankClip }) {
     return getClipCrop(clip);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNewIngest, pendingMeta?.mediaId, clip.id, clip.crop]);
+  const trimBedMusic = useMemo(() => {
+    if (isNewIngest) return undefined;
+    return getClipBedMusic(clip);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNewIngest, pendingMeta?.mediaId, clip.id, clip.bedMusic]);
 
   return (
     <>
@@ -383,6 +397,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                     (getClipCrop(clip).cropBottom || 0) > 0.001
                       ? ` · edge cropped`
                       : ""}
+                    {clipBed?.fileName ? ` · bed ${clipBed.fileName}` : ""}
                     {" · drop a new video to replace"}
                   </p>
                 </div>
@@ -494,6 +509,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
         fileName={pendingMeta?.fileName || clip.fileName}
         initialSegments={trimSegments}
         initialCrop={trimCrop}
+        initialBedMusic={trimBedMusic}
         duration={trimDuration}
         onClose={() => {
           setTrimOpen(false);
