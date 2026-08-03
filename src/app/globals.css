@@ -1437,12 +1437,22 @@ a {
   width: min(720px, 100%);
 }
 
+/* Portaled to document.body — center in the viewport, not the top bar */
+.film-history-backdrop {
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 1.25rem;
+}
+
 .film-history-modal {
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 2rem);
-  max-height: calc(100dvh - 2rem);
+  width: min(720px, 100%);
+  max-height: min(85vh, 720px);
+  max-height: min(85dvh, 720px);
   gap: 0.75rem;
+  margin: 0;
 }
 
 .film-history-toolbar {
@@ -1462,8 +1472,7 @@ a {
 .film-history-list {
   overflow-y: auto;
   flex: 1;
-  min-height: 180px;
-  max-height: min(52vh, 420px);
+  min-height: 220px;
   display: grid;
   gap: 1rem;
   padding-right: 0.15rem;

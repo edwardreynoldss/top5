@@ -184,6 +184,71 @@ export function deleteProjectArchive(id: string): boolean {
   }
 }
 
+/**
+ * Stable ids so reopen / peek / re-export overwrite instead of stacking duplicates.
+ * - pre-restore → one global "before open" slot
+ * - same film slot (channel + number + version) for other reasons → one slot each
+ */
+export function stableArchiveId(opts: {
+  reason: ArchiveReason;
+  channelSlug: string;
+  number: number | null;
+  version: number | null;
+}): string {
+  const slug = safeIdSegment(opts.channelSlug) || "film";
+  const n = opts.number && opts.number > 0 ? opts.number : 0;
+  const v = opts.version && opts.version > 0 ? opts.version : 1;
+  if (opts.reason === "pre-restore") return "safety-before-open";
+  return `slot-${opts.reason}-${slug}-n${n}-v${v}`;
+}
+
+function sameFilmSlot(
+  meta: ProjectArchiveMeta,
+  opts: {
+    reason: ArchiveReason;
+    channelSlug: string;
+    number: number | null;
+    version: number | null;
+  }
+) {
+  if (meta.reason !== opts.reason) return false;
+  if (opts.reason === "pre-restore") return true;
+  return (
+    meta.channelSlug === opts.channelSlug &&
+    (meta.number ?? 0) === (opts.number ?? 0) &&
+    (meta.version ?? 1) === (opts.version ?? 1)
+  );
+}
+
+/** Remove legacy/timestamped duplicates for this overwrite slot. */
+function removeMatchingArchives(
+  keepId: string,
+  opts: {
+    reason: ArchiveReason;
+    channelSlug: string;
+    number: number | null;
+    version: number | null;
+  }
+) {
+  ensureProjectsDir();
+  for (const name of readdirSync(PROJECTS_DIR)) {
+    if (name.startsWith(".") || name === keepId) continue;
+    const dir = archiveDir(name);
+    try {
+      if (!statSync(dir).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    const meta = readMetaFile(dir);
+    if (!meta || !sameFilmSlot(meta, opts)) continue;
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export function saveProjectArchive(opts: {
   project: EditorProject;
   reason: ArchiveReason;
@@ -214,15 +279,11 @@ export function saveProjectArchive(opts: {
         : null;
 
   const createdAt = new Date().toISOString();
-  const createdAtMs = Date.parse(createdAt);
   const reason = opts.reason;
-  const id = [
-    String(createdAtMs),
-    safeIdSegment(slug) || "film",
-    number ? `n${number}` : "n0",
-    version && version > 1 ? `v${version}` : "v1",
-    reason,
-  ].join("-");
+  const id = stableArchiveId({ reason, channelSlug: slug, number, version });
+
+  // Drop older duplicates (timestamped legacy + previous overwrite) for this slot
+  removeMatchingArchives(id, { reason, channelSlug: slug, number, version });
 
   const label =
     opts.label ||

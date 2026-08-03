@@ -17,6 +17,10 @@ projects/{id}/
 - When you click **Save checkpoint** in **Open previous**
 - Automatically before opening another film (safety snapshot)
 
+Reopening / peeking overwrites the matching slot instead of stacking copies
+(e.g. one shared `safety-before-open` snapshot, and one archive per export
+identity + reason).
+
 ## Retention
 
 Archives older than about **2 months** (60 days) are pruned automatically. At most 200 snapshots are kept.

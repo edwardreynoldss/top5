@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { FolderOpen, Loader2, Trash2, X, Save } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import {
@@ -26,6 +27,11 @@ export function FilmHistoryModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterSlug, setFilterSlug] = useState<string>("all");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -81,7 +87,7 @@ export function FilmHistoryModal({
   async function handleOpen(id: string) {
     if (
       !window.confirm(
-        "Open this previous film in the editor?\n\nYour current work will be saved as a safety snapshot first (if it has clips). Clip media must still exist on this machine."
+        "Open this previous film in the editor?\n\nYour current work will be saved as a safety snapshot first (if it has clips) — reopening overwrites that one slot, it does not stack copies. Clip media must still exist on this machine."
       )
     ) {
       return;
@@ -136,11 +142,11 @@ export function FilmHistoryModal({
     }
   }
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
+  return createPortal(
     <div
-      className="modal-backdrop"
+      className="modal-backdrop film-history-backdrop"
       role="dialog"
       aria-modal="true"
       onClick={(e) => {
@@ -259,6 +265,7 @@ export function FilmHistoryModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

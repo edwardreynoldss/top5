@@ -44,6 +44,43 @@ function projectWorthArchiving(project) {
   return (project.clips || []).filter((c) => c.mediaId).length > 0;
 }
 
+function stableArchiveId({ reason, channelSlug: slug, number, version }) {
+  const safe = channelSlug(slug) || "film";
+  const n = number && number > 0 ? number : 0;
+  const v = version && version > 0 ? version : 1;
+  if (reason === "pre-restore") return "safety-before-open";
+  return `slot-${reason}-${safe}-n${n}-v${v}`;
+}
+
+assert.equal(
+  stableArchiveId({
+    reason: "pre-restore",
+    channelSlug: "animals",
+    number: 3,
+    version: 1,
+  }),
+  "safety-before-open"
+);
+assert.equal(
+  stableArchiveId({
+    reason: "pre-restore",
+    channelSlug: "funny",
+    number: 9,
+    version: 2,
+  }),
+  "safety-before-open",
+  "peeking another film overwrites the same before-open slot"
+);
+assert.equal(
+  stableArchiveId({
+    reason: "post-export",
+    channelSlug: "animals",
+    number: 12,
+    version: 1,
+  }),
+  "slot-post-export-animals-n12-v1"
+);
+
 assert.equal(
   buildArchiveLabel({
     reason: "post-export",
