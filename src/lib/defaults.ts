@@ -343,7 +343,7 @@ export function normalizeHook(
     end = Math.min(end, maxEnd);
     start = Math.min(start, Math.max(0, end - MIN_HOOK_DURATION));
   }
-  let len = end - start;
+  const len = end - start;
   if (len < MIN_HOOK_DURATION - 1e-6) return undefined;
   if (len > MAX_HOOK_DURATION) {
     end = start + MAX_HOOK_DURATION;
