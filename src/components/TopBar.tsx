@@ -327,7 +327,7 @@ export function TopBar({
             setLayoutSavedFlash(true);
             window.setTimeout(() => setLayoutSavedFlash(false), 1800);
           }}
-          title="Save current title, ranks, and look as the default layout for Reset (stickers stay per channel)"
+          title="Save current title, ranks, look, and music as the default layout for Reset (stickers stay per channel)"
         >
           <Bookmark size={16} />
           {layoutSavedFlash ? "Layout saved" : "Save layout"}

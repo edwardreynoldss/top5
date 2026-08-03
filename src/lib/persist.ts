@@ -29,13 +29,11 @@ export function defaultLeftUi(): LeftUiState {
 }
 
 /**
- * Layout defaults exclude per-project music beds and stickers.
- * Stickers are saved per upload channel instead.
+ * Layout defaults keep music bed + auto-pick preference.
+ * Stickers are saved per upload channel instead (stripped here).
  */
 export function layoutSettingsFromProject(settings: ProjectSettings): ProjectSettings {
   const next = JSON.parse(JSON.stringify(settings)) as ProjectSettings;
-  next.musicMediaId = null;
-  next.musicUrl = null;
   next.sticker = builtInDefaultSettings().sticker;
   return next;
 }
@@ -80,12 +78,25 @@ export function loadLayoutDefault(): ProjectSettings | null {
         ...base.rankColors,
         ...(parsed.rankColors || {}),
       },
-      musicMediaId: null,
-      musicUrl: null,
-      musicAutoFromFolder:
-        typeof parsed.musicAutoFromFolder === "boolean"
-          ? parsed.musicAutoFromFolder
-          : base.musicAutoFromFolder,
+      musicMediaId: parsed.musicMediaId ?? null,
+      musicUrl: (() => {
+        const id = parsed.musicMediaId;
+        if (id && String(id).startsWith("music__")) {
+          const name = String(id).slice("music__".length);
+          return `/api/music/file/${encodeURIComponent(name)}`;
+        }
+        if (parsed.musicUrl?.startsWith("/api/music/") || parsed.musicUrl?.startsWith("/api/media/")) {
+          return parsed.musicUrl;
+        }
+        if (id) return `/api/media/${id}`;
+        return null;
+      })(),
+      musicVolume:
+        typeof parsed.musicVolume === "number" && Number.isFinite(parsed.musicVolume)
+          ? Math.max(0, Math.min(1, parsed.musicVolume))
+          : base.musicVolume,
+      // Off unless explicitly saved as true
+      musicAutoFromFolder: parsed.musicAutoFromFolder === true,
     };
   } catch {
     return null;

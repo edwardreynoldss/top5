@@ -190,11 +190,73 @@ export function PreviewPhone({
   }
 
   function resetSfxFiring(fromAbs = 0) {
+    // Mark only SFX that already fully finished before fromAbs as fired.
+    // Anything that should still be audible (including startAt === 0) stays unfired
+    // so it can trigger immediately when play starts.
     firedSfxRef.current = new Set(
       placements
-        .filter((p) => resolveSfxStartAt(p, offsets) < fromAbs - 0.02)
+        .filter((p) => {
+          const start = resolveSfxStartAt(p, offsets);
+          const dur = Math.max(0.05, (p.trimEnd ?? 0) - (p.trimStart ?? 0));
+          return start + dur <= fromAbs + 0.02;
+        })
         .map((p) => p.id)
     );
+  }
+
+  function playSfxPlacement(p: (typeof placements)[number], absNow: number) {
+    if (firedSfxRef.current.has(p.id)) return;
+    const start = resolveSfxStartAt(p, offsets);
+    const trimStart = Math.max(0, p.trimStart ?? 0);
+    const trimEnd = Math.max(trimStart + 0.05, p.trimEnd ?? trimStart + 1);
+    const dur = trimEnd - trimStart;
+    const end = start + dur;
+    // Catch late: if we crossed the start, still play the remaining tail
+    if (absNow < start - 0.03 || absNow >= end - 0.02) return;
+
+    const asset = assets.find((a) => a.id === p.assetId);
+    if (!asset?.mediaUrl) return;
+
+    firedSfxRef.current.add(p.id);
+    const into = Math.max(0, absNow - start);
+    const audio = new Audio(asset.mediaUrl);
+    audio.preload = "auto";
+    audio.volume = Math.min(1, Math.max(0, effectiveSfxVolume(asset.volume, p.volume)));
+
+    const startPlayback = () => {
+      try {
+        audio.currentTime = trimStart + into;
+      } catch {
+        // ignore seek errors on thin metadata
+      }
+      void audio.play().catch(() => undefined);
+    };
+
+    const stopAt = trimEnd;
+    const onAudioTime = () => {
+      if (audio.currentTime >= stopAt - 0.03) {
+        audio.pause();
+        audio.removeEventListener("timeupdate", onAudioTime);
+      }
+    };
+    audio.addEventListener("timeupdate", onAudioTime);
+    activeSfxRef.current.push(audio);
+
+    if (audio.readyState >= 2) {
+      startPlayback();
+    } else {
+      audio.addEventListener("canplay", startPlayback, { once: true });
+      // Some browsers need load() after setting src via constructor
+      try {
+        audio.load();
+      } catch {
+        startPlayback();
+      }
+      // Fallback if canplay never fires (cached / drop-folder stream)
+      window.setTimeout(() => {
+        if (audio.paused && !audio.ended) startPlayback();
+      }, 40);
+    }
   }
 
   function safePlay(el: HTMLVideoElement | null) {
@@ -291,6 +353,10 @@ export function PreviewPhone({
 
     if (isPlaying && activeClip?.mediaUrl && mediaReady) {
       resetSfxFiring(absTime);
+      // Fire immediately on play (don't wait for timeupdate) so 0.00s hits are instant
+      for (const p of placements) {
+        playSfxPlacement(p, absTime);
+      }
       safePlay(fg);
       if (bg) {
         bg.muted = true;
@@ -305,33 +371,14 @@ export function PreviewPhone({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, activeClip?.id, activeClip?.mediaUrl, mediaReady, onPlayingChange]);
 
+  // Fire SFX as the playhead crosses their start — including startAt === 0.
+  // Uses a wide catch window + seek-into so a late timeupdate still plays the hit.
   useEffect(() => {
     if (!isPlaying || totalDur <= 0) return;
     for (const p of placements) {
-      const start = resolveSfxStartAt(p, offsets);
-      if (absTime + 0.05 < start || absTime > start + 0.25) continue;
-      if (firedSfxRef.current.has(p.id)) continue;
-      const asset = assets.find((a) => a.id === p.assetId);
-      if (!asset?.mediaUrl) continue;
-      firedSfxRef.current.add(p.id);
-      const audio = new Audio(asset.mediaUrl);
-      audio.volume = Math.min(1, Math.max(0, effectiveSfxVolume(asset.volume, p.volume)));
-      try {
-        audio.currentTime = p.trimStart;
-      } catch {
-        // ignore
-      }
-      const stopAt = p.trimEnd;
-      const onAudioTime = () => {
-        if (audio.currentTime >= stopAt - 0.03) {
-          audio.pause();
-          audio.removeEventListener("timeupdate", onAudioTime);
-        }
-      };
-      audio.addEventListener("timeupdate", onAudioTime);
-      activeSfxRef.current.push(audio);
-      void audio.play().catch(() => undefined);
+      playSfxPlacement(p, absTime);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [absTime, isPlaying, placements, assets, offsets, totalDur]);
 
   useEffect(() => {

@@ -239,7 +239,7 @@ export function builtInDefaultSettings(): ProjectSettings {
     musicMediaId: null,
     musicUrl: null,
     musicVolume: 0.35,
-    musicAutoFromFolder: true,
+    musicAutoFromFolder: false,
     clipVolume: 1,
   };
 }

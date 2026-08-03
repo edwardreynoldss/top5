@@ -35,7 +35,7 @@ export function SettingsPanel() {
   const activeChannel =
     channelState.channels.find((c) => c.slug === channelState.activeSlug) ||
     channelState.channels[0];
-  const musicAuto = settings.musicAutoFromFolder !== false;
+  const musicAuto = settings.musicAutoFromFolder === true;
 
   async function refreshMusicFolder(opts?: { autoPick?: boolean }) {
     setMusicFolderBusy(true);
@@ -44,13 +44,13 @@ export function SettingsPanel() {
       const data = await res.json();
       const items: MusicFolderItem[] = Array.isArray(data.items) ? data.items : [];
       setMusicFolder(items);
-      const auto = opts?.autoPick ?? musicAuto;
+      // Only auto-pick when explicitly requested AND the toggle is on
+      const auto = opts?.autoPick === true && musicAuto;
       if (auto && !settings.musicMediaId && items.length > 0) {
         const pick = items[0];
         updateSettings({
           musicMediaId: pick.mediaId,
           musicUrl: pick.mediaUrl,
-          musicAutoFromFolder: true,
         });
       }
     } catch {
@@ -61,7 +61,8 @@ export function SettingsPanel() {
   }
 
   useEffect(() => {
-    void refreshMusicFolder({ autoPick: true });
+    // List folder only — never auto-select on mount
+    void refreshMusicFolder({ autoPick: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -85,7 +86,6 @@ export function SettingsPanel() {
     updateSettings({
       musicMediaId: item.mediaId,
       musicUrl: item.mediaUrl,
-      musicAutoFromFolder: true,
     });
   }
 
@@ -143,8 +143,8 @@ export function SettingsPanel() {
           {layoutFlash ? "Saved as default" : "Save as default layout"}
         </button>
         <p className="muted">
-          Remembers title, ranks position, colors, and look. Subscribe stickers are saved per
-          channel. Reset clears clips but keeps this layout.
+          Remembers title, ranks, colors, look, and background music. Subscribe stickers are saved
+          per channel. Reset clears clips but keeps this layout.
         </p>
       </div>
 
@@ -437,12 +437,13 @@ export function SettingsPanel() {
             onChange={(e) => {
               const on = e.target.checked;
               updateSettings({ musicAutoFromFolder: on });
+              // Only pick a bed when the user turns auto-pick ON
               if (on && !settings.musicMediaId && musicFolder.length > 0) {
                 selectFolderBed(musicFolder[0]);
               }
             }}
           />
-          <span>Auto-pick from folder when none selected</span>
+          <span>Auto-pick from folder when none selected (off by default)</span>
         </label>
         {musicFolder.length > 0 ? (
           <ul className="music-folder-list">
