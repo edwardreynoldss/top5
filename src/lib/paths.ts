@@ -8,6 +8,8 @@ export const UPLOAD_DIR = path.join(DATA_ROOT, "uploads");
 export const EXPORT_DIR = path.join(DATA_ROOT, "exports");
 /** Finished numbered MP4s live in the project folder */
 export const PROJECT_EXPORTS_DIR = path.join(process.cwd(), "exports");
+/** Saved editor project snapshots (Open previous films) */
+export const PROJECTS_DIR = path.join(process.cwd(), "projects");
 
 export const EXPORT_FILE_PREFIX = "ranking-short";
 
@@ -15,6 +17,21 @@ export function ensureDirs() {
   mkdirSync(UPLOAD_DIR, { recursive: true });
   mkdirSync(EXPORT_DIR, { recursive: true });
   mkdirSync(PROJECT_EXPORTS_DIR, { recursive: true });
+  mkdirSync(PROJECTS_DIR, { recursive: true });
+}
+
+/** Ensure projects/ exists (and a .gitkeep for empty dirs). */
+export function ensureProjectsDir() {
+  ensureDirs();
+  const keep = path.join(PROJECTS_DIR, ".gitkeep");
+  if (!existsSync(keep)) {
+    try {
+      writeFileSync(keep, "");
+    } catch {
+      // ignore
+    }
+  }
+  return PROJECTS_DIR;
 }
 
 export function mediaPath(id: string, ext = "mp4") {

@@ -149,108 +149,119 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
   };
 }
 
+/** Normalize a raw/partial project (localStorage or archive restore). */
+export function normalizeProject(
+  parsed: Partial<EditorProject> | null | undefined,
+  layout?: ProjectSettings | null
+): EditorProject {
+  const fallback = createDefaultProject(layout || loadLayoutDefault() || undefined);
+  if (!parsed || typeof parsed !== "object") return fallback;
+
+  const ranks =
+    (parsed.settings?.playOrder || fallback.settings.playOrder) === "ascending"
+      ? [1, 2, 3, 4, 5]
+      : [5, 4, 3, 2, 1];
+  const clips = (parsed.clips && parsed.clips.length === 5
+    ? parsed.clips
+    : fallback.clips
+  ).map((c, i) => normalizeClip(c, ranks[i]));
+
+  return {
+    ...fallback,
+    ...parsed,
+    clips,
+    sfxAssets: (parsed.sfxAssets || []).map((a) => ({
+      ...a,
+      volume:
+        typeof a.volume === "number" && Number.isFinite(a.volume)
+          ? Math.max(0, Math.min(2, a.volume))
+          : 1,
+      // Never persist blob: URLs — restore from IndexedDB / server on hydrate
+      mediaUrl: a.mediaId ? `/api/media/${a.mediaId}` : a.mediaUrl,
+    })),
+    sfxPlacements: parsed.sfxPlacements || [],
+    exportSlot: parsed.exportSlot
+      ? {
+          channelSlug: String(parsed.exportSlot.channelSlug || ""),
+          number: Math.max(1, Math.floor(Number(parsed.exportSlot.number) || 1)),
+          version: Math.max(1, Math.floor(Number(parsed.exportSlot.version) || 1)),
+        }
+      : null,
+    settings: {
+      ...fallback.settings,
+      ...(parsed.settings || {}),
+      title: {
+        ...fallback.settings.title,
+        ...(parsed.settings?.title || {}),
+        enabled: parsed.settings?.title?.enabled !== false,
+        lines:
+          parsed.settings?.title?.lines?.length
+            ? parsed.settings.title.lines
+            : fallback.settings.title.lines,
+      },
+      ranksLayout: {
+        ...fallback.settings.ranksLayout,
+        ...(parsed.settings?.ranksLayout || {}),
+      },
+      sticker: {
+        ...fallback.settings.sticker,
+        ...(parsed.settings?.sticker || {}),
+        startAt:
+          typeof parsed.settings?.sticker?.startAt === "number"
+            ? parsed.settings.sticker.startAt
+            : fallback.settings.sticker.startAt,
+        duration:
+          typeof parsed.settings?.sticker?.duration === "number"
+            ? parsed.settings.sticker.duration
+            : fallback.settings.sticker.duration,
+        mediaUrl: parsed.settings?.sticker?.mediaId
+          ? `/api/media/${parsed.settings.sticker.mediaId}`
+          : parsed.settings?.sticker?.mediaUrl ?? fallback.settings.sticker.mediaUrl,
+      },
+      rankColors: {
+        ...fallback.settings.rankColors,
+        ...(parsed.settings?.rankColors || {}),
+      },
+      musicAutoFromFolder:
+        typeof parsed.settings?.musicAutoFromFolder === "boolean"
+          ? parsed.settings.musicAutoFromFolder
+          : fallback.settings.musicAutoFromFolder,
+      musicMediaId: parsed.settings?.musicMediaId ?? fallback.settings.musicMediaId,
+      musicUrl: (() => {
+        const id = parsed.settings?.musicMediaId;
+        if (id && String(id).startsWith("music__")) {
+          const name = String(id).slice("music__".length);
+          return `/api/music/file/${encodeURIComponent(name)}`;
+        }
+        if (parsed.settings?.musicUrl?.startsWith("/api/music/")) {
+          return parsed.settings.musicUrl;
+        }
+        if (parsed.settings?.musicUrl?.startsWith("/api/media/")) {
+          return parsed.settings.musicUrl;
+        }
+        if (id) return `/api/media/${id}`;
+        return null;
+      })(),
+      musicVolume:
+        typeof parsed.settings?.musicVolume === "number" &&
+        Number.isFinite(parsed.settings.musicVolume)
+          ? Math.max(0, Math.min(1, parsed.settings.musicVolume))
+          : fallback.settings.musicVolume,
+    },
+  };
+}
+
 export function loadProject(): EditorProject {
   const layout = loadLayoutDefault();
-  const fallback = createDefaultProject(layout || undefined);
-  if (typeof window === "undefined") return fallback;
+  if (typeof window === "undefined") {
+    return createDefaultProject(layout || undefined);
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<EditorProject>;
-    const ranks =
-      (parsed.settings?.playOrder || fallback.settings.playOrder) === "ascending"
-        ? [1, 2, 3, 4, 5]
-        : [5, 4, 3, 2, 1];
-    const clips = (parsed.clips && parsed.clips.length === 5
-      ? parsed.clips
-      : fallback.clips
-    ).map((c, i) => normalizeClip(c, ranks[i]));
-
-    return {
-      ...fallback,
-      ...parsed,
-      clips,
-      sfxAssets: (parsed.sfxAssets || []).map((a) => ({
-        ...a,
-        volume:
-          typeof a.volume === "number" && Number.isFinite(a.volume)
-            ? Math.max(0, Math.min(2, a.volume))
-            : 1,
-        // Never persist blob: URLs — restore from IndexedDB / server on hydrate
-        mediaUrl: a.mediaId ? `/api/media/${a.mediaId}` : a.mediaUrl,
-      })),
-      sfxPlacements: parsed.sfxPlacements || [],
-      exportSlot: parsed.exportSlot
-        ? {
-            channelSlug: String(parsed.exportSlot.channelSlug || ""),
-            number: Math.max(1, Math.floor(Number(parsed.exportSlot.number) || 1)),
-            version: Math.max(1, Math.floor(Number(parsed.exportSlot.version) || 1)),
-          }
-        : null,
-      settings: {
-        ...fallback.settings,
-        ...(parsed.settings || {}),
-        title: {
-          ...fallback.settings.title,
-          ...(parsed.settings?.title || {}),
-          enabled: parsed.settings?.title?.enabled !== false,
-          lines:
-            parsed.settings?.title?.lines?.length
-              ? parsed.settings.title.lines
-              : fallback.settings.title.lines,
-        },
-        ranksLayout: {
-          ...fallback.settings.ranksLayout,
-          ...(parsed.settings?.ranksLayout || {}),
-        },
-        sticker: {
-          ...fallback.settings.sticker,
-          ...(parsed.settings?.sticker || {}),
-          startAt:
-            typeof parsed.settings?.sticker?.startAt === "number"
-              ? parsed.settings.sticker.startAt
-              : fallback.settings.sticker.startAt,
-          duration:
-            typeof parsed.settings?.sticker?.duration === "number"
-              ? parsed.settings.sticker.duration
-              : fallback.settings.sticker.duration,
-          mediaUrl: parsed.settings?.sticker?.mediaId
-            ? `/api/media/${parsed.settings.sticker.mediaId}`
-            : parsed.settings?.sticker?.mediaUrl ?? fallback.settings.sticker.mediaUrl,
-        },
-        rankColors: {
-          ...fallback.settings.rankColors,
-          ...(parsed.settings?.rankColors || {}),
-        },
-        musicAutoFromFolder:
-          typeof parsed.settings?.musicAutoFromFolder === "boolean"
-            ? parsed.settings.musicAutoFromFolder
-            : fallback.settings.musicAutoFromFolder,
-        musicMediaId: parsed.settings?.musicMediaId ?? fallback.settings.musicMediaId,
-        musicUrl: (() => {
-          const id = parsed.settings?.musicMediaId;
-          if (id && String(id).startsWith("music__")) {
-            const name = String(id).slice("music__".length);
-            return `/api/music/file/${encodeURIComponent(name)}`;
-          }
-          if (parsed.settings?.musicUrl?.startsWith("/api/music/")) {
-            return parsed.settings.musicUrl;
-          }
-          if (parsed.settings?.musicUrl?.startsWith("/api/media/")) {
-            return parsed.settings.musicUrl;
-          }
-          if (id) return `/api/media/${id}`;
-          return null;
-        })(),
-        musicVolume:
-          typeof parsed.settings?.musicVolume === "number" &&
-          Number.isFinite(parsed.settings.musicVolume)
-            ? Math.max(0, Math.min(1, parsed.settings.musicVolume))
-            : fallback.settings.musicVolume,
-      },
-    };
+    if (!raw) return createDefaultProject(layout || undefined);
+    return normalizeProject(JSON.parse(raw) as Partial<EditorProject>, layout);
   } catch {
-    return fallback;
+    return createDefaultProject(layout || undefined);
   }
 }
 

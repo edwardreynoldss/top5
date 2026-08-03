@@ -52,6 +52,11 @@ exports/*
 !exports/README.md
 !exports/**/.gitkeep
 
+# editor project archives / previous films (keep folder + readme)
+projects/*
+!projects/.gitkeep
+!projects/README.md
+
 # user-dropped SFX library (keep readme)
 sfx/*
 !sfx/README.md

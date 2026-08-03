@@ -15,10 +15,12 @@ import {
   clearSavedProject,
   loadLayoutDefault,
   loadProject,
+  normalizeProject,
   saveLayoutDefault,
   saveProject,
 } from "./persist";
 import { hydrateSfxAssets, loadSfxLibrary, upsertSfxLibraryAsset } from "./sfxLibrary";
+import { fetchFilmArchive, saveFilmArchive } from "./projectHistory";
 import {
   channelSlug,
   defaultChannelState,
@@ -80,6 +82,11 @@ interface EditorContextValue {
   sfxTabNonce: number;
   requestSfxTab: () => void;
   resetProject: () => void;
+  /**
+   * Open a previously saved film archive (full clips + settings).
+   * Snapshots the current editor first when it has clips.
+   */
+  restoreFilmArchive: (archiveId: string) => Promise<void>;
   setExportSlot: (slot: EditorProject["exportSlot"]) => void;
   saveLayoutAsDefault: () => void;
   setPlayOrder: (order: PlayOrder) => void;
@@ -542,6 +549,54 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     setSaveStatus("saved");
   }, []);
 
+  const restoreFilmArchive = useCallback(async (archiveId: string) => {
+    const current = projectRef.current;
+    const channels = channelStateRef.current;
+    // Safety snapshot of whatever is open now (skipped if empty)
+    try {
+      await saveFilmArchive({
+        project: current,
+        reason: "pre-restore",
+        channelSlug: current.exportSlot?.channelSlug || channels.activeSlug,
+        channelName:
+          channels.channels.find((c) => c.slug === channels.activeSlug)?.name,
+      });
+    } catch {
+      // Still allow restore if safety snapshot fails
+    }
+
+    const { project: raw } = await fetchFilmArchive(archiveId);
+    const normalized = normalizeProject(raw);
+    const lib = loadSfxLibrary();
+    const byId = new Map((normalized.sfxAssets || []).map((a) => [a.id, a]));
+    for (const a of lib) {
+      if (!byId.has(a.id)) byId.set(a.id, a);
+    }
+    const mergedAssets = await hydrateSfxAssets(Array.from(byId.values()));
+
+    // Prefer sticker from the archived film; fall back to channel sticker
+    const sticker = normalized.settings.sticker?.mediaId
+      ? normalizeSticker(normalized.settings.sticker)
+      : stickerForChannel(channels, channels.activeSlug);
+
+    // Switch active channel to the film's channel when known (counters unchanged)
+    const filmSlug = normalized.exportSlot?.channelSlug;
+    if (filmSlug && channels.channels.some((c) => c.slug === filmSlug)) {
+      const nextChannels = { ...channels, activeSlug: filmSlug };
+      setChannelStateRaw(nextChannels);
+      saveChannelState(nextChannels);
+    }
+
+    setProject({
+      ...normalized,
+      sfxAssets: mergedAssets,
+      settings: { ...normalized.settings, sticker },
+    });
+    setSelectedClipId(null);
+    setSelectedSfxPlacementId(null);
+    setSaveStatus("saved");
+  }, []);
+
   const setExportSlot = useCallback((slot: EditorProject["exportSlot"]) => {
     setProject((prev) => ({ ...prev, exportSlot: slot ?? null }));
   }, []);
@@ -600,6 +655,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateSfxPlacement,
       removeSfxPlacement,
       resetProject,
+      restoreFilmArchive,
       setExportSlot,
       saveLayoutAsDefault,
       setPlayOrder,
@@ -633,6 +689,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateSfxPlacement,
       removeSfxPlacement,
       resetProject,
+      restoreFilmArchive,
       setExportSlot,
       saveLayoutAsDefault,
       setPlayOrder,

@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Loader2, Play, Pause, RotateCcw, Bookmark, Plus } from "lucide-react";
+import {
+  Download,
+  Loader2,
+  Play,
+  Pause,
+  RotateCcw,
+  Bookmark,
+  Plus,
+  FolderOpen,
+} from "lucide-react";
 import {
   clipPlayDuration,
   getPlaybackOrder,
@@ -19,6 +28,8 @@ import {
   channelExportBaseName,
   planChannelExport,
 } from "@/lib/channels";
+import { saveFilmArchive } from "@/lib/projectHistory";
+import { FilmHistoryModal } from "./FilmHistoryModal";
 
 export function TopBar({
   isPlaying,
@@ -49,6 +60,7 @@ export function TopBar({
   const [layoutSavedFlash, setLayoutSavedFlash] = useState(false);
   const [addingChannel, setAddingChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const readyClips = useMemo(
     () => getPlaybackOrder(project.clips, project.settings.playOrder),
@@ -239,12 +251,57 @@ export function TopBar({
       const savedPath = data.savedPath || planned.relativePath;
       setProgress(`Saved to ${savedPath}`);
       setSavedExport({ fileName, savedPath });
+
+      // Archive full editor state so this film can be reopened later
+      try {
+        const projectForArchive = {
+          ...project,
+          exportSlot: planned.slot,
+          sfxAssets: restoredAssets,
+        };
+        await saveFilmArchive({
+          project: projectForArchive,
+          reason: "post-export",
+          channelSlug: planned.slot.channelSlug,
+          channelName: activeChannel?.name,
+          number: planned.slot.number,
+          version: planned.slot.version,
+          label: channelExportBaseName(
+            planned.slot.channelSlug,
+            planned.slot.number,
+            planned.slot.version
+          ),
+        });
+      } catch {
+        // Export succeeded; archive is best-effort
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed");
       setProgress(null);
     } finally {
       setExporting(false);
     }
+  }
+
+  async function handleReset() {
+    if (
+      !window.confirm(
+        `Clear all clips for a new ${activeChannel?.name || "channel"} video?\n\nYour current film will be saved under Open previous (if it has clips). Channel selector, video counters, and per-channel subscribe stickers are kept. The next export will be a new number (e.g. ranking-${activeChannel?.slug || "animals"}-${channelState.nextNumber[activeChannel?.slug || "animals"] || 1}).`
+      )
+    ) {
+      return;
+    }
+    try {
+      await saveFilmArchive({
+        project,
+        reason: "pre-reset",
+        channelSlug: project.exportSlot?.channelSlug || channelState.activeSlug,
+        channelName: activeChannel?.name,
+      });
+    } catch {
+      // Still reset even if archive fails
+    }
+    resetProject();
   }
 
   return (
@@ -351,16 +408,16 @@ export function TopBar({
         </button>
         <button
           className="btn ghost"
-          onClick={() => {
-            if (
-              window.confirm(
-                `Clear all clips for a new ${activeChannel?.name || "channel"} video?\n\nYour channel selector, video counters, and per-channel subscribe stickers are kept. The next export will be a new number (e.g. ranking-${activeChannel?.slug || "animals"}-${channelState.nextNumber[activeChannel?.slug || "animals"] || 1}).`
-              )
-            ) {
-              resetProject();
-            }
-          }}
-          title="Clear clips for a new video — keeps channel, counters & stickers"
+          onClick={() => setHistoryOpen(true)}
+          title="Open a previous film (exports + before-reset snapshots, ~2 months)"
+        >
+          <FolderOpen size={16} />
+          Open previous
+        </button>
+        <button
+          className="btn ghost"
+          onClick={() => void handleReset()}
+          title="Clear clips for a new video — saves current film first, keeps channel, counters & stickers"
         >
           <RotateCcw size={16} />
           Reset
@@ -387,6 +444,8 @@ export function TopBar({
           )}
         </div>
       )}
+
+      <FilmHistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} />
     </header>
   );
 }
