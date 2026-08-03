@@ -791,12 +791,24 @@ a {
   background: rgba(200, 245, 66, 0.08);
 }
 
-.trim-bed-block {
+.trim-bed-block,
+.trim-hook-block {
   margin-top: 1rem;
   padding-top: 0.85rem;
   border-top: 1px solid var(--border);
   display: grid;
   gap: 0.55rem;
+}
+
+.trim-hook-block .hook-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+}
+
+.trim-hook-block .hook-toggle input {
+  accent-color: var(--accent, #6ea8fe);
 }
 
 .preview-shell {

@@ -7,7 +7,8 @@ import {
   getPlaybackOrder,
   clipPlayDuration,
   displayWord,
-  getClipSegments,
+  getClipPlaybackSegments,
+  getClipHook,
   getClipCrop,
   cropPreviewStyle,
   clipTimelineOffsets,
@@ -87,9 +88,10 @@ export function PreviewPhone({
   // Full ranking preview only — never lock to a single selected clip
   const activeClip = sequence[activeIndex] ?? null;
   const segments = useMemo(
-    () => (activeClip ? getClipSegments(activeClip) : []),
+    () => (activeClip ? getClipPlaybackSegments(activeClip) : []),
     [activeClip]
   );
+  const hasHook = Boolean(activeClip && getClipHook(activeClip));
   const activeSeg = segments[segIndex] || segments[0];
   const assets = useMemo(() => project.sfxAssets || [], [project.sfxAssets]);
   const placements = useMemo(() => project.sfxPlacements || [], [project.sfxPlacements]);
@@ -289,7 +291,7 @@ export function PreviewPhone({
     const url = activeClip.mediaUrl;
     const start = scrubbingRef.current
       ? localTime
-      : getClipSegments(activeClip)[0]?.start || 0;
+      : getClipPlaybackSegments(activeClip)[0]?.start || 0;
 
     const syncSrc = (el: HTMLVideoElement | null) => {
       if (!el) return false;
@@ -440,7 +442,7 @@ export function PreviewPhone({
         advancingRef.current = false;
         try {
           const first = seq[0];
-          const start = first ? getClipSegments(first)[0]?.start || 0 : 0;
+          const start = first ? getClipPlaybackSegments(first)[0]?.start || 0 : 0;
           fg.currentTime = start;
           if (bg) bg.currentTime = start;
           setLocalTime(start);
@@ -655,7 +657,7 @@ export function PreviewPhone({
       if (totalDur > 0 && absTime >= totalDur - 0.08) {
         const clip = sequence[0];
         if (clip) {
-          const start = getClipSegments(clip)[0]?.start || 0;
+          const start = getClipPlaybackSegments(clip)[0]?.start || 0;
           setActiveIndex(0);
           setSegIndex(0);
           setLocalTime(start);
@@ -883,7 +885,15 @@ export function PreviewPhone({
               <span>#{activeClip.rank}</span>
               <span>
                 {clipPlayDuration(activeClip).toFixed(1)}s
-                {segments.length > 1 ? ` · part ${segIndex + 1}/${segments.length}` : ""}
+                {hasHook
+                  ? segIndex === 0
+                    ? " · hook"
+                    : segments.length > 2
+                      ? ` · part ${segIndex}/${segments.length - 1}`
+                      : " · main"
+                  : segments.length > 1
+                    ? ` · part ${segIndex + 1}/${segments.length}`
+                    : ""}
               </span>
             </div>
           )}

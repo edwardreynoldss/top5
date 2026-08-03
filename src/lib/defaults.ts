@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import type {
   ClipBedMusic,
   ClipCrop,
+  ClipHook,
   EditorProject,
   ProjectSettings,
   RankClip,
@@ -10,7 +11,14 @@ import type {
   TitleWord,
   TrimSegment,
 } from "./types";
-import { DEFAULT_CLIP_DURATION, MAX_CLIP_DURATION, OUTPUT_HEIGHT, OUTPUT_WIDTH } from "./types";
+import {
+  DEFAULT_CLIP_DURATION,
+  MAX_CLIP_DURATION,
+  MAX_HOOK_DURATION,
+  MIN_HOOK_DURATION,
+  OUTPUT_HEIGHT,
+  OUTPUT_WIDTH,
+} from "./types";
 
 export function defaultSticker(): StickerOverlay {
   return {
@@ -315,9 +323,57 @@ export function getPlaybackOrder(clips: RankClip[], playOrder: "countdown" | "as
   return sorted.filter((c) => c.status === "ready" && c.mediaUrl);
 }
 
-export function getClipSegments(clip: RankClip): TrimSegment[] {
+/** Main trim parts only (what Trim & crop edits) — does not include hook. */
+export function getClipMainSegments(clip: RankClip): TrimSegment[] {
   if (clip.segments?.length) return normalizeSegments(clip.segments);
   return [createSegment(clip.trimStart, clip.trimEnd)];
+}
+
+/** Normalize optional hook; returns undefined when disabled / invalid. */
+export function normalizeHook(
+  hook?: Partial<ClipHook> | null,
+  sourceDuration = Infinity
+): ClipHook | undefined {
+  if (!hook) return undefined;
+  if (!Number.isFinite(hook.start) || !Number.isFinite(hook.end)) return undefined;
+  const maxEnd = Number.isFinite(sourceDuration) && sourceDuration > 0 ? sourceDuration : Infinity;
+  let start = Math.max(0, hook.start as number);
+  let end = Math.max(start + MIN_HOOK_DURATION, hook.end as number);
+  if (Number.isFinite(maxEnd)) {
+    end = Math.min(end, maxEnd);
+    start = Math.min(start, Math.max(0, end - MIN_HOOK_DURATION));
+  }
+  let len = end - start;
+  if (len < MIN_HOOK_DURATION - 1e-6) return undefined;
+  if (len > MAX_HOOK_DURATION) {
+    end = start + MAX_HOOK_DURATION;
+  }
+  return { start, end };
+}
+
+export function getClipHook(clip: RankClip): ClipHook | undefined {
+  return normalizeHook(clip.hook, clip.duration || Infinity);
+}
+
+export function hookDuration(hook?: ClipHook | null) {
+  if (!hook) return 0;
+  return Math.max(0, hook.end - hook.start);
+}
+
+/**
+ * Playback order: optional hook teaser, then main segments.
+ * Used by preview, export, and timeline duration.
+ */
+export function getClipPlaybackSegments(clip: RankClip): TrimSegment[] {
+  const main = getClipMainSegments(clip);
+  const hook = getClipHook(clip);
+  if (!hook) return main;
+  return [createSegment(hook.start, hook.end), ...main];
+}
+
+/** @deprecated Prefer getClipMainSegments or getClipPlaybackSegments */
+export function getClipSegments(clip: RankClip): TrimSegment[] {
+  return getClipMainSegments(clip);
 }
 
 export function getClipCrop(clip: RankClip): ClipCrop {
@@ -346,9 +402,11 @@ export function getClipSpeed(clip: RankClip) {
   );
 }
 
-/** Selected source seconds (trim ranges), before speed. */
+/** Selected source seconds (hook + main), before speed. Hook is extra on top of the 60s main budget. */
 export function clipSourceDuration(clip: RankClip) {
-  return Math.max(0.2, Math.min(MAX_CLIP_DURATION, segmentsDuration(getClipSegments(clip))));
+  const main = Math.min(MAX_CLIP_DURATION, segmentsDuration(getClipMainSegments(clip)));
+  const hook = hookDuration(getClipHook(clip));
+  return Math.max(0.2, main + hook);
 }
 
 /** Wall-clock play length on the timeline (= source ÷ speed). */
@@ -533,7 +591,7 @@ export function clipLocalPlayProgress(
   segIndex: number,
   sourceTime: number
 ) {
-  const segs = getClipSegments(clip);
+  const segs = getClipPlaybackSegments(clip);
   let t = 0;
   for (let i = 0; i < segIndex; i++) {
     const s = segs[i];
@@ -548,7 +606,7 @@ export function clipLocalPlayProgress(
 
 /** Map a wall-clock local play offset back to source seek + segment index. */
 export function sourceSeekFromLocalPlay(clip: RankClip, localPlay: number) {
-  const segs = getClipSegments(clip);
+  const segs = getClipPlaybackSegments(clip);
   if (segs.length === 0) return { segIndex: 0, sourceTime: 0 };
   let remaining = Math.max(0, localPlay) * getClipSpeed(clip);
   for (let i = 0; i < segs.length; i++) {

@@ -44,6 +44,15 @@ export interface ClipBedMusic {
   volume: number;
 }
 
+/**
+ * Optional hook snippet from the same source that plays before the main trim.
+ * Used for a short “first impression” before the full chosen clip.
+ */
+export interface ClipHook {
+  start: number;
+  end: number;
+}
+
 export interface RankClip {
   id: string;
   rank: number;
@@ -71,6 +80,8 @@ export interface RankClip {
    * Plays under the clip and is hard-capped to the clip's wall-clock duration.
    */
   bedMusic?: ClipBedMusic;
+  /** Optional short teaser played before the main segments (same source). */
+  hook?: ClipHook;
   status: "empty" | "loading" | "ready" | "error";
   error?: string;
 }
@@ -220,6 +231,10 @@ export const OUTPUT_WIDTH = 1080;
 export const OUTPUT_HEIGHT = 1920;
 export const DEFAULT_CLIP_DURATION = 4;
 export const MAX_CLIP_DURATION = 60;
+/** Max length of an optional hook teaser (seconds). */
+export const MAX_HOOK_DURATION = 3;
+/** Min length of an optional hook teaser (seconds). */
+export const MIN_HOOK_DURATION = 0.5;
 
 export const TITLE_FONTS: {
   id: TitleFontId;

@@ -11,6 +11,7 @@ import {
   getClipSpeed,
   getClipCrop,
   getClipBedMusic,
+  getClipPlaybackSegments,
 } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
 import { useEditor } from "@/lib/store";
@@ -165,30 +166,35 @@ export function TopBar({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clips: readyClips.map((c) => ({
-            mediaId: c.mediaId,
-            rank: c.rank,
-            label: c.label,
-            trimStart: c.trimStart,
-            trimEnd: c.trimEnd,
-            segments: (c.segments?.length
-              ? c.segments
-              : [{ start: c.trimStart, end: c.trimEnd }]
-            ).map((s) => ({ start: s.start, end: s.end })),
-            crop: getClipCrop(c),
-            volume: getClipVolume(c),
-            speed: getClipSpeed(c),
-            bedMusic: (() => {
-              const bed = getClipBedMusic(c);
-              return bed?.mediaId
-                ? {
-                    mediaId: bed.mediaId,
-                    startAt: bed.startAt,
-                    volume: bed.volume,
-                  }
-                : null;
-            })(),
-          })),
+          clips: readyClips.map((c) => {
+            const playback = getClipPlaybackSegments(c).map((s) => ({
+              start: s.start,
+              end: s.end,
+            }));
+            const first = playback[0];
+            const last = playback[playback.length - 1];
+            return {
+              mediaId: c.mediaId,
+              rank: c.rank,
+              label: c.label,
+              trimStart: first?.start ?? c.trimStart,
+              trimEnd: last?.end ?? c.trimEnd,
+              segments: playback,
+              crop: getClipCrop(c),
+              volume: getClipVolume(c),
+              speed: getClipSpeed(c),
+              bedMusic: (() => {
+                const bed = getClipBedMusic(c);
+                return bed?.mediaId
+                  ? {
+                      mediaId: bed.mediaId,
+                      startAt: bed.startAt,
+                      volume: bed.volume,
+                    }
+                  : null;
+              })(),
+            };
+          }),
           title: titlePayload,
           ranksLayout: settings.ranksLayout,
           playOrder: settings.playOrder,
