@@ -23,9 +23,9 @@ function coverContainFactor(frameAspect, videoAspect) {
   return Math.max(frameAspect / videoAspect, videoAspect / frameAspect);
 }
 
-function cropEffectiveAspect(videoAspect, cropTop, cropBottom) {
-  const { visibleH } = normalizeVerticalCrop(cropTop, cropBottom);
-  return videoAspect / visibleH;
+function cropEdgeBars(cropTop = 0, cropBottom = 0) {
+  const { top, bottom } = normalizeVerticalCrop(cropTop, cropBottom);
+  return { top, bottom };
 }
 
 // Defaults
@@ -58,25 +58,32 @@ function cropEffectiveAspect(videoAspect, cropTop, cropBottom) {
   assert.ok(Math.abs(z.visibleH - MIN_VISIBLE_HEIGHT) < 1e-9);
 }
 
-// Effective aspect widens after vertical crop
+// Edge crop must NOT change cover scale (black bars, not punch-zoom)
 {
   const landscape = 16 / 9;
-  const effective = cropEffectiveAspect(landscape, 0.1, 0.1);
-  assert.ok(Math.abs(effective - landscape / 0.8) < 1e-9);
   const frame = 9 / 16;
   const cover0 = coverContainFactor(frame, landscape);
-  const cover1 = coverContainFactor(frame, effective);
-  assert.ok(cover1 > cover0, "edge crop must increase cover scale (punch into kept band)");
-  assert.ok(Math.abs(cover1 / cover0 - 1 / 0.8) < 1e-6);
+  const bars = cropEdgeBars(0.1, 0.1);
+  assert.equal(bars.top, 0.1);
+  assert.equal(bars.bottom, 0.1);
+  // Preview still uses original aspect for zoom framing
+  const cover1 = coverContainFactor(frame, landscape);
+  assert.equal(cover1, cover0, "edge crop must not increase cover scale");
 }
 
-// Export-style ffmpeg crop expression stays even-friendly
+// Export-style ffmpeg drawbox expressions (black bars on framed output)
 {
   const cropTop = 0.12;
   const cropBottom = 0.08;
-  const { visibleH, top } = normalizeVerticalCrop(cropTop, cropBottom);
-  const expr = `crop=iw:floor(ih*${visibleH}/2)*2:0:floor(ih*${top}/2)*2`;
-  assert.match(expr, /^crop=iw:floor\(ih\*0\.8\/2\)\*2:0:floor\(ih\*0\.12\/2\)\*2$/);
+  const { top, bottom } = normalizeVerticalCrop(cropTop, cropBottom);
+  const expr =
+    `drawbox=x=0:y=0:w=iw:h=floor(ih*${top}/2)*2:color=black:t=fill` +
+    `,drawbox=x=0:y=ih-floor(ih*${bottom}/2)*2:w=iw:h=floor(ih*${bottom}/2)*2:color=black:t=fill`;
+  assert.match(expr, /drawbox=x=0:y=0:w=iw:h=floor\(ih\*0\.12\/2\)\*2:color=black:t=fill/);
+  assert.match(
+    expr,
+    /drawbox=x=0:y=ih-floor\(ih\*0\.08\/2\)\*2:w=iw:h=floor\(ih\*0\.08\/2\)\*2:color=black:t=fill/
+  );
 }
 
 console.log("edge crop tests passed");

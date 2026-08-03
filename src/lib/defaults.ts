@@ -491,12 +491,18 @@ export function cropPanTranslatePct(crop: ClipCrop, scale: number) {
 }
 
 /**
- * Effective source aspect after vertical edge crop (width unchanged, height shrinks).
+ * Top/bottom fractions of the frame to cover with black (edge crop).
+ * Does not change zoom/framing — those bars replace the cut regions.
  */
-export function cropEffectiveAspect(videoAspect: number, crop: ClipCrop) {
-  const { visibleH } = normalizeVerticalCrop(crop.cropTop, crop.cropBottom);
-  if (!Number.isFinite(videoAspect) || videoAspect <= 0) return 16 / 9;
-  return videoAspect / visibleH;
+export function cropEdgeBars(crop?: Partial<ClipCrop> | null): {
+  top: number;
+  bottom: number;
+} {
+  const { top, bottom } = normalizeVerticalCrop(
+    crop?.cropTop ?? 0,
+    crop?.cropBottom ?? 0
+  );
+  return { top, bottom };
 }
 
 export function cropPreviewStyle(
@@ -506,26 +512,17 @@ export function cropPreviewStyle(
   const frameAspect = opts?.frameAspect ?? 9 / 16;
   const videoAspect = opts?.videoAspect ?? frameAspect;
   const normalized = normalizeCrop(crop);
-  const { top, visibleH } = normalizeVerticalCrop(
-    normalized.cropTop,
-    normalized.cropBottom
-  );
-  // Treat the kept band as the source so cover/zoom match export's crop→scale chain
-  const effectiveAspect = cropEffectiveAspect(videoAspect, normalized);
-  const scale = cropDisplayScale(normalized.zoom, frameAspect, effectiveAspect);
+  // Edge crop is applied as black bars over the frame (see cropEdgeBars overlays /
+  // export drawbox) — it must NOT punch-zoom the kept band.
+  const scale = cropDisplayScale(normalized.zoom, frameAspect, videoAspect);
   const pan = cropPanTranslatePct(normalized, scale);
-
-  // Asymmetric top/bottom: shift so the kept band stays centered before pan
-  const visibleCenter = top + visibleH / 2;
-  const containHFrac = Math.min(1, frameAspect / Math.max(videoAspect, 0.01));
-  const edgeBiasY = (0.5 - visibleCenter) * containHFrac * 100;
 
   return {
     // Contain + scale(coverFactor*zoom): zoom=1 fills like cover; zoom out is continuous
     objectFit: "contain" as const,
     objectPosition: "50% 50%",
     // translate then scale (CSS applies right-to-left) so drag offsets feel natural
-    transform: `scale(${scale}) translate(${pan.x}%, ${pan.y + edgeBiasY}%)`,
+    transform: `scale(${scale}) translate(${pan.x}%, ${pan.y}%)`,
     transformOrigin: "center center",
     width: "100%",
     height: "100%",

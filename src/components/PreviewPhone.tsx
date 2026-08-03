@@ -11,6 +11,7 @@ import {
   getClipHook,
   getClipCrop,
   cropPreviewStyle,
+  cropEdgeBars,
   clipTimelineOffsets,
   totalTimelineDuration,
   resolveSfxStartAt,
@@ -712,6 +713,7 @@ export function PreviewPhone({
   const cropStyle = crop
     ? cropPreviewStyle(crop, { frameAspect: 9 / 16, videoAspect })
     : undefined;
+  const edgeBars = crop ? cropEdgeBars(crop) : { top: 0, bottom: 0 };
   const titleOverlap = settings.titleOverlap !== false;
   const titleEnabled = title.enabled !== false;
   const previewBarH = !titleEnabled
@@ -767,6 +769,20 @@ export function PreviewPhone({
                   }
                 }}
               />
+              {edgeBars.top > 0.001 && (
+                <div
+                  className="crop-edge-bar crop-edge-bar-top"
+                  style={{ height: `${edgeBars.top * 100}%` }}
+                  aria-hidden
+                />
+              )}
+              {edgeBars.bottom > 0.001 && (
+                <div
+                  className="crop-edge-bar crop-edge-bar-bottom"
+                  style={{ height: `${edgeBars.bottom * 100}%` }}
+                  aria-hidden
+                />
+              )}
               {!mediaReady && <div className="preview-loading">Loading clip…</div>}
               {transitionFlash && <div className="preview-flash" aria-hidden />}
             </div>

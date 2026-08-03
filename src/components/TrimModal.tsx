@@ -12,6 +12,7 @@ import {
   normalizeHook,
   hookDuration,
   cropPreviewStyle,
+  cropEdgeBars,
   clampCropZoom,
   clampCropEdge,
   MAX_EDGE_CROP,
@@ -768,6 +769,7 @@ export function TrimModal({
     segments.length > 0 && totalSelected > 0 && totalSelected <= MAX_CLIP_DURATION;
   const frameAspect = portrait ? 9 / 16 : 16 / 9;
   const cropStyle = cropPreviewStyle(crop, { frameAspect, videoAspect });
+  const edgeBars = cropEdgeBars(crop);
 
   return (
     <div
@@ -783,7 +785,8 @@ export function TrimModal({
           <div>
             <h3>Trim & crop</h3>
             <p className="muted">
-              {fileName || "Cut ranges, crop edges, then zoom/pan"} · max {MAX_CLIP_DURATION}s
+              {fileName || "Cut ranges, black-bar crop, then zoom/pan"} · max{" "}
+              {MAX_CLIP_DURATION}s
               {" · optional hook up to "}
               {MAX_HOOK_DURATION}s
             </p>
@@ -819,6 +822,20 @@ export function TrimModal({
             {/* Transparent hit target so drag always works over the video */}
             <div className="crop-drag-layer" aria-hidden />
             <div className="crop-guide" />
+            {edgeBars.top > 0.001 && (
+              <div
+                className="crop-edge-bar crop-edge-bar-top"
+                style={{ height: `${edgeBars.top * 100}%` }}
+                aria-hidden
+              />
+            )}
+            {edgeBars.bottom > 0.001 && (
+              <div
+                className="crop-edge-bar crop-edge-bar-bottom"
+                style={{ height: `${edgeBars.bottom * 100}%` }}
+                aria-hidden
+              />
+            )}
             {!ready && !loadError && <div className="trim-loading">Loading preview…</div>}
             {loadError && (
               <div className="trim-loading">
@@ -827,7 +844,7 @@ export function TrimModal({
               </div>
             )}
             <div className="crop-hint">
-              Drag to reposition · scroll to zoom · crop top/bottom to cut text
+              Drag to reposition · scroll to zoom · crop top/bottom → black
               {" · "}
               {crop.zoom.toFixed(2)}×
               {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
@@ -837,7 +854,7 @@ export function TrimModal({
           <div className="crop-controls">
             <div className="trim-row">
               <label>
-                Crop top {Math.round((normalizeCrop(crop).cropTop || 0) * 100)}% · cut text / bars
+                Crop top {Math.round((normalizeCrop(crop).cropTop || 0) * 100)}% · cover with black
               </label>
               <input
                 type="range"
@@ -854,8 +871,8 @@ export function TrimModal({
             </div>
             <div className="trim-row">
               <label>
-                Crop bottom {Math.round((normalizeCrop(crop).cropBottom || 0) * 100)}% · cut text /
-                bars
+                Crop bottom {Math.round((normalizeCrop(crop).cropBottom || 0) * 100)}% · cover with
+                black
               </label>
               <input
                 type="range"

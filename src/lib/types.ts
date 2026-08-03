@@ -22,13 +22,13 @@ export interface ClipCrop {
   /** 0–100 vertical focus (50 = center) */
   panY: number;
   /**
-   * Fraction of source height to cut from the top (0–0.45).
-   * Use to remove letterbox text / watermarks above the picture.
+   * Fraction of the frame height covered with black from the top (0–0.45).
+   * Removes letterbox text / watermarks without zooming the kept picture.
    */
   cropTop?: number;
   /**
-   * Fraction of source height to cut from the bottom (0–0.45).
-   * Use to remove letterbox text / watermarks below the picture.
+   * Fraction of the frame height covered with black from the bottom (0–0.45).
+   * Removes letterbox text / watermarks without zooming the kept picture.
    */
   cropBottom?: number;
 }
