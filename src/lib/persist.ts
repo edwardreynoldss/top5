@@ -4,6 +4,7 @@ import {
   normalizeCrop,
   normalizeBedMusic,
   normalizeHook,
+  normalizeSegments,
   createSegment,
   clampClipSpeed,
   clampClipGap,
@@ -122,8 +123,21 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
     id: clip.id || base.id,
     segments:
       clip.segments && clip.segments.length > 0
-        ? clip.segments
-        : [createSegment(clip.trimStart ?? 0, clip.trimEnd ?? DEFAULT_CLIP_DURATION)],
+        ? normalizeSegments(
+            clip.segments,
+            clampClipSpeed(
+              typeof clip.speed === "number" && Number.isFinite(clip.speed) ? clip.speed : 1
+            )
+          )
+        : [
+            createSegment(
+              clip.trimStart ?? 0,
+              clip.trimEnd ?? DEFAULT_CLIP_DURATION,
+              clampClipSpeed(
+                typeof clip.speed === "number" && Number.isFinite(clip.speed) ? clip.speed : 1
+              )
+            ),
+          ],
     crop: normalizeCrop(clip.crop),
     volume:
       typeof clip.volume === "number" && Number.isFinite(clip.volume)

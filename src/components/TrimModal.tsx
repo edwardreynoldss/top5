@@ -5,6 +5,7 @@ import {
   formatTime,
   createSegment,
   segmentsDuration,
+  segmentsPlayDuration,
   normalizeSegments,
   normalizeCrop,
   normalizeBedMusic,
@@ -13,6 +14,7 @@ import {
   cropPreviewStyle,
   cropEdgeBars,
   clampCropZoom,
+  clampClipSpeed,
 } from "@/lib/defaults";
 import {
   MAX_CLIP_DURATION,
@@ -26,7 +28,7 @@ import {
 import { nextPlaybackAction } from "@/lib/trimPreview";
 import { RangeRail } from "@/components/RangeRail";
 import { EdgeCropControls } from "@/components/EdgeCropControls";
-import { X, Play, Pause, Check, Plus, Trash2, Music2, RefreshCw, Zap } from "lucide-react";
+import { X, Play, Pause, Check, Plus, Trash2, Music2, RefreshCw, Zap, Gauge } from "lucide-react";
 
 type MusicFolderItem = {
   id: string;
@@ -44,6 +46,8 @@ interface TrimModalProps {
   initialCrop?: ClipCrop;
   initialBedMusic?: ClipBedMusic | null;
   initialHook?: ClipHook | null;
+  /** Clip-level default speed used when a part has no override */
+  initialSpeed?: number;
   duration: number;
   onClose: () => void;
   onConfirm: (
@@ -57,10 +61,11 @@ interface TrimModalProps {
 /** Main parts, optionally with hook teaser prepended for merged preview. */
 function buildPreviewQueue(
   hook: ClipHook | undefined,
-  main: TrimSegment[]
+  main: TrimSegment[],
+  hookSpeed = 1
 ): TrimSegment[] {
   if (!hook) return main;
-  return [createSegment(hook.start, hook.end), ...main];
+  return [createSegment(hook.start, hook.end, hookSpeed), ...main];
 }
 
 export function TrimModal({
@@ -71,18 +76,20 @@ export function TrimModal({
   initialCrop,
   initialBedMusic,
   initialHook,
+  initialSpeed = 1,
   duration,
   onClose,
   onConfirm,
 }: TrimModalProps) {
+  const defaultSpeed = clampClipSpeed(initialSpeed);
   const videoRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const bedAudioRef = useRef<HTMLAudioElement | null>(null);
   const sessionRef = useRef<string | null>(null);
   const [segments, setSegments] = useState<TrimSegment[]>(() =>
     initialSegments.length > 0
-      ? normalizeSegments(initialSegments)
-      : [createSegment(0, Math.min(4, duration || 4))]
+      ? normalizeSegments(initialSegments, defaultSpeed)
+      : [createSegment(0, Math.min(4, duration || 4), defaultSpeed)]
   );
   const [crop, setCrop] = useState<ClipCrop>(() => normalizeCrop(initialCrop));
   const [bedMusic, setBedMusic] = useState<ClipBedMusic | undefined>(() =>
@@ -117,10 +124,14 @@ export function TrimModal({
   const seekClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   segmentsRef.current = segments;
   hookRef.current = hook;
-  playQueueRef.current = buildPreviewQueue(hook, segments);
+  playQueueRef.current = buildPreviewQueue(hook, segments, defaultSpeed);
   activeIdxRef.current = activeIdx;
   previewAllRef.current = previewAll;
   playingRef.current = playing;
+
+  function applyPlaybackRate(v: HTMLVideoElement, speed: number) {
+    v.playbackRate = clampClipSpeed(speed);
+  }
 
   function beginSeek() {
     seekingRef.current = true;
@@ -155,9 +166,28 @@ export function TrimModal({
   }
 
   const active = segments[activeIdx] || segments[0];
+  const activeSpeed = clampClipSpeed(
+    typeof active?.speed === "number" ? active.speed : defaultSpeed
+  );
   const totalSelected = useMemo(() => segmentsDuration(segments), [segments]);
+  const totalPlay = useMemo(
+    () => segmentsPlayDuration(segments, defaultSpeed),
+    [segments, defaultSpeed]
+  );
   const hookLen = hookDuration(hook);
   const totalWithHook = totalSelected + hookLen;
+  const totalPlayWithHook = totalPlay + hookLen / defaultSpeed;
+
+  // Keep preview playbackRate in sync with the active part (or hook at default)
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !open) return;
+    if (previewingHook) {
+      applyPlaybackRate(v, defaultSpeed);
+      return;
+    }
+    applyPlaybackRate(v, activeSpeed);
+  }, [open, activeSpeed, activeIdx, previewingHook, defaultSpeed]);
 
   // Reset trim state once per open session. Key includes saved trim/crop/bed/hook so
   // re-edit restores the clip's settings instead of a blank default.
@@ -168,7 +198,10 @@ export function TrimModal({
       return;
     }
     const segKey = initialSegments
-      .map((s) => `${Number(s.start).toFixed(3)}-${Number(s.end).toFixed(3)}`)
+      .map(
+        (s) =>
+          `${Number(s.start).toFixed(3)}-${Number(s.end).toFixed(3)}:${Number(s.speed ?? defaultSpeed).toFixed(2)}`
+      )
       .join("|");
     const cropKey = initialCrop
       ? `${initialCrop.zoom}:${initialCrop.panX}:${initialCrop.panY}:${initialCrop.cropTop ?? 0}:${initialCrop.cropBottom ?? 0}:${initialCrop.cropLeft ?? 0}:${initialCrop.cropRight ?? 0}`
@@ -179,14 +212,14 @@ export function TrimModal({
     const hookKey = initialHook
       ? `${Number(initialHook.start).toFixed(3)}-${Number(initialHook.end).toFixed(3)}`
       : "none";
-    const sessionKey = `${src}::${duration}::${segKey}::${cropKey}::${bedKey}::${hookKey}`;
+    const sessionKey = `${src}::${duration}::${segKey}::${cropKey}::${bedKey}::${hookKey}::${defaultSpeed}`;
     if (sessionRef.current === sessionKey) return;
     sessionRef.current = sessionKey;
 
     const segs =
       initialSegments.length > 0
-        ? normalizeSegments(initialSegments)
-        : [createSegment(0, Math.min(4, duration || 4))];
+        ? normalizeSegments(initialSegments, defaultSpeed)
+        : [createSegment(0, Math.min(4, duration || 4), defaultSpeed)];
     const nextHook = normalizeHook(initialHook, duration || Infinity);
     setSegments(segs);
     setCrop(normalizeCrop(initialCrop));
@@ -208,8 +241,8 @@ export function TrimModal({
     activeIdxRef.current = 0;
     queueIdxRef.current = 0;
     hookRef.current = nextHook;
-    playQueueRef.current = buildPreviewQueue(nextHook, segs);
-  }, [open, src, duration, initialSegments, initialCrop, initialBedMusic, initialHook]);
+    playQueueRef.current = buildPreviewQueue(nextHook, segs, defaultSpeed);
+  }, [open, src, duration, initialSegments, initialCrop, initialBedMusic, initialHook, defaultSpeed]);
 
   async function refreshMusicFolder() {
     setMusicBusy(true);
@@ -229,33 +262,38 @@ export function TrimModal({
     void refreshMusicFolder();
   }, [open]);
 
-  // Wall-clock progress into the clip for bed sync (trim preview is 1× source)
+  // Wall-clock progress into the clip for bed sync (accounts for per-part speed)
   const bedWallElapsed = useMemo(() => {
     if (previewAll) {
-      const queue = buildPreviewQueue(hook, segments);
+      const queue = buildPreviewQueue(hook, segments, defaultSpeed);
       const idx = Math.min(queueIdxRef.current, Math.max(0, queue.length - 1));
       let t = 0;
       for (let i = 0; i < idx; i++) {
         const s = queue[i];
-        if (s) t += Math.max(0, s.end - s.start);
+        if (!s) continue;
+        const spd = clampClipSpeed(typeof s.speed === "number" ? s.speed : defaultSpeed);
+        t += Math.max(0, s.end - s.start) / spd;
       }
       const cur = queue[idx];
-      if (cur) t += Math.max(0, current - cur.start);
+      if (cur) {
+        const spd = clampClipSpeed(typeof cur.speed === "number" ? cur.speed : defaultSpeed);
+        t += Math.max(0, current - cur.start) / spd;
+      }
       return t;
     }
     if (previewingHook && hook) {
-      return Math.max(0, current - hook.start);
+      return Math.max(0, current - hook.start) / defaultSpeed;
     }
     if (!active) return 0;
-    return Math.max(0, current - active.start);
-  }, [active, previewAll, previewingHook, current, segments, hook]);
+    return Math.max(0, current - active.start) / activeSpeed;
+  }, [active, activeSpeed, previewAll, previewingHook, current, segments, hook, defaultSpeed]);
 
   const bedWindowSec = useMemo(() => {
-    if (previewAll) return Math.max(0.2, totalWithHook);
-    if (previewingHook && hook) return Math.max(0.2, hook.end - hook.start);
-    if (active) return Math.max(0.2, active.end - active.start);
-    return Math.max(0.2, totalSelected);
-  }, [previewAll, previewingHook, hook, active, totalSelected, totalWithHook]);
+    if (previewAll) return Math.max(0.2, totalPlayWithHook);
+    if (previewingHook && hook) return Math.max(0.2, (hook.end - hook.start) / defaultSpeed);
+    if (active) return Math.max(0.2, (active.end - active.start) / activeSpeed);
+    return Math.max(0.2, totalPlay);
+  }, [previewAll, previewingHook, hook, active, activeSpeed, defaultSpeed, totalPlay, totalPlayWithHook]);
 
   // Sync optional bed under the trim preview — never past the clip window
   useEffect(() => {
@@ -464,6 +502,10 @@ export function TrimModal({
           activeIdxRef.current = next;
           setActiveIdx(next);
         }
+        applyPlaybackRate(
+          v,
+          typeof nextSeg.speed === "number" ? nextSeg.speed : defaultSpeed
+        );
         seekVideo(v, nextSeg.start);
         void v.play().catch(() => undefined);
         return;
@@ -555,7 +597,7 @@ export function TrimModal({
       v.pause();
     }
 
-    const queue = buildPreviewQueue(hookRef.current, segmentsRef.current);
+    const queue = buildPreviewQueue(hookRef.current, segmentsRef.current, defaultSpeed);
     playQueueRef.current = queue;
 
     let startAt = 0;
@@ -604,6 +646,16 @@ export function TrimModal({
       });
       endSeek();
       setCurrent(v.currentTime);
+
+      const rateSeg = hookOnly
+        ? { speed: defaultSpeed }
+        : all
+          ? queue[0]
+          : segmentsRef.current[activeIdxRef.current];
+      applyPlaybackRate(
+        v,
+        typeof rateSeg?.speed === "number" ? rateSeg.speed : defaultSpeed
+      );
 
       // Set playing flags before play() so the timeupdate effect attaches immediately
       playingRef.current = true;
@@ -673,7 +725,7 @@ export function TrimModal({
     const room = MAX_CLIP_DURATION - totalSelected;
     const end = Math.min(dur || start + 3, start + Math.min(3, room));
     if (end - start < 0.2) return;
-    const seg = createSegment(start, end);
+    const seg = createSegment(start, end, activeSpeed);
     setSegments((p) => {
       const next = [...p, seg];
       segmentsRef.current = next;
@@ -829,7 +881,11 @@ export function TrimModal({
           </div>
 
           <div className="segment-tabs">
-            {segments.map((seg, i) => (
+            {segments.map((seg, i) => {
+              const spd = clampClipSpeed(
+                typeof seg.speed === "number" ? seg.speed : defaultSpeed
+              );
+              return (
               <button
                 key={seg.id}
                 type="button"
@@ -839,12 +895,14 @@ export function TrimModal({
                   setActiveIdx(i);
                   const media = videoRef.current;
                   if (media) {
+                    applyPlaybackRate(media, spd);
                     seekVideo(media, seg.start);
                     setCurrent(seg.start);
                   }
                 }}
               >
-                Part {i + 1} ({(seg.end - seg.start).toFixed(1)}s)
+                Part {i + 1} ({(seg.end - seg.start).toFixed(1)}s
+                {Math.abs(spd - 1) > 0.001 ? ` · ${spd.toFixed(2)}×` : ""})
                 {segments.length > 1 && (
                   <span
                     className="seg-x"
@@ -857,7 +915,8 @@ export function TrimModal({
                   </span>
                 )}
               </button>
-            ))}
+              );
+            })}
             <button
               type="button"
               className="btn ghost small"
@@ -895,8 +954,43 @@ export function TrimModal({
                   }
                 }}
               />
+              <label
+                className="clip-volume trim-part-speed"
+                title={
+                  segments.length > 1
+                    ? `Speed for part ${activeIdx + 1}`
+                    : "Playback speed for this clip"
+                }
+              >
+                <Gauge size={14} className="muted-icon" />
+                <span>
+                  {segments.length > 1 ? `Part ${activeIdx + 1} · ` : ""}
+                  {activeSpeed.toFixed(2)}×
+                </span>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={2}
+                  step={0.05}
+                  value={activeSpeed}
+                  aria-label={
+                    segments.length > 1
+                      ? `Speed for part ${activeIdx + 1}`
+                      : "Clip playback speed"
+                  }
+                  onChange={(e) => {
+                    const speed = clampClipSpeed(parseFloat(e.target.value) || 1);
+                    updateActive({ speed });
+                    const v = videoRef.current;
+                    if (v) applyPlaybackRate(v, speed);
+                  }}
+                />
+              </label>
               <p className="muted center">
                 Merged length: <strong>{totalSelected.toFixed(2)}s</strong> / {MAX_CLIP_DURATION}s
+                {Math.abs(totalPlay - totalSelected) > 0.05
+                  ? ` · plays ${totalPlay.toFixed(2)}s`
+                  : ""}
                 {hookLen > 0 ? ` · +${hookLen.toFixed(1)}s hook` : ""}
                 {ready
                   ? portrait
@@ -1126,7 +1220,7 @@ export function TrimModal({
             disabled={!canUseClip}
             onClick={() =>
               onConfirm(
-                normalizeSegments(segments),
+                normalizeSegments(segments, defaultSpeed),
                 normalizeCrop(crop),
                 normalizeBedMusic(bedMusic),
                 normalizeHook(hook, dur || duration || Infinity)
@@ -1134,7 +1228,7 @@ export function TrimModal({
             }
           >
             <Check size={16} />
-            Use clip ({totalWithHook.toFixed(1)}s)
+            Use clip ({totalPlayWithHook.toFixed(1)}s)
           </button>
         </div>
       </div>

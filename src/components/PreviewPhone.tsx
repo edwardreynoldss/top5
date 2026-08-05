@@ -25,7 +25,7 @@ import {
   formatTime,
   effectiveSfxVolume,
   effectiveClipVolume,
-  getClipSpeed,
+  getSegmentSpeed,
   getClipBedMusic,
   defaultSticker,
   stickerPlayDuration,
@@ -653,15 +653,15 @@ export function PreviewPhone({
     fg.volume = Math.min(1, effectiveClipVolume(activeClip, settings.clipVolume));
   }, [activeClip, activeClip?.volume, settings.clipVolume]);
 
-  // Per-clip speed (preview playbackRate; timeline length uses clipPlayDuration)
+  // Per-part speed (preview playbackRate; timeline length uses clipPlayDuration)
   useEffect(() => {
     const fg = videoRef.current;
     const bg = bgRef.current;
-    if (!fg || !activeClip) return;
-    const rate = getClipSpeed(activeClip);
+    if (!fg || !activeClip || !activeSeg) return;
+    const rate = getSegmentSpeed(activeClip, activeSeg);
     fg.playbackRate = rate;
     if (bg) bg.playbackRate = rate;
-  }, [activeClip, activeClip?.speed]);
+  }, [activeClip, activeClip?.speed, activeSeg, activeSeg?.speed, segIndex]);
 
   // Looping background music bed under the full ranking preview
   useEffect(() => {

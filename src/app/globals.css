@@ -1964,10 +1964,8 @@ a {
   margin-right: 0.25rem;
 }
 
-.trim-controls {
-  margin-top: 0.9rem;
-  display: grid;
-  gap: 0.65rem;
+.trim-part-speed {
+  margin-top: 0.15rem;
 }
 
 .trim-row {
