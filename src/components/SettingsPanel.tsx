@@ -248,7 +248,9 @@ export function SettingsPanel() {
         </label>
 
         <label className="field">
-          <span>Master clip volume</span>
+          <span>
+            Master clip volume ({Math.round(settings.clipVolume * 100)}%)
+          </span>
           <input
             type="range"
             min={0}
@@ -257,6 +259,9 @@ export function SettingsPanel() {
             value={settings.clipVolume}
             onChange={(e) => updateSettings({ clipVolume: parseFloat(e.target.value) })}
           />
+          <span className="muted">
+            Clip sliders show 100% by default; real gain is quieter so imports aren&apos;t harsh.
+          </span>
         </label>
       </div>
 

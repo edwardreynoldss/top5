@@ -2,10 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, Play, Plus, Search, Volume2, X } from "lucide-react";
+import { Loader2, Play, Plus, Search, Star, Volume2, X } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import { formatTime, effectiveSfxVolume } from "@/lib/defaults";
 import { loadSfxLibrary, upsertSfxLibraryAsset } from "@/lib/sfxLibrary";
+import {
+  loadSfxFavoriteIds,
+  sortSfxWithFavorites,
+  toggleSfxFavorite,
+} from "@/lib/sfxFavorites";
 import type { SfxAsset } from "@/lib/types";
 
 export function AddSfxAtTimeModal({
@@ -33,11 +38,17 @@ export function AddSfxAtTimeModal({
   const [selectedId, setSelectedId] = useState<string>("");
   const [hitVolume, setHitVolume] = useState(1);
   const [placing, setPlacing] = useState(false);
+  const [favoriteTick, setFavoriteTick] = useState(0);
   const previewRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const favoriteIds = useMemo(() => {
+    void favoriteTick;
+    return loadSfxFavoriteIds();
+  }, [favoriteTick]);
 
   const catalog = useMemo(() => {
     const library = loadSfxLibrary();
@@ -49,16 +60,17 @@ export function AddSfxAtTimeModal({
     for (const a of library) {
       if (!byKey.has(a.mediaId || a.id)) byKey.set(a.mediaId || a.id, a);
     }
-    return Array.from(byKey.values()).sort((a, b) =>
-      a.fileName.localeCompare(b.fileName)
-    );
-  }, [project.sfxAssets, folderItems]);
+    return sortSfxWithFavorites(Array.from(byKey.values()), favoriteIds);
+  }, [project.sfxAssets, folderItems, favoriteIds]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return catalog;
-    return catalog.filter((a) => a.fileName.toLowerCase().includes(q));
-  }, [catalog, query]);
+    return sortSfxWithFavorites(
+      catalog.filter((a) => a.fileName.toLowerCase().includes(q)),
+      favoriteIds
+    );
+  }, [catalog, query, favoriteIds]);
 
   const selected = catalog.find((a) => a.id === selectedId) || null;
 
@@ -243,6 +255,7 @@ export function AddSfxAtTimeModal({
             <ul>
               {filtered.map((a) => {
                 const active = a.id === selectedId;
+                const fav = Boolean(a.mediaId && favoriteIds.has(a.mediaId));
                 return (
                   <li key={a.id}>
                     <button
@@ -251,12 +264,39 @@ export function AddSfxAtTimeModal({
                       onClick={() => setSelectedId(a.id)}
                     >
                       <span className="add-sfx-row-meta">
-                        <strong className="truncate">{a.fileName}</strong>
+                        <strong className="truncate">
+                          {fav ? "★ " : ""}
+                          {a.fileName}
+                        </strong>
                         <span className="muted">
                           {a.duration > 0 ? formatTime(a.duration) : "…"}
+                          {fav ? " · favorite" : ""}
                         </span>
                       </span>
                       <span className="add-sfx-row-actions">
+                        <span
+                          className={`icon-btn sfx-fav-btn ${fav ? "favorited" : ""}`}
+                          role="button"
+                          tabIndex={0}
+                          title={fav ? "Remove from favorites" : "Favorite — pin to top"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!a.mediaId) return;
+                            toggleSfxFavorite(a.mediaId);
+                            setFavoriteTick((n) => n + 1);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (!a.mediaId) return;
+                              toggleSfxFavorite(a.mediaId);
+                              setFavoriteTick((n) => n + 1);
+                            }
+                          }}
+                        >
+                          <Star size={14} fill={fav ? "currentColor" : "none"} />
+                        </span>
                         <span
                           className="btn ghost small"
                           role="button"

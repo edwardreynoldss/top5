@@ -16,7 +16,7 @@ import {
   getPlaybackOrder,
   resolveSfxStartAt,
   effectiveSfxVolume,
-  getClipVolume,
+  effectiveClipVolume,
   getClipSpeed,
   getClipCrop,
   getClipBedMusic,
@@ -193,7 +193,8 @@ export function TopBar({
               trimEnd: last?.end ?? c.trimEnd,
               segments: playback,
               crop: getClipCrop(c),
-              volume: getClipVolume(c),
+              // Already includes UI→real scale (100% slider ≈ 20% gain) × master
+              volume: effectiveClipVolume(c, settings.clipVolume),
               speed: getClipSpeed(c),
               bedMusic: (() => {
                 const bed = getClipBedMusic(c);
@@ -223,7 +224,8 @@ export function TopBar({
           ),
           musicMediaId: settings.musicMediaId,
           musicVolume: settings.musicVolume,
-          clipVolume: settings.clipVolume,
+          // Per-clip volume already includes master × UI scale
+          clipVolume: 1,
           width: settings.width,
           height: settings.height,
           fps: settings.fps,
