@@ -75,6 +75,14 @@ interface EditorContextValue {
   updateSfxAsset: (id: string, patch: Partial<Omit<SfxAsset, "id">>) => void;
   removeSfxAsset: (id: string) => void;
   addSfxPlacement: (placement?: Partial<SfxPlacement>) => string | null;
+  /** Add asset + placement in one update (right-click / Add-at-time modal). */
+  placeSfxHit: (opts: {
+    asset: Omit<SfxAsset, "id"> & { id?: string };
+    startAt: number;
+    volume?: number;
+    trimStart?: number;
+    trimEnd?: number;
+  }) => { assetId: string; placementId: string };
   updateSfxPlacement: (id: string, patch: Partial<SfxPlacement>) => void;
   removeSfxPlacement: (id: string) => void;
   selectedSfxPlacementId: string | null;
@@ -187,10 +195,32 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       channelStateRef.current = channels;
       setChannelStateRaw(channels);
       saveChannelState(channels);
-      setProject({
-        ...merged,
-        sfxAssets: hydratedAssets,
-        settings: { ...merged.settings, sticker: activeSticker },
+      // Merge — never wipe SFX hits / assets / clips the user added while hydrate ran
+      setProject((live) => {
+        const assetByKey = new Map<string, (typeof hydratedAssets)[number]>();
+        for (const a of hydratedAssets) {
+          assetByKey.set(a.mediaId || a.id, a);
+        }
+        for (const a of live.sfxAssets || []) {
+          assetByKey.set(a.mediaId || a.id, {
+            ...a,
+            mediaUrl: sfxMediaUrl(a.mediaId, a.mediaUrl),
+          });
+        }
+        const placeById = new Map<string, SfxPlacement>();
+        for (const p of merged.sfxPlacements || []) placeById.set(p.id, p);
+        for (const p of live.sfxPlacements || []) placeById.set(p.id, p);
+        const clips = (live.clips || []).some((c) => c.mediaId)
+          ? live.clips
+          : merged.clips;
+        return {
+          ...merged,
+          clips,
+          sfxAssets: Array.from(assetByKey.values()),
+          sfxPlacements: Array.from(placeById.values()),
+          settings: { ...merged.settings, sticker: activeSticker },
+          exportSlot: live.exportSlot ?? merged.exportSlot,
+        };
       });
       setHydrated(true);
     }
@@ -481,11 +511,14 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const addSfxPlacement = useCallback((placement?: Partial<SfxPlacement>) => {
     const id = uuidv4();
-    let created: string | null = null;
+    let rejected = false;
     setProject((prev) => {
       const assets = prev.sfxAssets || [];
       const assetId = placement?.assetId || assets[0]?.id;
-      if (!assetId) return prev;
+      if (!assetId) {
+        rejected = true;
+        return prev;
+      }
       const asset = assets.find((a) => a.id === assetId);
       // Default to the full sample — callers may pass a shorter trimEnd
       const fullDur =
@@ -506,15 +539,72 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         trimEnd,
         volume: placement?.volume ?? 1,
       };
-      created = id;
       return {
         ...prev,
         sfxPlacements: [...(prev.sfxPlacements || []), next],
       };
     });
-    if (created) setSelectedSfxPlacementId(created);
-    return created;
+    if (rejected) return null;
+    setSelectedSfxPlacementId(id);
+    return id;
   }, []);
+
+  /** Atomically add (or reuse) an SFX asset and place a hit — avoids lost updates. */
+  const placeSfxHit = useCallback(
+    (opts: {
+      asset: Omit<SfxAsset, "id"> & { id?: string };
+      startAt: number;
+      volume?: number;
+      trimStart?: number;
+      trimEnd?: number;
+    }) => {
+      const assetId = opts.asset.id || uuidv4();
+      const placementId = uuidv4();
+      const nextAsset: SfxAsset = {
+        ...opts.asset,
+        id: assetId,
+        mediaUrl: sfxMediaUrl(opts.asset.mediaId, opts.asset.mediaUrl),
+        volume:
+          typeof opts.asset.volume === "number" && Number.isFinite(opts.asset.volume)
+            ? Math.max(0, Math.min(2, opts.asset.volume))
+            : 1,
+      };
+      upsertSfxLibraryAsset(nextAsset);
+      setProject((prev) => {
+        const withoutDup = (prev.sfxAssets || []).filter(
+          (a) => a.id !== nextAsset.id && a.mediaId !== nextAsset.mediaId
+        );
+        const fullDur =
+          typeof nextAsset.duration === "number" && nextAsset.duration > 0
+            ? nextAsset.duration
+            : 1;
+        const trimEnd = Math.min(
+          fullDur,
+          opts.trimEnd != null && Number.isFinite(opts.trimEnd)
+            ? Math.max(0.05, opts.trimEnd)
+            : fullDur
+        );
+        const placement: SfxPlacement = {
+          id: placementId,
+          assetId: nextAsset.id,
+          startAt: opts.startAt,
+          clipId: null,
+          offsetInClip: 0,
+          trimStart: opts.trimStart ?? 0,
+          trimEnd,
+          volume: opts.volume ?? 1,
+        };
+        return {
+          ...prev,
+          sfxAssets: [...withoutDup, nextAsset],
+          sfxPlacements: [...(prev.sfxPlacements || []), placement],
+        };
+      });
+      setSelectedSfxPlacementId(placementId);
+      return { assetId: nextAsset.id, placementId };
+    },
+    []
+  );
 
   const updateSfxPlacement = useCallback((id: string, patch: Partial<SfxPlacement>) => {
     setProject((prev) => ({
@@ -658,6 +748,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateSfxAsset,
       removeSfxAsset,
       addSfxPlacement,
+      placeSfxHit,
       updateSfxPlacement,
       removeSfxPlacement,
       resetProject,
@@ -692,6 +783,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       updateSfxAsset,
       removeSfxAsset,
       addSfxPlacement,
+      placeSfxHit,
       updateSfxPlacement,
       removeSfxPlacement,
       resetProject,

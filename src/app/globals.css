@@ -1129,16 +1129,48 @@ a {
   top: 50%;
   height: 0;
   pointer-events: none;
+  z-index: 2;
 }
 
 .preview-scrub-mark {
   position: absolute;
-  top: -6px;
+  top: -10px;
+  width: 10px;
+  height: 20px;
+  margin-left: -5px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.preview-scrub-mark::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
   width: 2px;
   height: 12px;
-  margin-left: -1px;
   background: var(--accent);
-  opacity: 0.85;
+  opacity: 0.9;
+}
+
+.preview-scrub-mark.selected::after,
+.preview-scrub-mark:hover::after {
+  width: 4px;
+  left: 3px;
+  background: #fff;
+  opacity: 1;
+}
+
+.preview-ctx-item.danger {
+  color: #f87171;
+}
+
+.preview-ctx-item.danger:hover {
+  background: rgba(248, 113, 113, 0.12);
 }
 
 .preview-sfx-drop {

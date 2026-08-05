@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Loader2, Play, Plus, Search, Star, Volume2, X } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import { formatTime, effectiveSfxVolume } from "@/lib/defaults";
-import { loadSfxLibrary, playSfxPreview, stopSfxPreview, upsertSfxLibraryAsset } from "@/lib/sfxLibrary";
+import { loadSfxLibrary, playSfxPreview, stopSfxPreview } from "@/lib/sfxLibrary";
 import {
   loadSfxFavoriteIds,
   sortSfxWithFavorites,
@@ -25,8 +25,7 @@ export function AddSfxAtTimeModal({
 }) {
   const {
     project,
-    addSfxAsset,
-    addSfxPlacement,
+    placeSfxHit,
     setSelectedSfxPlacementId,
     requestSfxTab,
   } = useEditor();
@@ -149,34 +148,23 @@ export function AddSfxAtTimeModal({
     setPlacing(true);
     setError(null);
     try {
-      // Ensure asset is in the project
-      const id = addSfxAsset({
-        id: selected.id,
-        mediaId: selected.mediaId,
-        mediaUrl: selected.mediaUrl,
-        fileName: selected.fileName,
-        duration: selected.duration > 0 ? selected.duration : 1,
-        volume: selected.volume ?? 1,
-      });
-      upsertSfxLibraryAsset({
-        ...selected,
-        id,
-        volume: selected.volume ?? 1,
-      });
       const dur = selected.duration > 0 ? selected.duration : 1;
-      const placementId = addSfxPlacement({
-        assetId: id,
-        clipId: null,
+      const { placementId } = placeSfxHit({
+        asset: {
+          id: selected.id,
+          mediaId: selected.mediaId,
+          mediaUrl: selected.mediaUrl,
+          fileName: selected.fileName,
+          duration: dur,
+          volume: selected.volume ?? 1,
+        },
         startAt: Number(atTime.toFixed(2)),
-        offsetInClip: 0,
+        volume: hitVolume,
         trimStart: 0,
         trimEnd: dur,
-        volume: hitVolume,
       });
-      if (placementId) {
-        setSelectedSfxPlacementId(placementId);
-        requestSfxTab();
-      }
+      setSelectedSfxPlacementId(placementId);
+      requestSfxTab();
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not place SFX");

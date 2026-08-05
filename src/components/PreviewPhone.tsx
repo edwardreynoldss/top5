@@ -46,6 +46,8 @@ export function PreviewPhone({
   const {
     project,
     addSfxPlacement,
+    removeSfxPlacement,
+    selectedSfxPlacementId,
     setSelectedSfxPlacementId,
     setSelectedClipId,
     requestSfxTab,
@@ -137,15 +139,34 @@ export function PreviewPhone({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
-    window.addEventListener("click", close);
-    window.addEventListener("scroll", close, true);
+    // Defer so the opening contextmenu / menu click isn't eaten immediately
+    const t = window.setTimeout(() => {
+      window.addEventListener("click", close);
+      window.addEventListener("scroll", close, true);
+    }, 0);
     window.addEventListener("keydown", onKey);
     return () => {
+      window.clearTimeout(t);
       window.removeEventListener("click", close);
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("keydown", onKey);
     };
   }, [ctxMenu]);
+
+  // Delete key removes the selected SFX hit
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!selectedSfxPlacementId) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        removeSfxPlacement(selectedSfxPlacementId);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedSfxPlacementId, removeSfxPlacement]);
 
   function openPreviewContextMenu(e: React.MouseEvent) {
     e.preventDefault();
@@ -814,10 +835,8 @@ export function PreviewPhone({
       startAt: Number(absTime.toFixed(2)),
       offsetInClip: 0,
     });
-    if (id) {
-      setSelectedSfxPlacementId(id);
-      requestSfxTab();
-    }
+    setSelectedSfxPlacementId(id);
+    requestSfxTab();
   }
 
   function togglePlay() {
@@ -1137,15 +1156,31 @@ export function PreviewPhone({
             onChange={(e) => seekAbsolute(parseFloat(e.target.value))}
             aria-label="Preview timeline"
           />
-          <div className="preview-scrub-marks" aria-hidden>
+          <div className="preview-scrub-marks">
             {placements.map((p) => {
               const start = resolveSfxStartAt(p, offsets);
               if (totalDur <= 0) return null;
+              const selected = p.id === selectedSfxPlacementId;
               return (
-                <span
+                <button
                   key={p.id}
-                  className="preview-scrub-mark"
+                  type="button"
+                  className={`preview-scrub-mark ${selected ? "selected" : ""}`}
                   style={{ left: `${Math.min(100, (start / totalDur) * 100)}%` }}
+                  title={`SFX @ ${start.toFixed(2)}s — click to select, Delete to remove`}
+                  aria-label={`SFX hit at ${start.toFixed(2)} seconds`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedSfxPlacementId(p.id);
+                    requestSfxTab();
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedSfxPlacementId(p.id);
+                    removeSfxPlacement(p.id);
+                  }}
                 />
               );
             })}
@@ -1206,6 +1241,19 @@ export function PreviewPhone({
                 <Plus size={14} />
                 Add SFX at {formatTime(ctxMenu.time)}
               </button>
+              {selectedSfxPlacementId ? (
+                <button
+                  type="button"
+                  className="preview-ctx-item danger"
+                  role="menuitem"
+                  onClick={() => {
+                    removeSfxPlacement(selectedSfxPlacementId);
+                    setCtxMenu(null);
+                  }}
+                >
+                  Delete selected SFX
+                </button>
+              ) : null}
             </div>,
             document.body
           )
