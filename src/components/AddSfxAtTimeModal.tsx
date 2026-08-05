@@ -48,7 +48,6 @@ export function AddSfxAtTimeModal({
   const favoriteIds = useMemo(() => {
     void favoriteTick;
     return loadSfxFavoriteIds();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [favoriteTick]);
 
   const catalog = useMemo(() => {

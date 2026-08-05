@@ -72,7 +72,6 @@ export function SfxPanel() {
   const favoriteIds = useMemo(() => {
     void favoriteTick;
     return loadSfxFavoriteIds();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [favoriteTick]);
 
   const readyClips = useMemo(
