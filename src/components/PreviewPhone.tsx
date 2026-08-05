@@ -952,7 +952,7 @@ export function PreviewPhone({
         <div
           className="preview-stage"
           onContextMenu={openPreviewContextMenu}
-          title={totalDur > 0 ? "Right-click to add SFX at this time" : undefined}
+          title={totalDur > 0 ? "Right-click to add text, object, or SFX at this time" : undefined}
         >
           {activeClip?.mediaUrl ? (
             <div
