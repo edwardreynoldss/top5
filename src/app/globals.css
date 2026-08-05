@@ -1672,6 +1672,117 @@ a {
   pointer-events: none;
 }
 
+.preview-ctx-menu {
+  position: fixed;
+  z-index: 120;
+  min-width: 200px;
+  padding: 0.3rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow);
+  animation: riseIn 0.12s ease;
+}
+
+.preview-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.preview-ctx-item:hover {
+  background: rgba(200, 245, 66, 0.12);
+}
+
+.add-sfx-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: min(85vh, 720px);
+  max-height: min(85dvh, 720px);
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.add-sfx-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.add-sfx-search {
+  flex: 1;
+  min-width: 180px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.add-sfx-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 200px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.35rem;
+}
+
+.add-sfx-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.add-sfx-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0.55rem 0.6rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.add-sfx-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.add-sfx-row.active {
+  border-color: rgba(200, 245, 66, 0.45);
+  background: rgba(200, 245, 66, 0.08);
+}
+
+.add-sfx-row-meta {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.add-sfx-row-actions {
+  flex-shrink: 0;
+}
+
 .crop-hint {
   position: absolute;
   left: 50%;

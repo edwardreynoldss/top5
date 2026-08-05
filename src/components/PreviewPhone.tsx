@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Pause, Play, Plus, Volume2 } from "lucide-react";
 import { useEditor } from "@/lib/store";
+import { AddSfxAtTimeModal } from "./AddSfxAtTimeModal";
 import {
   getPlaybackOrder,
   clipPlayDuration,
@@ -74,6 +76,14 @@ export function PreviewPhone({
   const [gapElapsed, setGapElapsed] = useState(0);
   const inGapRef = useRef(false);
   const gapElapsedRef = useRef(0);
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    time: number;
+  } | null>(null);
+  const [addSfxOpen, setAddSfxOpen] = useState(false);
+  const [addSfxAt, setAddSfxAt] = useState(0);
+  const absTimeRef = useRef(0);
   isPlayingRef.current = isPlaying;
   activeIndexRef.current = activeIndex;
   segIndexRef.current = segIndex;
@@ -118,6 +128,40 @@ export function PreviewPhone({
     }
     return absoluteTimeForClipPlayhead(activeClip.id, localPlay, offsets);
   }, [activeClip, localPlay, offsets, inGap, gapElapsed]);
+  absTimeRef.current = absTime;
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [ctxMenu]);
+
+  function openPreviewContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (totalDur <= 0) return;
+    const t = Number(absTimeRef.current.toFixed(2));
+    onPlayingChange(false);
+    stopAllSfx();
+    setCtxMenu({ x: e.clientX, y: e.clientY, time: t });
+  }
+
+  function openAddSfxFromMenu() {
+    if (!ctxMenu) return;
+    setAddSfxAt(ctxMenu.time);
+    setAddSfxOpen(true);
+    setCtxMenu(null);
+  }
 
   useEffect(() => {
     if (!dropAssetId && assets[0]?.id) setDropAssetId(assets[0].id);
@@ -853,7 +897,11 @@ export function PreviewPhone({
   return (
     <div className="preview-shell">
       <div className="preview-phone">
-        <div className="preview-stage">
+        <div
+          className="preview-stage"
+          onContextMenu={openPreviewContextMenu}
+          title={totalDur > 0 ? "Right-click to add SFX at this time" : undefined}
+        >
           {activeClip?.mediaUrl ? (
             <div
               className="preview-video-area"
@@ -1120,9 +1168,39 @@ export function PreviewPhone({
           </button>
         </div>
         <p className="muted preview-sfx-hint">
-          Scrub or pause on the exact moment, add an SFX, then tweak trim/volume in the SFX tab.
+          Pause on the moment · right-click the preview → Add SFX · or use Add at{" "}
+          {formatTime(absTime)} below. Tweak trim/volume in the SFX tab.
         </p>
       </div>
+
+      {ctxMenu
+        ? createPortal(
+            <div
+              className="preview-ctx-menu"
+              style={{ left: ctxMenu.x, top: ctxMenu.y }}
+              role="menu"
+              onClick={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <button
+                type="button"
+                className="preview-ctx-item"
+                role="menuitem"
+                onClick={openAddSfxFromMenu}
+              >
+                <Plus size={14} />
+                Add SFX at {formatTime(ctxMenu.time)}
+              </button>
+            </div>,
+            document.body
+          )
+        : null}
+
+      <AddSfxAtTimeModal
+        open={addSfxOpen}
+        atTime={addSfxAt}
+        onClose={() => setAddSfxOpen(false)}
+      />
     </div>
   );
 }
