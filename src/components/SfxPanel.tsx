@@ -26,6 +26,8 @@ import {
   cacheSfxFile,
   forgetSfxLocal,
   loadSfxLibrary,
+  playSfxPreview,
+  stopSfxPreview,
   upsertSfxLibraryAsset,
 } from "@/lib/sfxLibrary";
 import {
@@ -60,7 +62,6 @@ export function SfxPanel() {
   const [folderLoading, setFolderLoading] = useState(false);
   const [folderPath, setFolderPath] = useState("sfx/");
   const [favoriteTick, setFavoriteTick] = useState(0);
-  const previewRef = useRef<HTMLAudioElement | null>(null);
 
   const assets = useMemo(() => project.sfxAssets || [], [project.sfxAssets]);
   const placements = useMemo(() => project.sfxPlacements || [], [project.sfxPlacements]);
@@ -287,20 +288,14 @@ export function SfxPanel() {
 
   async function previewAsset(asset: SfxAsset) {
     setError(null);
-    previewRef.current?.pause();
-    if (!asset.mediaUrl) {
-      setError("No audio URL for this sample.");
-      return;
-    }
-    const audio = new Audio();
-    audio.preload = "auto";
-    audio.src = asset.mediaUrl;
-    previewRef.current = audio;
-    audio.volume = Math.min(1, Math.max(0, asset.volume ?? 1));
+    stopSfxPreview();
     try {
-      await audio.play();
-    } catch {
-      setError("Could not preview — click Play again after clicking anywhere on the page.");
+      await playSfxPreview({
+        asset,
+        volume: asset.volume ?? 1,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not preview");
     }
   }
 
@@ -309,32 +304,16 @@ export function SfxPanel() {
     const asset = assets.find((a) => a.id === p?.assetId);
     if (!p || !asset) return;
     setError(null);
-    previewRef.current?.pause();
-    const audio = new Audio();
-    audio.preload = "auto";
-    audio.src = asset.mediaUrl;
-    previewRef.current = audio;
+    stopSfxPreview();
     try {
-      audio.currentTime = p.trimStart;
-    } catch {
-      // ignore
-    }
-    audio.volume = Math.min(
-      1,
-      Math.max(0, effectiveSfxVolume(asset.volume, p.volume))
-    );
-    const stopAt = p.trimEnd;
-    const onTime = () => {
-      if (audio.currentTime >= stopAt - 0.03) {
-        audio.pause();
-        audio.removeEventListener("timeupdate", onTime);
-      }
-    };
-    audio.addEventListener("timeupdate", onTime);
-    try {
-      await audio.play();
-    } catch {
-      setError("Could not preview — click Play again after clicking anywhere on the page.");
+      await playSfxPreview({
+        asset,
+        volume: effectiveSfxVolume(asset.volume, p.volume),
+        startAt: p.trimStart,
+        stopAt: p.trimEnd,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not preview");
     }
   }
 

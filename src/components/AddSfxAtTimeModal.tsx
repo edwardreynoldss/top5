@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, Play, Plus, Search, Star, Volume2, X } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import { formatTime, effectiveSfxVolume } from "@/lib/defaults";
-import { loadSfxLibrary, upsertSfxLibraryAsset } from "@/lib/sfxLibrary";
+import { loadSfxLibrary, playSfxPreview, stopSfxPreview, upsertSfxLibraryAsset } from "@/lib/sfxLibrary";
 import {
   loadSfxFavoriteIds,
   sortSfxWithFavorites,
@@ -39,7 +39,6 @@ export function AddSfxAtTimeModal({
   const [hitVolume, setHitVolume] = useState(1);
   const [placing, setPlacing] = useState(false);
   const [favoriteTick, setFavoriteTick] = useState(0);
-  const previewRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -128,20 +127,20 @@ export function AddSfxAtTimeModal({
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
-      previewRef.current?.pause();
-      previewRef.current = null;
+      stopSfxPreview();
     };
   }, [open]);
 
   async function previewAsset(asset: SfxAsset) {
-    previewRef.current?.pause();
-    const audio = new Audio(asset.mediaUrl);
-    previewRef.current = audio;
-    audio.volume = Math.min(1, Math.max(0, effectiveSfxVolume(asset.volume, hitVolume)));
+    setError(null);
+    stopSfxPreview();
     try {
-      await audio.play();
-    } catch {
-      setError("Could not preview — click anywhere on the page, then try Play again.");
+      await playSfxPreview({
+        asset,
+        volume: effectiveSfxVolume(asset.volume, hitVolume),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not preview");
     }
   }
 

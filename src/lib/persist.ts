@@ -10,6 +10,7 @@ import {
 } from "./defaults";
 import type { EditorProject, ProjectSettings, RankClip } from "./types";
 import { DEFAULT_CLIP_DURATION } from "./types";
+import { sfxMediaUrl } from "./sfxLibrary";
 
 export const STORAGE_KEY = "rankshorts-project-v1";
 export const UI_STORAGE_KEY = "rankshorts-ui-v1";
@@ -181,7 +182,7 @@ export function normalizeProject(
           ? Math.max(0, Math.min(2, a.volume))
           : 1,
       // Never persist blob: URLs — restore from IndexedDB / server on hydrate
-      mediaUrl: a.mediaId ? `/api/media/${a.mediaId}` : a.mediaUrl,
+      mediaUrl: a.mediaId ? sfxMediaUrl(a.mediaId, a.mediaUrl) : a.mediaUrl,
     })),
     sfxPlacements: parsed.sfxPlacements || [],
     exportSlot: parsed.exportSlot
@@ -282,7 +283,7 @@ export function saveProject(project: EditorProject) {
       })),
       sfxAssets: (project.sfxAssets || []).map((a) => ({
         ...a,
-        mediaUrl: a.mediaId ? `/api/media/${a.mediaId}` : a.mediaUrl,
+        mediaUrl: a.mediaId ? sfxMediaUrl(a.mediaId, a.mediaUrl) : a.mediaUrl,
       })),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));

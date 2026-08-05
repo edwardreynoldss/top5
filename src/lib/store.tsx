@@ -19,7 +19,7 @@ import {
   saveLayoutDefault,
   saveProject,
 } from "./persist";
-import { hydrateSfxAssets, loadSfxLibrary, upsertSfxLibraryAsset } from "./sfxLibrary";
+import { hydrateSfxAssets, loadSfxLibrary, sfxMediaUrl, upsertSfxLibraryAsset } from "./sfxLibrary";
 import { fetchFilmArchive, saveFilmArchive } from "./projectHistory";
 import {
   channelSlug,
@@ -441,6 +441,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     const next: SfxAsset = {
       ...asset,
       id,
+      mediaUrl: sfxMediaUrl(asset.mediaId, asset.mediaUrl),
       volume:
         typeof asset.volume === "number" && Number.isFinite(asset.volume)
           ? Math.max(0, Math.min(2, asset.volume))

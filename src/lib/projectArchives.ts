@@ -18,6 +18,7 @@ import { channelSlug, channelExportBaseName } from "./channels";
 import { ensureProjectsDir, PROJECTS_DIR } from "./paths";
 import type { EditorProject } from "./types";
 import type { ArchiveReason, ProjectArchiveMeta } from "./projectArchiveTypes";
+import { sfxMediaUrl } from "./sfxLibrary";
 
 export type { ArchiveReason, ProjectArchiveMeta };
 
@@ -315,7 +316,7 @@ export function saveProjectArchive(opts: {
     })),
     sfxAssets: (opts.project.sfxAssets || []).map((a) => ({
       ...a,
-      mediaUrl: a.mediaId ? `/api/media/${a.mediaId}` : a.mediaUrl,
+      mediaUrl: a.mediaId ? sfxMediaUrl(a.mediaId, a.mediaUrl) : a.mediaUrl,
     })),
   };
 

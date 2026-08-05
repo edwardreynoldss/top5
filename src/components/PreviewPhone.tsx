@@ -30,6 +30,7 @@ import {
   defaultSticker,
   stickerPlayDuration,
 } from "@/lib/defaults";
+import { sfxMediaUrl } from "@/lib/sfxLibrary";
 import { fontCss, type RankClip } from "@/lib/types";
 
 export function PreviewPhone({
@@ -280,7 +281,7 @@ export function PreviewPhone({
 
     firedSfxRef.current.add(p.id);
     const into = Math.max(0, absNow - start);
-    const audio = new Audio(asset.mediaUrl);
+    const audio = new Audio(sfxMediaUrl(asset.mediaId, asset.mediaUrl));
     audio.preload = "auto";
     audio.volume = Math.min(1, Math.max(0, effectiveSfxVolume(asset.volume, p.volume)));
 
