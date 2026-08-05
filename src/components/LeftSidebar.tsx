@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { TitleEditor } from "./TitleEditor";
 import { SettingsPanel } from "./SettingsPanel";
 import { SfxPanel } from "./SfxPanel";
+import { OverlayPanel } from "./OverlayPanel";
 import { defaultLeftUi, loadLeftUi, saveLeftUi, type LeftUiState } from "@/lib/persist";
 import { useEditor } from "@/lib/store";
 
@@ -11,10 +12,11 @@ const TABS: { id: LeftUiState["activeTab"]; label: string; hint: string }[] = [
   { id: "title", label: "Title", hint: "Words, fonts, ranks" },
   { id: "look", label: "Look", hint: "Fit, transitions, music" },
   { id: "sfx", label: "SFX", hint: "Booms & hits" },
+  { id: "overlays", label: "Text", hint: "Captions & objects" },
 ];
 
 export function LeftSidebar() {
-  const { saveStatus, sfxTabNonce } = useEditor();
+  const { saveStatus, sfxTabNonce, overlaysTabNonce } = useEditor();
   const [ui, setUi] = useState<LeftUiState>(defaultLeftUi);
 
   useEffect(() => {
@@ -30,6 +32,12 @@ export function LeftSidebar() {
       setUi((u) => ({ ...u, activeTab: "sfx" }));
     }
   }, [sfxTabNonce]);
+
+  useEffect(() => {
+    if (overlaysTabNonce > 0) {
+      setUi((u) => ({ ...u, activeTab: "overlays" }));
+    }
+  }, [overlaysTabNonce]);
 
   return (
     <aside className="left-col">
@@ -69,6 +77,7 @@ export function LeftSidebar() {
         )}
         {ui.activeTab === "look" && <SettingsPanel />}
         {ui.activeTab === "sfx" && <SfxPanel />}
+        {ui.activeTab === "overlays" && <OverlayPanel />}
       </div>
     </aside>
   );

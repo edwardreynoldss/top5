@@ -229,11 +229,53 @@ export interface SfxPlacement {
   volume: number;
 }
 
+/**
+ * Snapchat-style caption look.
+ * Classic = full-width translucent bar (the iconic Snap caption).
+ * Box = rounded pill behind the text only (modern Snap background).
+ * Plain = text only, no bar.
+ *
+ * Font: Public Sans (OFL) — the standard free substitute for proprietary Snapchat Sans
+ * used by editors like Kapwing; we cannot redistribute Snapchat Sans itself.
+ */
+export type SnapTextStyle = "classic" | "box" | "plain";
+
+/** Timed text box or media object (arrow/circle GIF, etc.) on the timeline. */
+export interface OverlayPlacement {
+  id: string;
+  kind: "text" | "media";
+  /** Absolute timeline seconds when not pinned to a clip */
+  startAt: number;
+  clipId: string | null;
+  offsetInClip: number;
+  /** How long the overlay stays on screen (wall-clock seconds) */
+  duration: number;
+  /** Horizontal position 0–100 (50 = center). Classic text ignores X for the bar. */
+  x: number;
+  /** Vertical position 0–100 (50 = middle of frame). */
+  y: number;
+  /** Relative size (text font scale / media scale). 1 = default. */
+  scale: number;
+  /** Caption text (supports emoji). */
+  text: string;
+  textStyle: SnapTextStyle;
+  /** Hex text color (classic Snap is white). */
+  color: string;
+  /** Show the translucent background bar/pill. */
+  showBackground: boolean;
+  /** Media object (GIF/PNG/WebM) — for kind === "media" */
+  mediaId: string | null;
+  mediaUrl: string | null;
+  fileName: string | null;
+}
+
 export interface EditorProject {
   clips: RankClip[];
   settings: ProjectSettings;
   sfxAssets: SfxAsset[];
   sfxPlacements: SfxPlacement[];
+  /** Timed Snapchat-style text / stickers / GIFs on the preview + export. */
+  overlayPlacements: OverlayPlacement[];
   /**
    * Export identity for the current clip set (cleared on Reset).
    * First export → ranking-{channel}-{n}; re-export → ranking-{channel}-{n}.{v}

@@ -7,17 +7,19 @@ import {
   createSegment,
   clampClipSpeed,
   clampClipGap,
+  createOverlayPlacement,
 } from "./defaults";
-import type { EditorProject, ProjectSettings, RankClip } from "./types";
+import type { EditorProject, OverlayPlacement, ProjectSettings, RankClip } from "./types";
 import { DEFAULT_CLIP_DURATION } from "./types";
 import { sfxMediaUrl } from "./sfxLibrary";
+import { overlayMediaUrl } from "./overlayMedia";
 
 export const STORAGE_KEY = "rankshorts-project-v1";
 export const UI_STORAGE_KEY = "rankshorts-ui-v1";
 export const LAYOUT_STORAGE_KEY = "rankshorts-layout-default-v1";
 
 export interface LeftUiState {
-  activeTab: "title" | "look" | "sfx";
+  activeTab: "title" | "look" | "sfx" | "overlays";
   titleOpen: Record<string, boolean>;
 }
 
@@ -185,6 +187,15 @@ export function normalizeProject(
       mediaUrl: a.mediaId ? sfxMediaUrl(a.mediaId, a.mediaUrl) : a.mediaUrl,
     })),
     sfxPlacements: parsed.sfxPlacements || [],
+    overlayPlacements: (parsed.overlayPlacements || [])
+      .map((o) => {
+        const n = createOverlayPlacement(o as Partial<OverlayPlacement>);
+        if (n.kind === "media" && n.mediaId) {
+          n.mediaUrl = overlayMediaUrl(n.mediaId, n.mediaUrl);
+        }
+        return n;
+      })
+      .filter(Boolean),
     exportSlot: parsed.exportSlot
       ? {
           channelSlug: String(parsed.exportSlot.channelSlug || ""),

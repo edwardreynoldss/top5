@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createDefaultProject, createWord, normalizeSticker } from "./defaults";
+import { createDefaultProject, createWord, normalizeSticker, createOverlayPlacement } from "./defaults";
 import {
   clearSavedProject,
   loadLayoutDefault,
@@ -32,6 +32,7 @@ import {
 } from "./channels";
 import type {
   EditorProject,
+  OverlayPlacement,
   PlayOrder,
   ProjectSettings,
   RankClip,
@@ -44,6 +45,7 @@ import type {
   TransitionType,
 } from "./types";
 import { v4 as uuidv4 } from "uuid";
+import { overlayMediaUrl } from "./overlayMedia";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -89,6 +91,13 @@ interface EditorContextValue {
   setSelectedSfxPlacementId: (id: string | null) => void;
   sfxTabNonce: number;
   requestSfxTab: () => void;
+  placeOverlay: (placement: Partial<OverlayPlacement>) => string;
+  updateOverlayPlacement: (id: string, patch: Partial<OverlayPlacement>) => void;
+  removeOverlayPlacement: (id: string) => void;
+  selectedOverlayId: string | null;
+  setSelectedOverlayId: (id: string | null) => void;
+  overlaysTabNonce: number;
+  requestOverlaysTab: () => void;
   resetProject: () => void;
   /**
    * Open a previously saved film archive (full clips + settings).
@@ -112,6 +121,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [selectedSfxPlacementId, setSelectedSfxPlacementId] = useState<string | null>(null);
   const [sfxTabNonce, setSfxTabNonce] = useState(0);
+  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
+  const [overlaysTabNonce, setOverlaysTabNonce] = useState(0);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const channelStateRef = useRef(channelState);
@@ -121,6 +132,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const requestSfxTab = useCallback(() => {
     setSfxTabNonce((n) => n + 1);
+  }, []);
+
+  const requestOverlaysTab = useCallback(() => {
+    setOverlaysTabNonce((n) => n + 1);
   }, []);
 
   const setChannelState = useCallback((state: ChannelExportState) => {
@@ -210,6 +225,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         const placeById = new Map<string, SfxPlacement>();
         for (const p of merged.sfxPlacements || []) placeById.set(p.id, p);
         for (const p of live.sfxPlacements || []) placeById.set(p.id, p);
+        const overlayById = new Map<string, OverlayPlacement>();
+        for (const p of merged.overlayPlacements || []) overlayById.set(p.id, p);
+        for (const p of live.overlayPlacements || []) overlayById.set(p.id, p);
         const clips = (live.clips || []).some((c) => c.mediaId)
           ? live.clips
           : merged.clips;
@@ -218,6 +236,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           clips,
           sfxAssets: Array.from(assetByKey.values()),
           sfxPlacements: Array.from(placeById.values()),
+          overlayPlacements: Array.from(overlayById.values()),
           settings: { ...merged.settings, sticker: activeSticker },
           exportSlot: live.exportSlot ?? merged.exportSlot,
         };
@@ -623,6 +642,44 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     setSelectedSfxPlacementId((cur) => (cur === id ? null : cur));
   }, []);
 
+  const placeOverlay = useCallback((placement: Partial<OverlayPlacement>) => {
+    const next = createOverlayPlacement(placement);
+    if (next.kind === "media" && next.mediaId) {
+      next.mediaUrl = overlayMediaUrl(next.mediaId, next.mediaUrl);
+    }
+    setProject((prev) => ({
+      ...prev,
+      overlayPlacements: [...(prev.overlayPlacements || []), next],
+    }));
+    setSelectedOverlayId(next.id);
+    return next.id;
+  }, []);
+
+  const updateOverlayPlacement = useCallback(
+    (id: string, patch: Partial<OverlayPlacement>) => {
+      setProject((prev) => ({
+        ...prev,
+        overlayPlacements: (prev.overlayPlacements || []).map((p) => {
+          if (p.id !== id) return p;
+          const merged = { ...p, ...patch };
+          if (merged.kind === "media" && merged.mediaId) {
+            merged.mediaUrl = overlayMediaUrl(merged.mediaId, merged.mediaUrl);
+          }
+          return merged;
+        }),
+      }));
+    },
+    []
+  );
+
+  const removeOverlayPlacement = useCallback((id: string) => {
+    setProject((prev) => ({
+      ...prev,
+      overlayPlacements: (prev.overlayPlacements || []).filter((p) => p.id !== id),
+    }));
+    setSelectedOverlayId((cur) => (cur === id ? null : cur));
+  }, []);
+
   const resetProject = useCallback(() => {
     clearSavedProject();
     const layout = loadLayoutDefault();
@@ -637,11 +694,13 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     setProject({
       ...base,
       sfxAssets: lib,
+      overlayPlacements: [],
       exportSlot: null,
       settings: { ...base.settings, sticker },
     });
     setSelectedClipId(null);
     setSelectedSfxPlacementId(null);
+    setSelectedOverlayId(null);
     setSaveStatus("saved");
   }, []);
 
@@ -727,10 +786,14 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       selectedClipId,
       selectedSfxPlacementId,
       sfxTabNonce,
+      selectedOverlayId,
+      overlaysTabNonce,
       saveStatus,
       setSelectedClipId,
       setSelectedSfxPlacementId,
+      setSelectedOverlayId,
       requestSfxTab,
+      requestOverlaysTab,
       updateTitle,
       updateRanksLayout,
       setTitleLines,
@@ -751,6 +814,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       placeSfxHit,
       updateSfxPlacement,
       removeSfxPlacement,
+      placeOverlay,
+      updateOverlayPlacement,
+      removeOverlayPlacement,
       resetProject,
       restoreFilmArchive,
       setExportSlot,
@@ -764,8 +830,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       selectedClipId,
       selectedSfxPlacementId,
       sfxTabNonce,
+      selectedOverlayId,
+      overlaysTabNonce,
       saveStatus,
       requestSfxTab,
+      requestOverlaysTab,
       updateTitle,
       updateRanksLayout,
       setTitleLines,
@@ -786,6 +855,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       placeSfxHit,
       updateSfxPlacement,
       removeSfxPlacement,
+      placeOverlay,
+      updateOverlayPlacement,
+      removeOverlayPlacement,
       resetProject,
       restoreFilmArchive,
       setExportSlot,

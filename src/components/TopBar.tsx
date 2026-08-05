@@ -15,6 +15,7 @@ import {
   clipPlayDuration,
   getPlaybackOrder,
   resolveSfxStartAt,
+  resolveOverlayStartAt,
   effectiveSfxVolume,
   effectiveClipVolume,
   getClipSpeed,
@@ -22,8 +23,10 @@ import {
   getClipBedMusic,
   getClipPlaybackSegments,
   getClipGapAfter,
+  clipTimelineOffsets,
 } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
+import { renderSnapCaptionPng } from "@/lib/renderSnapOverlay";
 import { useEditor } from "@/lib/store";
 import {
   channelExportBaseName,
@@ -146,14 +149,13 @@ export function TopBar({
         (project.sfxAssets || []).map((asset) => ensureSfxOnServer(asset))
       );
       const assetById = new Map(restoredAssets.map((a) => [a.id, a]));
+      const { settings } = project;
 
-      let t = 0;
-      const offsets = readyClips.map((c) => {
-        const duration = clipPlayDuration(c);
-        const row = { clipId: c.id, start: t, duration };
-        t += duration;
-        return row;
-      });
+      const offsets = clipTimelineOffsets(project.clips, settings.playOrder).map((o) => ({
+        clipId: o.clipId,
+        start: o.start,
+        duration: o.duration,
+      }));
       const sfxForExport = (project.sfxPlacements || [])
         .map((p) => {
           const asset = assetById.get(p.assetId);
@@ -168,8 +170,45 @@ export function TopBar({
         })
         .filter(Boolean);
 
+      const overlaysForExport: {
+        kind: "text" | "media";
+        startAt: number;
+        duration: number;
+        x?: number;
+        y?: number;
+        scale?: number;
+        mediaId?: string | null;
+        pngBase64?: string | null;
+      }[] = [];
+      for (const ov of project.overlayPlacements || []) {
+        const startAt = resolveOverlayStartAt(ov, offsets);
+        if (ov.kind === "text") {
+          try {
+            const dataUrl = await renderSnapCaptionPng(ov);
+            const b64 = dataUrl.replace(/^data:image\/png;base64,/, "");
+            overlaysForExport.push({
+              kind: "text",
+              startAt,
+              duration: ov.duration,
+              pngBase64: b64,
+            });
+          } catch {
+            // Skip broken caption rather than failing the whole export
+          }
+        } else if (ov.mediaId) {
+          overlaysForExport.push({
+            kind: "media",
+            startAt,
+            duration: ov.duration,
+            x: ov.x,
+            y: ov.y,
+            scale: ov.scale,
+            mediaId: ov.mediaId,
+          });
+        }
+      }
+
       setProgress(`Rendering ${planned.fileName}…`);
-      const { settings } = project;
       const titlePayload =
         settings.title.enabled === false
           ? { ...settings.title, showBar: false, lines: [], enabled: false }
@@ -245,6 +284,7 @@ export function TopBar({
             version: planned.slot.version,
           },
           sfx: sfxForExport,
+          overlays: overlaysForExport,
         }),
       });
       const data = await res.json();

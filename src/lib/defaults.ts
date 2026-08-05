@@ -4,8 +4,10 @@ import type {
   ClipCrop,
   ClipHook,
   EditorProject,
+  OverlayPlacement,
   ProjectSettings,
   RankClip,
+  SnapTextStyle,
   StickerOverlay,
   TitleLine,
   TitleWord,
@@ -349,6 +351,7 @@ export function createDefaultProject(settings?: ProjectSettings): EditorProject 
     clips: ranks.map((rank) => createEmptyClip(rank)),
     sfxAssets: [],
     sfxPlacements: [],
+    overlayPlacements: [],
     exportSlot: null,
     settings: settings ? cloneSettings(settings) : builtInDefaultSettings(),
   };
@@ -627,6 +630,55 @@ export function resolveSfxStartAt(
   return Math.max(0, placement.startAt);
 }
 
+/** Same clock as SFX — absolute timeline start for a timed overlay. */
+export function resolveOverlayStartAt(
+  placement: { clipId: string | null; offsetInClip: number; startAt: number },
+  offsets: { clipId: string; start: number; duration: number }[]
+) {
+  return resolveSfxStartAt(placement, offsets);
+}
+
+const SNAP_STYLES: SnapTextStyle[] = ["classic", "box", "plain"];
+
+export function normalizeSnapTextStyle(style?: string | null): SnapTextStyle {
+  if (style === "box" || style === "plain" || style === "classic") return style;
+  return "classic";
+}
+
+export function createOverlayPlacement(
+  patch?: Partial<OverlayPlacement>
+): OverlayPlacement {
+  const kind = patch?.kind === "media" ? "media" : "text";
+  return {
+    id: patch?.id || uuidv4(),
+    kind,
+    startAt: Math.max(0, Number.isFinite(patch?.startAt) ? Number(patch?.startAt) : 0),
+    clipId: patch?.clipId ?? null,
+    offsetInClip: Math.max(0, Number.isFinite(patch?.offsetInClip) ? Number(patch?.offsetInClip) : 0),
+    duration: Math.max(
+      0.3,
+      Math.min(30, Number.isFinite(patch?.duration) ? Number(patch?.duration) : 3)
+    ),
+    x: Math.max(0, Math.min(100, Number.isFinite(patch?.x) ? Number(patch?.x) : 50)),
+    y: Math.max(0, Math.min(100, Number.isFinite(patch?.y) ? Number(patch?.y) : 50)),
+    scale: Math.max(0.35, Math.min(3, Number.isFinite(patch?.scale) ? Number(patch?.scale) : 1)),
+    text: typeof patch?.text === "string" ? patch.text : kind === "text" ? "Type here 😂" : "",
+    textStyle: normalizeSnapTextStyle(patch?.textStyle),
+    color: typeof patch?.color === "string" && patch.color.trim() ? patch.color : "#FFFFFF",
+    showBackground: patch?.showBackground !== false,
+    mediaId: patch?.mediaId ?? null,
+    mediaUrl: patch?.mediaUrl ?? null,
+    fileName: patch?.fileName ?? null,
+  };
+}
+
+export function normalizeOverlayPlacement(
+  raw: Partial<OverlayPlacement> | null | undefined
+): OverlayPlacement | null {
+  if (!raw || typeof raw !== "object") return null;
+  return createOverlayPlacement(raw);
+}
+
 /** Combined sample gain × hit gain for preview/export */
 export function effectiveSfxVolume(
   assetVolume: number | undefined,
@@ -636,6 +688,12 @@ export function effectiveSfxVolume(
   const p =
     typeof placementVolume === "number" && Number.isFinite(placementVolume) ? placementVolume : 1;
   return Math.max(0, Math.min(3, a * p));
+}
+
+/** Cycle Snapchat text styles the way the in-app carousel does. */
+export function nextSnapTextStyle(current: SnapTextStyle): SnapTextStyle {
+  const i = SNAP_STYLES.indexOf(current);
+  return SNAP_STYLES[(i + 1) % SNAP_STYLES.length];
 }
 
 /** How far into a clip's *played* timeline we are (merged segments). */

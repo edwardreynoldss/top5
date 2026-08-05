@@ -8,6 +8,7 @@ import { isCompatH264, runCommand } from "@/lib/ffmpeg";
 import { ensurePillow, whichTools } from "@/lib/bins";
 import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
 import { resolveMusicDropFile, isMusicDropMediaId } from "@/lib/musicFolder";
+import { resolveOverlayFile, isOverlayMediaId } from "@/lib/overlayFolder";
 import { ffmpegAtempoChain } from "@/lib/defaults";
 import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
 
@@ -100,13 +101,27 @@ interface ExportBody {
     trimEnd: number;
     volume: number;
   }[];
+  /** Timed Snapchat captions / objects burned onto the final timeline */
+  overlays?: {
+    kind: "text" | "media";
+    startAt: number;
+    duration: number;
+    x?: number;
+    y?: number;
+    scale?: number;
+    mediaId?: string | null;
+    /** Full-frame transparent PNG (base64, no data: prefix) for text captions */
+    pngBase64?: string | null;
+  }[];
 }
 
 function resolveMedia(mediaId: string) {
   const clean = mediaId
     .replace(/^\/api\/media\//, "")
     .replace(/^\/api\/sfx\/file\//, "")
-    .replace(/^\/api\/music\/file\//, "");
+    .replace(/^\/api\/music\/file\//, "")
+    .replace(/^\/api\/overlays\/file\//, "")
+    .replace(/^\/overlays\//, "");
   if (isDropSfxMediaId(clean) || mediaId.includes("/api/sfx/file/")) {
     const name = isDropSfxMediaId(clean)
       ? clean
@@ -125,6 +140,13 @@ function resolveMedia(mediaId: string) {
   }
   const musicDirect = resolveMusicDropFile(clean);
   if (musicDirect) return musicDirect;
+
+  if (isOverlayMediaId(clean) || mediaId.includes("/api/overlays/") || mediaId.includes("/overlays/")) {
+    const hit = resolveOverlayFile(clean) || resolveOverlayFile(decodeURIComponent(clean));
+    if (hit) return hit;
+  }
+  const overlayDirect = resolveOverlayFile(clean);
+  if (overlayDirect) return overlayDirect;
 
   const p = path.join(UPLOAD_DIR, clean);
   if (existsSync(p)) return p;
@@ -148,6 +170,127 @@ function resolveMedia(mediaId: string) {
   if (existsSync(publicSticker)) return publicSticker;
 
   throw new Error(`Missing media: ${clean}`);
+}
+
+/**
+ * Burn timed overlays (Snapchat captions / GIF objects) onto a concatenated video.
+ */
+async function burnOverlays(opts: {
+  input: string;
+  output: string;
+  jobDir: string;
+  width: number;
+  height: number;
+  fps: number;
+  overlays: NonNullable<ExportBody["overlays"]>;
+}) {
+  const { input, output, jobDir, width, height, fps, overlays } = opts;
+
+  type Prepared = {
+    path: string;
+    start: number;
+    end: number;
+    mode: "fullscreen" | "anchored";
+    xPct: number;
+    yPct: number;
+    targetW: number;
+  };
+
+  const prepared: Prepared[] = [];
+  for (let i = 0; i < overlays.length; i++) {
+    const ov = overlays[i];
+    const start = Math.max(0, ov.startAt || 0);
+    const dur = Math.max(0.2, ov.duration || 3);
+    const end = start + dur;
+
+    if (ov.kind === "text" && ov.pngBase64) {
+      const pngPath = path.join(jobDir, `overlay-text-${i}.png`);
+      writeFileSync(pngPath, Buffer.from(ov.pngBase64, "base64"));
+      prepared.push({
+        path: pngPath,
+        start,
+        end,
+        mode: "fullscreen",
+        xPct: 0.5,
+        yPct: 0.5,
+        targetW: width,
+      });
+      continue;
+    }
+
+    if (ov.kind === "media" && ov.mediaId) {
+      let mediaPath: string;
+      try {
+        mediaPath = resolveMedia(ov.mediaId);
+      } catch {
+        continue;
+      }
+      const scale = Math.max(0.15, Math.min(3, ov.scale ?? 1));
+      prepared.push({
+        path: mediaPath,
+        start,
+        end,
+        mode: "anchored",
+        xPct: Math.max(0, Math.min(100, ov.x ?? 50)) / 100,
+        yPct: Math.max(0, Math.min(100, ov.y ?? 50)) / 100,
+        targetW: Math.max(2, Math.round((width * 0.42 * scale) / 2) * 2),
+      });
+    }
+  }
+
+  if (!prepared.length) {
+    await runCommand("ffmpeg", ["-y", "-i", input, "-c", "copy", output]);
+    return;
+  }
+
+  const args: string[] = ["-y", "-i", input];
+  for (const p of prepared) {
+    if (p.mode === "fullscreen") {
+      args.push("-loop", "1", "-t", String(p.end + 0.05), "-i", p.path);
+    } else {
+      args.push("-stream_loop", "-1", "-t", String(p.end + 0.05), "-i", p.path);
+    }
+  }
+
+  const filterParts: string[] = [];
+  let last = "[0:v]";
+  prepared.forEach((p, i) => {
+    const idx = i + 1;
+    const enable = `between(t\\,${p.start.toFixed(3)}\\,${p.end.toFixed(3)})`;
+    const scaled = `[oms${i}]`;
+    if (p.mode === "fullscreen") {
+      filterParts.push(`[${idx}:v]format=rgba,scale=${width}:${height}${scaled}`);
+      const next = i === prepared.length - 1 ? "[vout]" : `[ov${i}]`;
+      filterParts.push(`${last}${scaled}overlay=0:0:enable='${enable}'${next}`);
+      last = next;
+    } else {
+      filterParts.push(
+        `[${idx}:v]fps=${fps},scale=${p.targetW}:-1:flags=lanczos,format=rgba${scaled}`
+      );
+      const next = i === prepared.length - 1 ? "[vout]" : `[ov${i}]`;
+      filterParts.push(
+        `${last}${scaled}overlay=x='(W-w)*${p.xPct}':y='(H-h)*${p.yPct}':enable='${enable}'${next}`
+      );
+      last = next;
+    }
+  });
+
+  args.push(
+    "-filter_complex",
+    filterParts.join(";"),
+    "-map",
+    "[vout]",
+    "-map",
+    "0:a?",
+    ...H264_COMPAT,
+    ...AAC_COMPAT,
+    "-r",
+    String(fps),
+    "-shortest",
+    ...MP4_FASTSTART,
+    output
+  );
+  await runCommand("ffmpeg", args);
 }
 
 /**
@@ -920,6 +1063,28 @@ export async function POST(req: NextRequest) {
       concatOut,
     ]);
 
+    const overlayList = (body.overlays || []).filter(
+      (o) =>
+        o &&
+        Number.isFinite(o.startAt) &&
+        o.duration > 0 &&
+        ((o.kind === "text" && o.pngBase64) || (o.kind === "media" && o.mediaId))
+    );
+    let videoForMix = concatOut;
+    if (overlayList.length > 0) {
+      const withOverlays = path.join(jobDir, "with-overlays.mp4");
+      await burnOverlays({
+        input: concatOut,
+        output: withOverlays,
+        jobDir,
+        width,
+        height,
+        fps,
+        overlays: overlayList,
+      });
+      videoForMix = withOverlays;
+    }
+
     const finalOut = exportPath(jobId);
     const sfxList = (body.sfx || []).filter(
       (s) => s.mediaId && s.trimEnd > s.trimStart && s.startAt >= 0
@@ -932,7 +1097,7 @@ export async function POST(req: NextRequest) {
       await runCommand("ffmpeg", [
         "-y",
         "-i",
-        concatOut,
+        videoForMix,
         "-c",
         "copy",
         ...MP4_FASTSTART,
@@ -942,7 +1107,7 @@ export async function POST(req: NextRequest) {
         await runCommand("ffmpeg", [
           "-y",
           "-i",
-          concatOut,
+          videoForMix,
           "-vf",
           "format=yuv420p",
           ...H264_COMPAT,
@@ -952,7 +1117,7 @@ export async function POST(req: NextRequest) {
         ]);
       }
     } else {
-      const args: string[] = ["-y", "-i", concatOut];
+      const args: string[] = ["-y", "-i", videoForMix];
       let inputIdx = 1;
       const filterParts: string[] = [];
       const mixInputs: string[] = ["[a0]"];

@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pause, Play, Plus, Volume2 } from "lucide-react";
+import { Pause, Play, Plus, Volume2, Type, Shapes } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import { AddSfxAtTimeModal } from "./AddSfxAtTimeModal";
+import { AddOverlayAtTimeModal, SnapCaptionView } from "./AddOverlayAtTimeModal";
 import {
   getPlaybackOrder,
   clipPlayDuration,
@@ -18,6 +19,7 @@ import {
   clipTimelineOffsets,
   totalTimelineDuration,
   resolveSfxStartAt,
+  resolveOverlayStartAt,
   clipLocalPlayProgress,
   sourceSeekFromLocalPlay,
   absoluteTimeForClipPlayhead,
@@ -31,6 +33,7 @@ import {
   stickerPlayDuration,
 } from "@/lib/defaults";
 import { sfxMediaUrl } from "@/lib/sfxLibrary";
+import { overlayMediaUrl } from "@/lib/overlayMedia";
 import { fontCss, type RankClip } from "@/lib/types";
 
 export function PreviewPhone({
@@ -51,6 +54,10 @@ export function PreviewPhone({
     setSelectedSfxPlacementId,
     setSelectedClipId,
     requestSfxTab,
+    removeOverlayPlacement,
+    selectedOverlayId,
+    setSelectedOverlayId,
+    requestOverlaysTab,
   } = useEditor();
   const { settings } = project;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -86,6 +93,9 @@ export function PreviewPhone({
   } | null>(null);
   const [addSfxOpen, setAddSfxOpen] = useState(false);
   const [addSfxAt, setAddSfxAt] = useState(0);
+  const [addOverlayOpen, setAddOverlayOpen] = useState(false);
+  const [addOverlayAt, setAddOverlayAt] = useState(0);
+  const [addOverlayKind, setAddOverlayKind] = useState<"text" | "media">("text");
   const absTimeRef = useRef(0);
   isPlayingRef.current = isPlaying;
   activeIndexRef.current = activeIndex;
@@ -117,6 +127,10 @@ export function PreviewPhone({
   const activeSeg = segments[segIndex] || segments[0];
   const assets = useMemo(() => project.sfxAssets || [], [project.sfxAssets]);
   const placements = useMemo(() => project.sfxPlacements || [], [project.sfxPlacements]);
+  const overlayPlacements = useMemo(
+    () => project.overlayPlacements || [],
+    [project.overlayPlacements]
+  );
 
   const localPlay = useMemo(() => {
     if (!activeClip) return 0;
@@ -153,20 +167,30 @@ export function PreviewPhone({
     };
   }, [ctxMenu]);
 
-  // Delete key removes the selected SFX hit
+  // Delete key removes the selected SFX hit or overlay
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!selectedSfxPlacementId) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (e.key === "Delete" || e.key === "Backspace") {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (selectedOverlayId) {
+        e.preventDefault();
+        removeOverlayPlacement(selectedOverlayId);
+        return;
+      }
+      if (selectedSfxPlacementId) {
         e.preventDefault();
         removeSfxPlacement(selectedSfxPlacementId);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedSfxPlacementId, removeSfxPlacement]);
+  }, [
+    selectedSfxPlacementId,
+    removeSfxPlacement,
+    selectedOverlayId,
+    removeOverlayPlacement,
+  ]);
 
   function openPreviewContextMenu(e: React.MouseEvent) {
     e.preventDefault();
@@ -182,6 +206,14 @@ export function PreviewPhone({
     if (!ctxMenu) return;
     setAddSfxAt(ctxMenu.time);
     setAddSfxOpen(true);
+    setCtxMenu(null);
+  }
+
+  function openAddOverlayFromMenu(kind: "text" | "media") {
+    if (!ctxMenu) return;
+    setAddOverlayAt(ctxMenu.time);
+    setAddOverlayKind(kind);
+    setAddOverlayOpen(true);
     setCtxMenu(null);
   }
 
@@ -1106,6 +1138,54 @@ export function PreviewPhone({
             />
           ) : null}
 
+          {overlayPlacements.map((ov) => {
+            const start = resolveOverlayStartAt(ov, offsets);
+            const end = start + Math.max(0.2, ov.duration || 3);
+            const visible = absTime + 0.02 >= start && absTime < end - 0.01;
+            if (!visible) return null;
+            const selected = ov.id === selectedOverlayId;
+            if (ov.kind === "text") {
+              return (
+                <SnapCaptionView
+                  key={ov.id}
+                  overlay={ov}
+                  selected={selected}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    setSelectedOverlayId(ov.id);
+                    setSelectedSfxPlacementId(null);
+                  }}
+                />
+              );
+            }
+            const url = ov.mediaUrl || (ov.mediaId ? overlayMediaUrl(ov.mediaId) : "");
+            if (!url) return null;
+            const isVideo = /\.(webm|mp4|mov)(\?|$)/i.test(url);
+            return (
+              <div
+                key={ov.id}
+                className={`media-overlay ${selected ? "selected" : ""}`}
+                style={{
+                  left: `${ov.x}%`,
+                  top: `${ov.y}%`,
+                  transform: `translate(-50%, -50%) scale(${ov.scale || 1})`,
+                }}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  setSelectedOverlayId(ov.id);
+                  setSelectedSfxPlacementId(null);
+                }}
+              >
+                {isVideo ? (
+                  <video src={url} muted playsInline autoPlay loop draggable={false} />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={url} alt={ov.fileName || "overlay"} draggable={false} />
+                )}
+              </div>
+            );
+          })}
+
           {activeClip && (
             <div className="preview-meta">
               <span>#{activeClip.rank}</span>
@@ -1173,6 +1253,7 @@ export function PreviewPhone({
                     e.preventDefault();
                     e.stopPropagation();
                     setSelectedSfxPlacementId(p.id);
+                    setSelectedOverlayId(null);
                     requestSfxTab();
                   }}
                   onContextMenu={(e) => {
@@ -1180,6 +1261,33 @@ export function PreviewPhone({
                     e.stopPropagation();
                     setSelectedSfxPlacementId(p.id);
                     removeSfxPlacement(p.id);
+                  }}
+                />
+              );
+            })}
+            {overlayPlacements.map((p) => {
+              const start = resolveOverlayStartAt(p, offsets);
+              if (totalDur <= 0) return null;
+              const selected = p.id === selectedOverlayId;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`preview-scrub-mark overlay-scrub-mark ${selected ? "selected" : ""}`}
+                  style={{ left: `${Math.min(100, (start / totalDur) * 100)}%` }}
+                  title={`${p.kind === "text" ? "Text" : "Object"} @ ${start.toFixed(2)}s`}
+                  aria-label={`Overlay at ${start.toFixed(2)} seconds`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedOverlayId(p.id);
+                    setSelectedSfxPlacementId(null);
+                    requestOverlaysTab();
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    removeOverlayPlacement(p.id);
                   }}
                 />
               );
@@ -1218,8 +1326,8 @@ export function PreviewPhone({
           </button>
         </div>
         <p className="muted preview-sfx-hint">
-          Pause on the moment · right-click the preview → Add SFX · or use Add at{" "}
-          {formatTime(absTime)} below. Tweak trim/volume in the SFX tab.
+          Right-click the preview → Add text / object / SFX at the playhead. Marks sit on
+          the middle scrubber — Delete removes the selection.
         </p>
       </div>
 
@@ -1236,11 +1344,42 @@ export function PreviewPhone({
                 type="button"
                 className="preview-ctx-item"
                 role="menuitem"
+                onClick={() => openAddOverlayFromMenu("text")}
+              >
+                <Type size={14} />
+                Add text at {formatTime(ctxMenu.time)}
+              </button>
+              <button
+                type="button"
+                className="preview-ctx-item"
+                role="menuitem"
+                onClick={() => openAddOverlayFromMenu("media")}
+              >
+                <Shapes size={14} />
+                Add object at {formatTime(ctxMenu.time)}
+              </button>
+              <button
+                type="button"
+                className="preview-ctx-item"
+                role="menuitem"
                 onClick={openAddSfxFromMenu}
               >
                 <Plus size={14} />
                 Add SFX at {formatTime(ctxMenu.time)}
               </button>
+              {selectedOverlayId ? (
+                <button
+                  type="button"
+                  className="preview-ctx-item danger"
+                  role="menuitem"
+                  onClick={() => {
+                    removeOverlayPlacement(selectedOverlayId);
+                    setCtxMenu(null);
+                  }}
+                >
+                  Delete selected overlay
+                </button>
+              ) : null}
               {selectedSfxPlacementId ? (
                 <button
                   type="button"
@@ -1263,6 +1402,12 @@ export function PreviewPhone({
         open={addSfxOpen}
         atTime={addSfxAt}
         onClose={() => setAddSfxOpen(false)}
+      />
+      <AddOverlayAtTimeModal
+        open={addOverlayOpen}
+        atTime={addOverlayAt}
+        initialKind={addOverlayKind}
+        onClose={() => setAddOverlayOpen(false)}
       />
     </div>
   );
