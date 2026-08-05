@@ -39,12 +39,10 @@ export function AddSfxAtTimeModal({
     setMounted(true);
   }, []);
 
-  const projectAssets = project.sfxAssets || [];
-  const library = useMemo(() => loadSfxLibrary(), [open, folderItems]);
-
   const catalog = useMemo(() => {
+    const library = loadSfxLibrary();
     const byKey = new Map<string, SfxAsset>();
-    for (const a of projectAssets) byKey.set(a.mediaId || a.id, a);
+    for (const a of project.sfxAssets || []) byKey.set(a.mediaId || a.id, a);
     for (const a of folderItems) {
       if (!byKey.has(a.mediaId || a.id)) byKey.set(a.mediaId || a.id, a);
     }
@@ -54,7 +52,7 @@ export function AddSfxAtTimeModal({
     return Array.from(byKey.values()).sort((a, b) =>
       a.fileName.localeCompare(b.fileName)
     );
-  }, [projectAssets, folderItems, library]);
+  }, [project.sfxAssets, folderItems]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
