@@ -782,6 +782,10 @@ export function PreviewPhone({
         const clip = sequence[0];
         if (clip) {
           const start = getClipPlaybackSegments(clip)[0]?.start || 0;
+          inGapRef.current = false;
+          gapElapsedRef.current = 0;
+          setInGap(false);
+          setGapElapsed(0);
           setActiveIndex(0);
           setSegIndex(0);
           setLocalTime(start);
