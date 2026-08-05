@@ -13,6 +13,11 @@ import {
 } from "@/lib/sfxFavorites";
 import type { SfxAsset } from "@/lib/types";
 
+function sampleDuration(asset: SfxAsset | null) {
+  if (!asset) return 1;
+  return asset.duration > 0.05 ? asset.duration : 1;
+}
+
 export function AddSfxAtTimeModal({
   open,
   atTime,
@@ -23,12 +28,7 @@ export function AddSfxAtTimeModal({
   atTime: number;
   onClose: () => void;
 }) {
-  const {
-    project,
-    placeSfxHit,
-    setSelectedSfxPlacementId,
-    requestSfxTab,
-  } = useEditor();
+  const { project, placeSfxHit, setSelectedSfxPlacementId, requestSfxTab } = useEditor();
   const [mounted, setMounted] = useState(false);
   const [query, setQuery] = useState("");
   const [folderItems, setFolderItems] = useState<SfxAsset[]>([]);
@@ -36,7 +36,10 @@ export function AddSfxAtTimeModal({
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string>("");
   const [hitVolume, setHitVolume] = useState(1);
+  const [trimStart, setTrimStart] = useState(0);
+  const [trimEnd, setTrimEnd] = useState(1);
   const [placing, setPlacing] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [favoriteTick, setFavoriteTick] = useState(0);
 
   useEffect(() => {
@@ -71,6 +74,8 @@ export function AddSfxAtTimeModal({
   }, [catalog, query, favoriteIds]);
 
   const selected = catalog.find((a) => a.id === selectedId) || null;
+  const maxDur = sampleDuration(selected);
+  const usedLen = Math.max(0.05, trimEnd - trimStart);
 
   const refreshFolder = useCallback(async () => {
     setLoading(true);
@@ -114,11 +119,19 @@ export function AddSfxAtTimeModal({
     setHitVolume(1);
     setError(null);
     setPlacing(false);
+    setPreviewing(false);
     void refreshFolder();
-    // Prefer an already-in-project asset
     const first = project.sfxAssets?.[0];
     if (first) setSelectedId(first.id);
   }, [open, refreshFolder, project.sfxAssets]);
+
+  // Reset trim window whenever the selected sample changes
+  useEffect(() => {
+    if (!selected) return;
+    const dur = sampleDuration(selected);
+    setTrimStart(0);
+    setTrimEnd(dur);
+  }, [selected?.id, selected?.duration]);
 
   useEffect(() => {
     if (!open) return;
@@ -130,17 +143,39 @@ export function AddSfxAtTimeModal({
     };
   }, [open]);
 
-  async function previewAsset(asset: SfxAsset) {
+  function clampTrim(start: number, end: number) {
+    const max = sampleDuration(selected);
+    const s = Math.max(0, Math.min(start, max - 0.05));
+    const e = Math.max(s + 0.05, Math.min(end, max));
+    return { start: s, end: e };
+  }
+
+  async function previewTrimmed(asset: SfxAsset, start: number, end: number) {
     setError(null);
+    setPreviewing(true);
     stopSfxPreview();
     try {
+      const { start: s, end: e } = (() => {
+        const max = sampleDuration(asset);
+        const st = Math.max(0, Math.min(start, max - 0.05));
+        const en = Math.max(st + 0.05, Math.min(end, max));
+        return { start: st, end: en };
+      })();
       await playSfxPreview({
         asset,
         volume: effectiveSfxVolume(asset.volume, hitVolume),
+        startAt: s,
+        stopAt: e,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not preview");
+    } finally {
+      setPreviewing(false);
     }
+  }
+
+  function selectAsset(asset: SfxAsset) {
+    setSelectedId(asset.id);
   }
 
   function placeSelected() {
@@ -148,7 +183,8 @@ export function AddSfxAtTimeModal({
     setPlacing(true);
     setError(null);
     try {
-      const dur = selected.duration > 0 ? selected.duration : 1;
+      const dur = sampleDuration(selected);
+      const { start, end } = clampTrim(trimStart, trimEnd);
       const { placementId } = placeSfxHit({
         asset: {
           id: selected.id,
@@ -160,8 +196,8 @@ export function AddSfxAtTimeModal({
         },
         startAt: Number(atTime.toFixed(2)),
         volume: hitVolume,
-        trimStart: 0,
-        trimEnd: dur,
+        trimStart: Number(start.toFixed(3)),
+        trimEnd: Number(end.toFixed(3)),
       });
       setSelectedSfxPlacementId(placementId);
       requestSfxTab();
@@ -191,8 +227,8 @@ export function AddSfxAtTimeModal({
           <div>
             <h3>Add SFX at {formatTime(atTime)}</h3>
             <p className="muted">
-              Pick a sound — it will fire at the paused preview time (
-              {atTime.toFixed(2)}s). Trim and fine-tune in the SFX tab after placing.
+              Pick a sound, trim how much of it plays, sample it, then place at{" "}
+              {atTime.toFixed(2)}s.
             </p>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
@@ -248,7 +284,7 @@ export function AddSfxAtTimeModal({
                     <button
                       type="button"
                       className={`add-sfx-row ${active ? "active" : ""}`}
-                      onClick={() => setSelectedId(a.id)}
+                      onClick={() => selectAsset(a)}
                     >
                       <span className="add-sfx-row-meta">
                         <strong className="truncate">
@@ -288,20 +324,23 @@ export function AddSfxAtTimeModal({
                           className="btn ghost small"
                           role="button"
                           tabIndex={0}
+                          title="Preview full sample"
                           onClick={(e) => {
                             e.stopPropagation();
-                            void previewAsset(a);
+                            selectAsset(a);
+                            void previewTrimmed(a, 0, sampleDuration(a));
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
                               e.stopPropagation();
-                              void previewAsset(a);
+                              selectAsset(a);
+                              void previewTrimmed(a, 0, sampleDuration(a));
                             }
                           }}
                         >
                           <Play size={14} />
-                          Preview
+                          Full
                         </span>
                       </span>
                     </button>
@@ -311,6 +350,90 @@ export function AddSfxAtTimeModal({
             </ul>
           )}
         </div>
+
+        {selected ? (
+          <div className="add-sfx-trim">
+            <div className="add-sfx-trim-head">
+              <strong className="truncate">{selected.fileName}</strong>
+              <span className="muted">
+                Using {usedLen.toFixed(2)}s of {maxDur.toFixed(2)}s
+              </span>
+            </div>
+            <label className="field">
+              <span>Trim start {formatTime(trimStart)}</span>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(0.05, maxDur - 0.05)}
+                step={0.01}
+                value={Math.min(trimStart, Math.max(0, maxDur - 0.05))}
+                onChange={(e) => {
+                  const next = parseFloat(e.target.value) || 0;
+                  const { start, end } = clampTrim(next, trimEnd);
+                  setTrimStart(start);
+                  setTrimEnd(end);
+                }}
+              />
+            </label>
+            <label className="field">
+              <span>Trim end {formatTime(trimEnd)}</span>
+              <input
+                type="range"
+                min={Math.min(trimStart + 0.05, maxDur)}
+                max={maxDur}
+                step={0.01}
+                value={Math.min(Math.max(trimEnd, trimStart + 0.05), maxDur)}
+                onChange={(e) => {
+                  const next = parseFloat(e.target.value) || 0;
+                  const { start, end } = clampTrim(trimStart, next);
+                  setTrimStart(start);
+                  setTrimEnd(end);
+                }}
+              />
+            </label>
+            <label className="field">
+              <span>Length {usedLen.toFixed(2)}s</span>
+              <input
+                type="range"
+                min={0.05}
+                max={Math.max(0.05, maxDur - trimStart)}
+                step={0.01}
+                value={Math.min(usedLen, Math.max(0.05, maxDur - trimStart))}
+                onChange={(e) => {
+                  const len = parseFloat(e.target.value) || 0.05;
+                  const { start, end } = clampTrim(trimStart, trimStart + len);
+                  setTrimStart(start);
+                  setTrimEnd(end);
+                }}
+              />
+            </label>
+            <div className="add-sfx-trim-actions">
+              <button
+                type="button"
+                className="btn ghost small"
+                disabled={previewing}
+                onClick={() => void previewTrimmed(selected, trimStart, trimEnd)}
+              >
+                {previewing ? (
+                  <Loader2 size={14} className="spin" />
+                ) : (
+                  <Play size={14} />
+                )}
+                Sample trimmed ({usedLen.toFixed(2)}s)
+              </button>
+              <button
+                type="button"
+                className="btn ghost small"
+                onClick={() => {
+                  setTrimStart(0);
+                  setTrimEnd(maxDur);
+                }}
+              >
+                Use full sample
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="modal-actions sticky-actions">
           <button type="button" className="btn ghost" onClick={onClose}>
@@ -323,7 +446,7 @@ export function AddSfxAtTimeModal({
             onClick={placeSelected}
           >
             {placing ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
-            Place at {formatTime(atTime)}
+            Place {usedLen.toFixed(2)}s at {formatTime(atTime)}
           </button>
         </div>
       </div>
