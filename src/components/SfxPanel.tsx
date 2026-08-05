@@ -35,6 +35,7 @@ import {
   sortSfxWithFavorites,
   toggleSfxFavorite,
 } from "@/lib/sfxFavorites";
+import { RangeRail } from "@/components/RangeRail";
 import type { SfxAsset } from "@/lib/types";
 
 export function SfxPanel() {
@@ -775,36 +776,26 @@ export function SfxPanel() {
                 </>
               )}
 
-              <div className="field-grid tight">
-                <label className="field">
-                  <span>Trim start {formatTime(p.trimStart)}</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={Math.max(0.05, p.trimEnd - 0.05)}
-                    step={0.01}
-                    value={p.trimStart}
-                    onChange={(e) =>
-                      updateSfxPlacement(p.id, { trimStart: parseFloat(e.target.value) })
-                    }
-                  />
-                </label>
-                <label className="field">
-                  <span>Trim end {formatTime(p.trimEnd)}</span>
-                  <input
-                    type="range"
-                    min={p.trimStart + 0.05}
-                    max={maxTrim}
-                    step={0.01}
-                    value={Math.min(p.trimEnd, maxTrim)}
-                    onChange={(e) =>
-                      updateSfxPlacement(p.id, { trimEnd: parseFloat(e.target.value) })
-                    }
-                  />
-                </label>
+              <div className="sfx-placement-trim">
+                <RangeRail
+                  min={0}
+                  max={maxTrim}
+                  start={p.trimStart}
+                  end={Math.min(p.trimEnd, maxTrim)}
+                  minSpan={0.05}
+                  ariaLabel={`Trim for hit ${idx + 1}`}
+                  formatValue={(v) => formatTime(v)}
+                  onChange={({ start, end }) =>
+                    updateSfxPlacement(p.id, {
+                      trimStart: start,
+                      trimEnd: end,
+                    })
+                  }
+                />
                 <label className="field">
                   <span>Hit volume {(p.volume * 100).toFixed(0)}%</span>
                   <input
+                    className="slider-inline"
                     type="range"
                     min={0}
                     max={2}

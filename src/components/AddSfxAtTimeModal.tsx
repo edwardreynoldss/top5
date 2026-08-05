@@ -11,6 +11,7 @@ import {
   sortSfxWithFavorites,
   toggleSfxFavorite,
 } from "@/lib/sfxFavorites";
+import { RangeRail } from "@/components/RangeRail";
 import type { SfxAsset } from "@/lib/types";
 
 function sampleDuration(asset: SfxAsset | null) {
@@ -359,54 +360,20 @@ export function AddSfxAtTimeModal({
                 Using {usedLen.toFixed(2)}s of {maxDur.toFixed(2)}s
               </span>
             </div>
-            <label className="field">
-              <span>Trim start {formatTime(trimStart)}</span>
-              <input
-                type="range"
-                min={0}
-                max={Math.max(0.05, maxDur - 0.05)}
-                step={0.01}
-                value={Math.min(trimStart, Math.max(0, maxDur - 0.05))}
-                onChange={(e) => {
-                  const next = parseFloat(e.target.value) || 0;
-                  const { start, end } = clampTrim(next, trimEnd);
-                  setTrimStart(start);
-                  setTrimEnd(end);
-                }}
-              />
-            </label>
-            <label className="field">
-              <span>Trim end {formatTime(trimEnd)}</span>
-              <input
-                type="range"
-                min={Math.min(trimStart + 0.05, maxDur)}
-                max={maxDur}
-                step={0.01}
-                value={Math.min(Math.max(trimEnd, trimStart + 0.05), maxDur)}
-                onChange={(e) => {
-                  const next = parseFloat(e.target.value) || 0;
-                  const { start, end } = clampTrim(trimStart, next);
-                  setTrimStart(start);
-                  setTrimEnd(end);
-                }}
-              />
-            </label>
-            <label className="field">
-              <span>Length {usedLen.toFixed(2)}s</span>
-              <input
-                type="range"
-                min={0.05}
-                max={Math.max(0.05, maxDur - trimStart)}
-                step={0.01}
-                value={Math.min(usedLen, Math.max(0.05, maxDur - trimStart))}
-                onChange={(e) => {
-                  const len = parseFloat(e.target.value) || 0.05;
-                  const { start, end } = clampTrim(trimStart, trimStart + len);
-                  setTrimStart(start);
-                  setTrimEnd(end);
-                }}
-              />
-            </label>
+            <RangeRail
+              min={0}
+              max={maxDur}
+              start={trimStart}
+              end={trimEnd}
+              minSpan={0.05}
+              ariaLabel="SFX sample trim"
+              formatValue={(v) => formatTime(v)}
+              onChange={({ start, end }) => {
+                const { start: s, end: e } = clampTrim(start, end);
+                setTrimStart(s);
+                setTrimEnd(e);
+              }}
+            />
             <div className="add-sfx-trim-actions">
               <button
                 type="button"

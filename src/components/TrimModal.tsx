@@ -6,7 +6,6 @@ import {
   createSegment,
   segmentsDuration,
   normalizeSegments,
-  defaultCrop,
   normalizeCrop,
   normalizeBedMusic,
   normalizeHook,
@@ -14,8 +13,6 @@ import {
   cropPreviewStyle,
   cropEdgeBars,
   clampCropZoom,
-  clampCropEdge,
-  MAX_EDGE_CROP,
 } from "@/lib/defaults";
 import {
   MAX_CLIP_DURATION,
@@ -27,7 +24,9 @@ import {
   type TrimSegment,
 } from "@/lib/types";
 import { nextPlaybackAction } from "@/lib/trimPreview";
-import { X, Play, Pause, Check, Plus, Trash2, RotateCcw, Music2, RefreshCw, Zap } from "lucide-react";
+import { RangeRail } from "@/components/RangeRail";
+import { EdgeCropControls } from "@/components/EdgeCropControls";
+import { X, Play, Pause, Check, Plus, Trash2, Music2, RefreshCw, Zap } from "lucide-react";
 
 type MusicFolderItem = {
   id: string;
@@ -524,40 +523,6 @@ export function TrimModal({
     });
   }
 
-  const clampStart = (value: number) => {
-    if (!active) return;
-    const next = Math.max(0, Math.min(value, active.end - 0.2));
-    updateActive({ start: next });
-    const v = videoRef.current;
-    if (!v) return;
-    seekVideo(v, next);
-    setCurrent(next);
-    if (playingRef.current) {
-      // Keep preview running from the new in-point
-      endSeek();
-      void v.play().catch(() => undefined);
-    }
-  };
-
-  const clampEnd = (value: number) => {
-    if (!active) return;
-    const maxEnd = Math.min(
-      dur || value,
-      active.start + (MAX_CLIP_DURATION - (totalSelected - (active.end - active.start)))
-    );
-    const next = Math.max(active.start + 0.2, Math.min(value, maxEnd));
-    updateActive({ end: next });
-    const v = videoRef.current;
-    if (!v) return;
-    // If playhead is past the new out-point, jump back to in-point and keep going
-    if (playingRef.current && v.currentTime >= next - 0.04) {
-      seekVideo(v, active.start);
-      setCurrent(active.start);
-      endSeek();
-      void v.play().catch(() => undefined);
-    }
-  };
-
   const playSegment = async (all: boolean, hookOnly = false) => {
     const v = videoRef.current;
     if (!v) return;
@@ -858,133 +823,9 @@ export function TrimModal({
               </div>
             )}
             <div className="crop-hint">
-              Drag to reposition · scroll to zoom · crop edges → black
-              {" · "}
-              {crop.zoom.toFixed(2)}×
+              Drag to pan · scroll to zoom · {crop.zoom.toFixed(2)}×
               {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
             </div>
-          </div>
-
-          <div className="crop-controls">
-            <div className="trim-row">
-              <label>
-                Crop top {Math.round((normalizeCrop(crop).cropTop || 0) * 100)}% · cover with black
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={MAX_EDGE_CROP}
-                step={0.01}
-                value={clampCropEdge(crop.cropTop ?? 0)}
-                onChange={(e) =>
-                  setCrop((c) =>
-                    normalizeCrop({ ...c, cropTop: clampCropEdge(parseFloat(e.target.value)) })
-                  )
-                }
-              />
-            </div>
-            <div className="trim-row">
-              <label>
-                Crop bottom {Math.round((normalizeCrop(crop).cropBottom || 0) * 100)}% · cover with
-                black
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={MAX_EDGE_CROP}
-                step={0.01}
-                value={clampCropEdge(crop.cropBottom ?? 0)}
-                onChange={(e) =>
-                  setCrop((c) =>
-                    normalizeCrop({ ...c, cropBottom: clampCropEdge(parseFloat(e.target.value)) })
-                  )
-                }
-              />
-            </div>
-            <div className="trim-row">
-              <label>
-                Crop left {Math.round((normalizeCrop(crop).cropLeft || 0) * 100)}% · cover with black
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={MAX_EDGE_CROP}
-                step={0.01}
-                value={clampCropEdge(crop.cropLeft ?? 0)}
-                onChange={(e) =>
-                  setCrop((c) =>
-                    normalizeCrop({ ...c, cropLeft: clampCropEdge(parseFloat(e.target.value)) })
-                  )
-                }
-              />
-            </div>
-            <div className="trim-row">
-              <label>
-                Crop right {Math.round((normalizeCrop(crop).cropRight || 0) * 100)}% · cover with
-                black
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={MAX_EDGE_CROP}
-                step={0.01}
-                value={clampCropEdge(crop.cropRight ?? 0)}
-                onChange={(e) =>
-                  setCrop((c) =>
-                    normalizeCrop({ ...c, cropRight: clampCropEdge(parseFloat(e.target.value)) })
-                  )
-                }
-              />
-            </div>
-            <div className="trim-row">
-              <label>
-                Zoom {crop.zoom.toFixed(2)}×
-                {crop.zoom < 1
-                  ? " · zoomed out"
-                  : crop.zoom > 1
-                    ? " · punched in"
-                    : " · fill frame"}
-              </label>
-              <input
-                type="range"
-                min={0.25}
-                max={3}
-                step={0.05}
-                value={clampCropZoom(crop.zoom)}
-                onChange={(e) =>
-                  setCrop((c) => ({ ...c, zoom: clampCropZoom(parseFloat(e.target.value)) }))
-                }
-              />
-            </div>
-            <div className="trim-row">
-              <label>Pan X {crop.panX.toFixed(0)}% · or drag video</label>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={crop.panX}
-                onChange={(e) => setCrop((c) => ({ ...c, panX: parseFloat(e.target.value) }))}
-              />
-            </div>
-            <div className="trim-row">
-              <label>Pan Y {crop.panY.toFixed(0)}% · or drag video</label>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={crop.panY}
-                onChange={(e) => setCrop((c) => ({ ...c, panY: parseFloat(e.target.value) }))}
-              />
-            </div>
-            <button
-              type="button"
-              className="btn ghost small"
-              onClick={() => setCrop(defaultCrop())}
-            >
-              <RotateCcw size={14} /> Reset crop
-            </button>
           </div>
 
           <div className="segment-tabs">
@@ -1029,51 +870,49 @@ export function TrimModal({
 
           {active && (
             <div className="trim-controls">
-              <div className="trim-row">
-                <label>Start {formatTime(active.start)}</label>
-                <input
-                  type="range"
-                  min={0}
-                  max={sliderMax}
-                  step={0.05}
-                  value={active.start}
-                  onChange={(e) => clampStart(parseFloat(e.target.value))}
-                />
-              </div>
-              <div className="trim-row">
-                <label>End {formatTime(active.end)}</label>
-                <input
-                  type="range"
-                  min={0}
-                  max={sliderMax}
-                  step={0.05}
-                  value={active.end}
-                  onChange={(e) => clampEnd(parseFloat(e.target.value))}
-                />
-              </div>
-              <div className="trim-range-visual">
-                {segments.map((seg) => (
-                  <div
-                    key={seg.id}
-                    className="trim-selected"
-                    style={{
-                      left: `${dur ? (seg.start / dur) * 100 : 0}%`,
-                      width: `${dur ? ((seg.end - seg.start) / dur) * 100 : 0}%`,
-                    }}
-                  />
-                ))}
-                <div
-                  className="trim-playhead"
-                  style={{ left: `${dur ? (current / dur) * 100 : 0}%` }}
-                />
-              </div>
+              <RangeRail
+                min={0}
+                max={sliderMax}
+                start={active.start}
+                end={active.end}
+                playhead={current}
+                markers={segments.filter((s) => s.id !== active.id)}
+                minSpan={0.2}
+                ariaLabel="Clip trim range"
+                formatValue={(v) => formatTime(v)}
+                onChange={({ start, end }) => {
+                  const nextStart = Math.max(0, Math.min(start, end - 0.2));
+                  const room =
+                    MAX_CLIP_DURATION - (totalSelected - (active.end - active.start));
+                  const maxEnd = Math.min(dur || end, nextStart + room);
+                  const nextEnd = Math.max(nextStart + 0.2, Math.min(end, maxEnd));
+                  updateActive({ start: nextStart, end: nextEnd });
+                  const v = videoRef.current;
+                  if (!v) return;
+                  if (Math.abs(nextStart - active.start) > 0.01) {
+                    seekVideo(v, nextStart);
+                    setCurrent(nextStart);
+                  }
+                }}
+              />
               <p className="muted center">
                 Merged length: <strong>{totalSelected.toFixed(2)}s</strong> / {MAX_CLIP_DURATION}s
                 {hookLen > 0 ? ` · +${hookLen.toFixed(1)}s hook` : ""}
-                {ready ? (portrait ? " · 9:16" : " · 16:9") : loadError ? " · preview unavailable" : " · loading…"}
+                {ready
+                  ? portrait
+                    ? " · 9:16"
+                    : " · 16:9"
+                  : loadError
+                    ? " · preview unavailable"
+                    : " · loading…"}
               </p>
             </div>
           )}
+
+          <div className="crop-controls">
+            <p className="field-label">Frame & edge crop</p>
+            <EdgeCropControls crop={crop} onChange={setCrop} />
+          </div>
 
           <div className="trim-hook-block">
             <div className="music-head">
@@ -1100,32 +939,16 @@ export function TrimModal({
             </label>
             {hook ? (
               <div className="trim-controls">
-                <div className="trim-row">
-                  <label>Hook start {formatTime(hook.start)}</label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={sliderMax}
-                    step={0.05}
-                    value={hook.start}
-                    onChange={(e) =>
-                      updateHookRange({ start: parseFloat(e.target.value) })
-                    }
-                  />
-                </div>
-                <div className="trim-row">
-                  <label>Hook end {formatTime(hook.end)}</label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={sliderMax}
-                    step={0.05}
-                    value={hook.end}
-                    onChange={(e) =>
-                      updateHookRange({ end: parseFloat(e.target.value) })
-                    }
-                  />
-                </div>
+                <RangeRail
+                  min={0}
+                  max={sliderMax}
+                  start={hook.start}
+                  end={hook.end}
+                  minSpan={MIN_HOOK_DURATION}
+                  ariaLabel="Hook trim range"
+                  formatValue={(v) => formatTime(v)}
+                  onChange={({ start, end }) => updateHookRange({ start, end })}
+                />
                 <p className="muted center">
                   Hook length: <strong>{hookLen.toFixed(2)}s</strong> / {MAX_HOOK_DURATION}s
                   {" · "}
