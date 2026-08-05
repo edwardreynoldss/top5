@@ -172,7 +172,7 @@ export function TrimModal({
       .map((s) => `${Number(s.start).toFixed(3)}-${Number(s.end).toFixed(3)}`)
       .join("|");
     const cropKey = initialCrop
-      ? `${initialCrop.zoom}:${initialCrop.panX}:${initialCrop.panY}:${initialCrop.cropTop ?? 0}:${initialCrop.cropBottom ?? 0}`
+      ? `${initialCrop.zoom}:${initialCrop.panX}:${initialCrop.panY}:${initialCrop.cropTop ?? 0}:${initialCrop.cropBottom ?? 0}:${initialCrop.cropLeft ?? 0}:${initialCrop.cropRight ?? 0}`
       : "default";
     const bedKey = initialBedMusic?.mediaId
       ? `${initialBedMusic.mediaId}:${initialBedMusic.startAt}:${initialBedMusic.volume}`
@@ -836,6 +836,20 @@ export function TrimModal({
                 aria-hidden
               />
             )}
+            {edgeBars.left > 0.001 && (
+              <div
+                className="crop-edge-bar crop-edge-bar-left"
+                style={{ width: `${edgeBars.left * 100}%` }}
+                aria-hidden
+              />
+            )}
+            {edgeBars.right > 0.001 && (
+              <div
+                className="crop-edge-bar crop-edge-bar-right"
+                style={{ width: `${edgeBars.right * 100}%` }}
+                aria-hidden
+              />
+            )}
             {!ready && !loadError && <div className="trim-loading">Loading preview…</div>}
             {loadError && (
               <div className="trim-loading">
@@ -844,7 +858,7 @@ export function TrimModal({
               </div>
             )}
             <div className="crop-hint">
-              Drag to reposition · scroll to zoom · crop top/bottom → black
+              Drag to reposition · scroll to zoom · crop edges → black
               {" · "}
               {crop.zoom.toFixed(2)}×
               {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
@@ -883,6 +897,41 @@ export function TrimModal({
                 onChange={(e) =>
                   setCrop((c) =>
                     normalizeCrop({ ...c, cropBottom: clampCropEdge(parseFloat(e.target.value)) })
+                  )
+                }
+              />
+            </div>
+            <div className="trim-row">
+              <label>
+                Crop left {Math.round((normalizeCrop(crop).cropLeft || 0) * 100)}% · cover with black
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={MAX_EDGE_CROP}
+                step={0.01}
+                value={clampCropEdge(crop.cropLeft ?? 0)}
+                onChange={(e) =>
+                  setCrop((c) =>
+                    normalizeCrop({ ...c, cropLeft: clampCropEdge(parseFloat(e.target.value)) })
+                  )
+                }
+              />
+            </div>
+            <div className="trim-row">
+              <label>
+                Crop right {Math.round((normalizeCrop(crop).cropRight || 0) * 100)}% · cover with
+                black
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={MAX_EDGE_CROP}
+                step={0.01}
+                value={clampCropEdge(crop.cropRight ?? 0)}
+                onChange={(e) =>
+                  setCrop((c) =>
+                    normalizeCrop({ ...c, cropRight: clampCropEdge(parseFloat(e.target.value)) })
                   )
                 }
               />

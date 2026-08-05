@@ -884,7 +884,7 @@ export function PreviewPhone({
   const cropStyle = crop
     ? cropPreviewStyle(crop, { frameAspect: 9 / 16, videoAspect })
     : undefined;
-  const edgeBars = crop ? cropEdgeBars(crop) : { top: 0, bottom: 0 };
+  const edgeBars = crop ? cropEdgeBars(crop) : { top: 0, bottom: 0, left: 0, right: 0 };
   const titleOverlap = settings.titleOverlap !== false;
   const titleEnabled = title.enabled !== false;
   const previewBarH = !titleEnabled
@@ -955,6 +955,20 @@ export function PreviewPhone({
                 <div
                   className="crop-edge-bar crop-edge-bar-bottom"
                   style={{ height: `${edgeBars.bottom * 100}%` }}
+                  aria-hidden
+                />
+              )}
+              {edgeBars.left > 0.001 && (
+                <div
+                  className="crop-edge-bar crop-edge-bar-left"
+                  style={{ width: `${edgeBars.left * 100}%` }}
+                  aria-hidden
+                />
+              )}
+              {edgeBars.right > 0.001 && (
+                <div
+                  className="crop-edge-bar crop-edge-bar-right"
+                  style={{ width: `${edgeBars.right * 100}%` }}
                   aria-hidden
                 />
               )}

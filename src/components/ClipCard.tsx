@@ -420,7 +420,9 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                       ? ` · ${getClipCrop(clip).zoom.toFixed(1)}× zoom`
                       : ""}
                     {(getClipCrop(clip).cropTop || 0) > 0.001 ||
-                    (getClipCrop(clip).cropBottom || 0) > 0.001
+                    (getClipCrop(clip).cropBottom || 0) > 0.001 ||
+                    (getClipCrop(clip).cropLeft || 0) > 0.001 ||
+                    (getClipCrop(clip).cropRight || 0) > 0.001
                       ? ` · edge cropped`
                       : ""}
                     {clipBed?.fileName ? ` · bed ${clipBed.fileName}` : ""}

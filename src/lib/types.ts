@@ -31,6 +31,16 @@ export interface ClipCrop {
    * Removes letterbox text / watermarks without zooming the kept picture.
    */
   cropBottom?: number;
+  /**
+   * Fraction of the frame width covered with black from the left (0–0.45).
+   * Removes side bars / watermarks without zooming the kept picture.
+   */
+  cropLeft?: number;
+  /**
+   * Fraction of the frame width covered with black from the right (0–0.45).
+   * Removes side bars / watermarks without zooming the kept picture.
+   */
+  cropRight?: number;
 }
 
 /** Optional background bed for a single clip (from music/ folder). */

@@ -117,13 +117,23 @@ export function createSegment(start: number, end: number): TrimSegment {
   return { id: uuidv4(), start, end };
 }
 
-/** Max fraction of height removable from one edge */
+/** Max fraction of height/width removable from one edge */
 export const MAX_EDGE_CROP = 0.45;
 /** Keep at least this much of the source height after top+bottom crop */
 export const MIN_VISIBLE_HEIGHT = 0.2;
+/** Keep at least this much of the source width after left+right crop */
+export const MIN_VISIBLE_WIDTH = 0.2;
 
 export function defaultCrop(): ClipCrop {
-  return { zoom: 1, panX: 50, panY: 50, cropTop: 0, cropBottom: 0 };
+  return {
+    zoom: 1,
+    panX: 50,
+    panY: 50,
+    cropTop: 0,
+    cropBottom: 0,
+    cropLeft: 0,
+    cropRight: 0,
+  };
 }
 
 export function clampCropEdge(value: number) {
@@ -143,18 +153,34 @@ export function normalizeVerticalCrop(cropTop = 0, cropBottom = 0) {
   return { top, bottom, visibleH: Math.max(MIN_VISIBLE_HEIGHT, 1 - top - bottom) };
 }
 
+/** Clamp and rebalance left/right so enough of the frame remains. */
+export function normalizeHorizontalCrop(cropLeft = 0, cropRight = 0) {
+  let left = clampCropEdge(cropLeft);
+  let right = clampCropEdge(cropRight);
+  const maxSum = 1 - MIN_VISIBLE_WIDTH;
+  if (left + right > maxSum) {
+    const scale = maxSum / (left + right);
+    left *= scale;
+    right *= scale;
+  }
+  return { left, right, visibleW: Math.max(MIN_VISIBLE_WIDTH, 1 - left - right) };
+}
+
 /** Merge partial/legacy crop with defaults and clamp all fields. */
 export function normalizeCrop(crop?: Partial<ClipCrop> | null): ClipCrop {
   const d = defaultCrop();
-  const edges = normalizeVerticalCrop(crop?.cropTop ?? 0, crop?.cropBottom ?? 0);
+  const vEdges = normalizeVerticalCrop(crop?.cropTop ?? 0, crop?.cropBottom ?? 0);
+  const hEdges = normalizeHorizontalCrop(crop?.cropLeft ?? 0, crop?.cropRight ?? 0);
   const panX = typeof crop?.panX === "number" && Number.isFinite(crop.panX) ? crop.panX : d.panX;
   const panY = typeof crop?.panY === "number" && Number.isFinite(crop.panY) ? crop.panY : d.panY;
   return {
     zoom: clampCropZoom(crop?.zoom ?? d.zoom),
     panX: Math.max(0, Math.min(100, panX)),
     panY: Math.max(0, Math.min(100, panY)),
-    cropTop: edges.top,
-    cropBottom: edges.bottom,
+    cropTop: vEdges.top,
+    cropBottom: vEdges.bottom,
+    cropLeft: hEdges.left,
+    cropRight: hEdges.right,
   };
 }
 
@@ -512,18 +538,24 @@ export function cropPanTranslatePct(crop: ClipCrop, scale: number) {
 }
 
 /**
- * Top/bottom fractions of the frame to cover with black (edge crop).
+ * Edge fractions of the frame to cover with black (edge crop).
  * Does not change zoom/framing — those bars replace the cut regions.
  */
 export function cropEdgeBars(crop?: Partial<ClipCrop> | null): {
   top: number;
   bottom: number;
+  left: number;
+  right: number;
 } {
   const { top, bottom } = normalizeVerticalCrop(
     crop?.cropTop ?? 0,
     crop?.cropBottom ?? 0
   );
-  return { top, bottom };
+  const { left, right } = normalizeHorizontalCrop(
+    crop?.cropLeft ?? 0,
+    crop?.cropRight ?? 0
+  );
+  return { top, bottom, left, right };
 }
 
 export function cropPreviewStyle(

@@ -41,7 +41,7 @@ interface ExportClip {
   trimStart: number;
   trimEnd: number;
   segments?: { start: number; end: number }[];
-  crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number };
+  crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number; cropLeft?: number; cropRight?: number };
   /** Per-clip gain 0–2; multiplied by body.clipVolume */
   volume?: number;
   /** Playback rate 0.5–2 (1 = normal) */
@@ -237,7 +237,7 @@ async function renderClipSegment(opts: {
   stickerSourceSeek: number;
   fps: number;
   clipVolume: number;
-  crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number };
+  crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number; cropLeft?: number; cropRight?: number };
   titleOverlap?: boolean;
   titleBarHeight?: number;
   /** Optional bed file mixed under this clip only (capped by wallDuration) */
@@ -289,21 +289,30 @@ async function renderClipSegment(opts: {
   const zoom = Math.max(0.25, Math.min(3, crop?.zoom ?? 1));
   const panX = Math.max(0, Math.min(100, crop?.panX ?? 50)) / 100;
   const panY = Math.max(0, Math.min(100, crop?.panY ?? 50)) / 100;
-  // Edge crop: paint black bars over top/bottom of the framed output (no punch-zoom).
-  // IMPORTANT: never emit drawbox with h=0 and t=fill — ffmpeg treats that as
-  // “fill the entire frame”, which blanks the clip (esp. bottom-only crop).
+  // Edge crop: paint black bars over the framed output (no punch-zoom).
+  // IMPORTANT: never emit drawbox with h=0/w=0 and t=fill — ffmpeg treats that as
+  // “fill the entire frame”, which blanks the clip.
   let cropTop = Math.max(0, Math.min(0.45, crop?.cropTop ?? 0));
   let cropBottom = Math.max(0, Math.min(0.45, crop?.cropBottom ?? 0));
+  let cropLeft = Math.max(0, Math.min(0.45, crop?.cropLeft ?? 0));
+  let cropRight = Math.max(0, Math.min(0.45, crop?.cropRight ?? 0));
   const maxEdgeSum = 0.8;
   if (cropTop + cropBottom > maxEdgeSum) {
     const s = maxEdgeSum / (cropTop + cropBottom);
     cropTop *= s;
     cropBottom *= s;
   }
+  if (cropLeft + cropRight > maxEdgeSum) {
+    const s = maxEdgeSum / (cropLeft + cropRight);
+    cropLeft *= s;
+    cropRight *= s;
+  }
   const topPad = titleOverlap ? 0 : Math.max(0, Math.round(titleBarHeight));
   const contentH = Math.max(16, height - topPad);
   const topBarPx = Math.floor((contentH * cropTop) / 2) * 2;
   const botBarPx = Math.floor((contentH * cropBottom) / 2) * 2;
+  const leftBarPx = Math.floor((width * cropLeft) / 2) * 2;
+  const rightBarPx = Math.floor((width * cropRight) / 2) * 2;
   const edgeBarFilters: string[] = [];
   if (topBarPx >= 2) {
     edgeBarFilters.push(`drawbox=x=0:y=0:w=iw:h=${topBarPx}:color=black:t=fill`);
@@ -311,6 +320,14 @@ async function renderClipSegment(opts: {
   if (botBarPx >= 2) {
     edgeBarFilters.push(
       `drawbox=x=0:y=ih-${botBarPx}:w=iw:h=${botBarPx}:color=black:t=fill`
+    );
+  }
+  if (leftBarPx >= 2) {
+    edgeBarFilters.push(`drawbox=x=0:y=0:w=${leftBarPx}:h=ih:color=black:t=fill`);
+  }
+  if (rightBarPx >= 2) {
+    edgeBarFilters.push(
+      `drawbox=x=iw-${rightBarPx}:y=0:w=${rightBarPx}:h=ih:color=black:t=fill`
     );
   }
   const edgeBlackBars = edgeBarFilters.length ? `,${edgeBarFilters.join(",")}` : "";
@@ -820,7 +837,15 @@ export async function POST(req: NextRequest) {
           0,
           Math.min(2, (clip.volume ?? 1) * (body.clipVolume ?? 1))
         ),
-        crop: clip.crop || { zoom: 1, panX: 50, panY: 50, cropTop: 0, cropBottom: 0 },
+        crop: clip.crop || {
+          zoom: 1,
+          panX: 50,
+          panY: 50,
+          cropTop: 0,
+          cropBottom: 0,
+          cropLeft: 0,
+          cropRight: 0,
+        },
         titleOverlap: !titleEnabled ? true : body.titleOverlap !== false,
         titleBarHeight: barH,
         bedMusicPath,

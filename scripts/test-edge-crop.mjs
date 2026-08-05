@@ -5,6 +5,7 @@ import path from "node:path";
 
 const MAX_EDGE_CROP = 0.45;
 const MIN_VISIBLE_HEIGHT = 0.2;
+const MIN_VISIBLE_WIDTH = 0.2;
 
 function clampCropEdge(value) {
   return Math.max(0, Math.min(MAX_EDGE_CROP, Number.isFinite(value) ? value : 0));
@@ -22,26 +23,55 @@ function normalizeVerticalCrop(cropTop = 0, cropBottom = 0) {
   return { top, bottom, visibleH: Math.max(MIN_VISIBLE_HEIGHT, 1 - top - bottom) };
 }
 
+function normalizeHorizontalCrop(cropLeft = 0, cropRight = 0) {
+  let left = clampCropEdge(cropLeft);
+  let right = clampCropEdge(cropRight);
+  const maxSum = 1 - MIN_VISIBLE_WIDTH;
+  if (left + right > maxSum) {
+    const scale = maxSum / (left + right);
+    left *= scale;
+    right *= scale;
+  }
+  return { left, right, visibleW: Math.max(MIN_VISIBLE_WIDTH, 1 - left - right) };
+}
+
 function coverContainFactor(frameAspect, videoAspect) {
   return Math.max(frameAspect / videoAspect, videoAspect / frameAspect);
 }
 
-function cropEdgeBars(cropTop = 0, cropBottom = 0) {
+function cropEdgeBars(cropTop = 0, cropBottom = 0, cropLeft = 0, cropRight = 0) {
   const { top, bottom } = normalizeVerticalCrop(cropTop, cropBottom);
-  return { top, bottom };
+  const { left, right } = normalizeHorizontalCrop(cropLeft, cropRight);
+  return { top, bottom, left, right };
 }
 
-/** Matches export route: only emit bars with even pixel height ≥ 2. */
-function exportEdgeBlackBars(contentH, cropTop = 0, cropBottom = 0) {
+/** Matches export route: only emit bars with even pixel size ≥ 2. */
+function exportEdgeBlackBars(
+  contentW,
+  contentH,
+  cropTop = 0,
+  cropBottom = 0,
+  cropLeft = 0,
+  cropRight = 0
+) {
   const { top, bottom } = normalizeVerticalCrop(cropTop, cropBottom);
+  const { left, right } = normalizeHorizontalCrop(cropLeft, cropRight);
   const topBarPx = Math.floor((contentH * top) / 2) * 2;
   const botBarPx = Math.floor((contentH * bottom) / 2) * 2;
+  const leftBarPx = Math.floor((contentW * left) / 2) * 2;
+  const rightBarPx = Math.floor((contentW * right) / 2) * 2;
   const filters = [];
   if (topBarPx >= 2) {
     filters.push(`drawbox=x=0:y=0:w=iw:h=${topBarPx}:color=black:t=fill`);
   }
   if (botBarPx >= 2) {
     filters.push(`drawbox=x=0:y=ih-${botBarPx}:w=iw:h=${botBarPx}:color=black:t=fill`);
+  }
+  if (leftBarPx >= 2) {
+    filters.push(`drawbox=x=0:y=0:w=${leftBarPx}:h=ih:color=black:t=fill`);
+  }
+  if (rightBarPx >= 2) {
+    filters.push(`drawbox=x=iw-${rightBarPx}:y=0:w=${rightBarPx}:h=ih:color=black:t=fill`);
   }
   return filters.length ? `,${filters.join(",")}` : "";
 }
@@ -52,14 +82,18 @@ function exportEdgeBlackBars(contentH, cropTop = 0, cropBottom = 0) {
   assert.equal(z.top, 0);
   assert.equal(z.bottom, 0);
   assert.equal(z.visibleH, 1);
+  const h = normalizeHorizontalCrop(0, 0);
+  assert.equal(h.left, 0);
+  assert.equal(h.right, 0);
+  assert.equal(h.visibleW, 1);
 }
 
 // Symmetric crop
 {
   const z = normalizeVerticalCrop(0.1, 0.1);
   assert.ok(Math.abs(z.visibleH - 0.8) < 1e-9);
-  assert.equal(z.top, 0.1);
-  assert.equal(z.bottom, 0.1);
+  const h = normalizeHorizontalCrop(0.1, 0.1);
+  assert.ok(Math.abs(h.visibleW - 0.8) < 1e-9);
 }
 
 // Clamp single edge
@@ -67,13 +101,17 @@ function exportEdgeBlackBars(contentH, cropTop = 0, cropBottom = 0) {
   const z = normalizeVerticalCrop(0.9, 0);
   assert.equal(z.top, MAX_EDGE_CROP);
   assert.ok(z.visibleH >= MIN_VISIBLE_HEIGHT);
+  const h = normalizeHorizontalCrop(0.9, 0);
+  assert.equal(h.left, MAX_EDGE_CROP);
+  assert.ok(h.visibleW >= MIN_VISIBLE_WIDTH);
 }
 
 // Rebalance when sum too large
 {
   const z = normalizeVerticalCrop(0.45, 0.45);
   assert.ok(Math.abs(z.top + z.bottom - (1 - MIN_VISIBLE_HEIGHT)) < 1e-9);
-  assert.ok(Math.abs(z.visibleH - MIN_VISIBLE_HEIGHT) < 1e-9);
+  const h = normalizeHorizontalCrop(0.45, 0.45);
+  assert.ok(Math.abs(h.left + h.right - (1 - MIN_VISIBLE_WIDTH)) < 1e-9);
 }
 
 // Edge crop must NOT change cover scale (black bars, not punch-zoom)
@@ -81,25 +119,29 @@ function exportEdgeBlackBars(contentH, cropTop = 0, cropBottom = 0) {
   const landscape = 16 / 9;
   const frame = 9 / 16;
   const cover0 = coverContainFactor(frame, landscape);
-  const bars = cropEdgeBars(0.1, 0.1);
+  const bars = cropEdgeBars(0.1, 0.1, 0.05, 0.05);
   assert.equal(bars.top, 0.1);
-  assert.equal(bars.bottom, 0.1);
+  assert.equal(bars.left, 0.05);
   const cover1 = coverContainFactor(frame, landscape);
   assert.equal(cover1, cover0, "edge crop must not increase cover scale");
 }
 
-// Bottom-only / top-only must not emit a zero-height drawbox
+// Bottom-only / left-only must not emit a zero-size opposite drawbox
 {
-  const bottomOnly = exportEdgeBlackBars(1920, 0, 0.08);
-  assert.ok(!bottomOnly.includes("y=0:"), "bottom-only must not paint a top bar");
+  const bottomOnly = exportEdgeBlackBars(1080, 1920, 0, 0.08, 0, 0);
+  assert.ok(!bottomOnly.includes("y=0:w=iw"), "bottom-only must not paint a top bar");
   assert.match(bottomOnly, /drawbox=x=0:y=ih-152:w=iw:h=152:color=black:t=fill/);
 
-  const topOnly = exportEdgeBlackBars(1920, 0.1, 0);
-  assert.ok(!topOnly.includes("y=ih-"), "top-only must not paint a bottom bar");
-  assert.match(topOnly, /drawbox=x=0:y=0:w=iw:h=192:color=black:t=fill/);
+  const leftOnly = exportEdgeBlackBars(1080, 1920, 0, 0, 0.1, 0);
+  assert.ok(!leftOnly.includes("x=iw-"), "left-only must not paint a right bar");
+  assert.match(leftOnly, /drawbox=x=0:y=0:w=108:h=ih:color=black:t=fill/);
 
-  const tiny = exportEdgeBlackBars(1920, 0.0004, 0);
-  assert.equal(tiny, "", "sub-pixel crop must emit no drawbox (h would be 0)");
+  const rightOnly = exportEdgeBlackBars(1080, 1920, 0, 0, 0, 0.1);
+  assert.ok(!/,drawbox=x=0:y=0:w=\d+:h=ih/.test(rightOnly), "right-only must not paint a left bar");
+  assert.match(rightOnly, /drawbox=x=iw-108:y=0:w=108:h=ih:color=black:t=fill/);
+
+  const tiny = exportEdgeBlackBars(1080, 1920, 0.0004, 0, 0.0004, 0);
+  assert.equal(tiny, "", "sub-pixel crop must emit no drawbox");
 }
 
 function frameMean(rawPath) {
@@ -151,22 +193,17 @@ fs.mkdirSync(outDir, { recursive: true });
   assert.ok(mean < 2, `legacy bottom-only crop should blank (mean=${mean})`);
 }
 
-// Fixed path: bottom-only crop keeps picture visible
+// Fixed paths stay visible
 {
-  const fixRaw = path.join(outDir, "fix.raw");
-  renderFramed(fixRaw, exportEdgeBlackBars(1920, 0, 0.08));
-  const mean = frameMean(fixRaw);
-  assert.ok(mean > 20, `fixed bottom-only crop must not blank (mean=${mean})`);
-}
-
-// Top-only and both edges also stay visible
-{
-  for (const [top, bot, label] of [
-    [0.1, 0, "top-only"],
-    [0.08, 0.08, "both"],
+  for (const [label, expr] of [
+    ["bottom", exportEdgeBlackBars(1080, 1920, 0, 0.08, 0, 0)],
+    ["top", exportEdgeBlackBars(1080, 1920, 0.1, 0, 0, 0)],
+    ["left", exportEdgeBlackBars(1080, 1920, 0, 0, 0.1, 0)],
+    ["right", exportEdgeBlackBars(1080, 1920, 0, 0, 0, 0.1)],
+    ["all", exportEdgeBlackBars(1080, 1920, 0.06, 0.06, 0.06, 0.06)],
   ]) {
     const raw = path.join(outDir, `${label}.raw`);
-    renderFramed(raw, exportEdgeBlackBars(1920, top, bot));
+    renderFramed(raw, expr);
     const mean = frameMean(raw);
     assert.ok(mean > 20, `${label} must not blank (mean=${mean})`);
   }
