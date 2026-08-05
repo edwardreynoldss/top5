@@ -14,6 +14,7 @@ import type {
 import {
   DEFAULT_CLIP_DURATION,
   MAX_CLIP_DURATION,
+  MAX_CLIP_GAP,
   MAX_HOOK_DURATION,
   MIN_HOOK_DURATION,
   OUTPUT_HEIGHT,
@@ -231,8 +232,19 @@ export function createEmptyClip(rank: number): RankClip {
     crop: defaultCrop(),
     volume: 1,
     speed: 1,
+    gapAfter: 0,
     status: "empty",
   };
+}
+
+/** Black hold after a clip (0–MAX_CLIP_GAP). */
+export function clampClipGap(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+  return Math.min(MAX_CLIP_GAP, Math.max(0, Math.round(seconds * 20) / 20));
+}
+
+export function getClipGapAfter(clip: RankClip) {
+  return clampClipGap(typeof clip.gapAfter === "number" ? clip.gapAfter : 0);
 }
 
 /** Built-in factory settings (before any user “Save as default layout”). */
@@ -539,13 +551,14 @@ export function clampCropZoom(zoom: number) {
 export function clipTimelineOffsets(
   clips: RankClip[],
   playOrder: "countdown" | "ascending"
-): { clipId: string; start: number; duration: number }[] {
+): { clipId: string; start: number; duration: number; gapAfter: number }[] {
   const order = getPlaybackOrder(clips, playOrder);
   let t = 0;
-  return order.map((c) => {
+  return order.map((c, i) => {
     const duration = clipPlayDuration(c);
-    const row = { clipId: c.id, start: t, duration };
-    t += duration;
+    const gapAfter = i < order.length - 1 ? getClipGapAfter(c) : 0;
+    const row = { clipId: c.id, start: t, duration, gapAfter };
+    t += duration + gapAfter;
     return row;
   });
 }
@@ -554,7 +567,10 @@ export function totalTimelineDuration(
   clips: RankClip[],
   playOrder: "countdown" | "ascending"
 ) {
-  return getPlaybackOrder(clips, playOrder).reduce((s, c) => s + clipPlayDuration(c), 0);
+  return clipTimelineOffsets(clips, playOrder).reduce(
+    (s, o) => s + o.duration + (o.gapAfter || 0),
+    0
+  );
 }
 
 export function resolveSfxStartAt(
@@ -632,13 +648,36 @@ export function absoluteTimeForClipPlayhead(
 
 export function findClipAtAbsoluteTime(
   absTime: number,
-  offsets: { clipId: string; start: number; duration: number }[]
-) {
+  offsets: { clipId: string; start: number; duration: number; gapAfter?: number }[]
+): {
+  clipId: string;
+  start: number;
+  duration: number;
+  gapAfter: number;
+  inGap: boolean;
+} | null {
   if (offsets.length === 0) return null;
   const t = Math.max(0, absTime);
   for (const o of offsets) {
-    if (t >= o.start && t < o.start + o.duration) return o;
+    const gap = Math.max(0, o.gapAfter || 0);
+    const end = o.start + o.duration + gap;
+    if (t >= o.start && t < end) {
+      return {
+        clipId: o.clipId,
+        start: o.start,
+        duration: o.duration,
+        gapAfter: gap,
+        inGap: t >= o.start + o.duration - 1e-6 && gap > 0,
+      };
+    }
   }
-  return offsets[offsets.length - 1];
+  const last = offsets[offsets.length - 1]!;
+  return {
+    clipId: last.clipId,
+    start: last.start,
+    duration: last.duration,
+    gapAfter: Math.max(0, last.gapAfter || 0),
+    inGap: false,
+  };
 }
 

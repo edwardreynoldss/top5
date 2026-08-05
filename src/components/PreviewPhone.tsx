@@ -9,6 +9,7 @@ import {
   displayWord,
   getClipPlaybackSegments,
   getClipHook,
+  getClipGapAfter,
   getClipCrop,
   cropPreviewStyle,
   cropEdgeBars,
@@ -68,9 +69,16 @@ export function PreviewPhone({
   const [videoAspect, setVideoAspect] = useState(9 / 16);
   const [dropAssetId, setDropAssetId] = useState<string>("");
   const [transitionFlash, setTransitionFlash] = useState(false);
+  /** Black hold after a clip finishes (overlays stay). */
+  const [inGap, setInGap] = useState(false);
+  const [gapElapsed, setGapElapsed] = useState(0);
+  const inGapRef = useRef(false);
+  const gapElapsedRef = useRef(0);
   isPlayingRef.current = isPlaying;
   activeIndexRef.current = activeIndex;
   segIndexRef.current = segIndex;
+  inGapRef.current = inGap;
+  gapElapsedRef.current = gapElapsed;
 
   const sequence = useMemo(
     () => getPlaybackOrder(project.clips, settings.playOrder),
@@ -104,8 +112,12 @@ export function PreviewPhone({
 
   const absTime = useMemo(() => {
     if (!activeClip) return 0;
+    if (inGap) {
+      const hit = offsets.find((o) => o.clipId === activeClip.id);
+      if (hit) return hit.start + hit.duration + gapElapsed;
+    }
     return absoluteTimeForClipPlayhead(activeClip.id, localPlay, offsets);
-  }, [activeClip, localPlay, offsets]);
+  }, [activeClip, localPlay, offsets, inGap, gapElapsed]);
 
   useEffect(() => {
     if (!dropAssetId && assets[0]?.id) setDropAssetId(assets[0].id);
@@ -386,16 +398,65 @@ export function PreviewPhone({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [absTime, isPlaying, placements, assets, offsets, totalDur]);
 
+  // Drive black-gap hold on wall clock (video is paused)
+  useEffect(() => {
+    if (!inGap || !isPlaying || !activeClip) return;
+    const gapSec = getClipGapAfter(activeClip);
+    if (gapSec <= 0.05) {
+      setInGap(false);
+      return;
+    }
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      if (!inGapRef.current || !isPlayingRef.current) return;
+      const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
+      last = now;
+      const next = gapElapsedRef.current + dt;
+      gapElapsedRef.current = next;
+      setGapElapsed(next);
+      if (next >= gapSec - 0.02) {
+        // Finish gap → next clip
+        inGapRef.current = false;
+        gapElapsedRef.current = 0;
+        setInGap(false);
+        setGapElapsed(0);
+        advancingRef.current = true;
+        const seq = sequenceRef.current;
+        const ni = activeIndexRef.current + 1;
+        if (ni < seq.length) {
+          if (settings.transition === "flash") {
+            setTransitionFlash(true);
+            window.setTimeout(() => setTransitionFlash(false), 120);
+          }
+          activeIndexRef.current = ni;
+          segIndexRef.current = 0;
+          setActiveIndex(ni);
+          setSegIndex(0);
+        } else {
+          advancingRef.current = false;
+          onPlayingChange(false);
+        }
+        return;
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inGap, isPlaying, activeClip?.id, activeClip?.gapAfter, settings.transition]);
+
   useEffect(() => {
     const fg = videoRef.current;
     const bg = bgRef.current;
     if (!fg || !activeClip || !activeSeg) return;
+    if (inGap) return;
 
     const segEnd = activeSeg.end;
     const segStart = activeSeg.start;
 
     const completeCurrent = () => {
-      if (scrubbingRef.current || advancingRef.current) return;
+      if (scrubbingRef.current || advancingRef.current || inGapRef.current) return;
       if (!isPlayingRef.current) return;
 
       // Next trim part within the same ranking clip
@@ -419,10 +480,35 @@ export function PreviewPhone({
         return;
       }
 
+      // Optional black hold before the next ranking clip
+      const seq = sequenceRef.current;
+      const cur = seq[activeIndexRef.current];
+      const next = activeIndexRef.current + 1;
+      const gapSec = cur && next < seq.length ? getClipGapAfter(cur) : 0;
+      if (gapSec > 0.05 && !inGapRef.current) {
+        advancingRef.current = true;
+        try {
+          fg.pause();
+          bg?.pause();
+        } catch {
+          // ignore
+        }
+        inGapRef.current = true;
+        gapElapsedRef.current = 0;
+        setInGap(true);
+        setGapElapsed(0);
+        window.setTimeout(() => {
+          advancingRef.current = false;
+        }, 40);
+        return;
+      }
+
       // Advance to next ranking clip
       advancingRef.current = true;
-      const seq = sequenceRef.current;
-      const next = activeIndexRef.current + 1;
+      inGapRef.current = false;
+      gapElapsedRef.current = 0;
+      setInGap(false);
+      setGapElapsed(0);
       if (next < seq.length) {
         if (settings.transition === "flash") {
           setTransitionFlash(true);
@@ -599,8 +685,6 @@ export function PreviewPhone({
     if (!hit) return;
     const clip = sequence.find((c) => c.id === hit.clipId);
     if (!clip) return;
-    const local = clamped - hit.start;
-    const { segIndex: si, sourceTime } = sourceSeekFromLocalPlay(clip, local);
 
     setSelectedClipId(null);
     onPlayingChange(false);
@@ -610,25 +694,64 @@ export function PreviewPhone({
     const idx = sequence.findIndex((c) => c.id === clip.id);
     scrubbingRef.current = true;
     setActiveIndex(Math.max(0, idx));
-    setSegIndex(si);
-    setLocalTime(sourceTime);
 
-    const fg = videoRef.current;
-    const bg = bgRef.current;
-    if (fg && clip.mediaUrl) {
-      if (fg.getAttribute("src") !== clip.mediaUrl) {
-        fg.src = clip.mediaUrl;
-        fg.load();
-        if (bg) {
-          bg.src = clip.mediaUrl;
-          bg.load();
+    if (hit.inGap) {
+      const ge = Math.max(0, clamped - hit.start - hit.duration);
+      inGapRef.current = true;
+      gapElapsedRef.current = ge;
+      setInGap(true);
+      setGapElapsed(ge);
+      const { segIndex: si, sourceTime } = sourceSeekFromLocalPlay(clip, hit.duration);
+      setSegIndex(si);
+      setLocalTime(sourceTime);
+      const fg = videoRef.current;
+      const bg = bgRef.current;
+      if (fg && clip.mediaUrl) {
+        if (fg.getAttribute("src") !== clip.mediaUrl) {
+          fg.src = clip.mediaUrl;
+          fg.load();
+          if (bg) {
+            bg.src = clip.mediaUrl;
+            bg.load();
+          }
+        }
+        try {
+          fg.pause();
+          fg.currentTime = sourceTime;
+          if (bg) {
+            bg.pause();
+            bg.currentTime = sourceTime;
+          }
+        } catch {
+          // ignore
         }
       }
-      try {
-        fg.currentTime = sourceTime;
-        if (bg) bg.currentTime = sourceTime;
-      } catch {
-        // ignore
+    } else {
+      inGapRef.current = false;
+      gapElapsedRef.current = 0;
+      setInGap(false);
+      setGapElapsed(0);
+      const local = Math.min(hit.duration, Math.max(0, clamped - hit.start));
+      const { segIndex: si, sourceTime } = sourceSeekFromLocalPlay(clip, local);
+      setSegIndex(si);
+      setLocalTime(sourceTime);
+      const fg = videoRef.current;
+      const bg = bgRef.current;
+      if (fg && clip.mediaUrl) {
+        if (fg.getAttribute("src") !== clip.mediaUrl) {
+          fg.src = clip.mediaUrl;
+          fg.load();
+          if (bg) {
+            bg.src = clip.mediaUrl;
+            bg.load();
+          }
+        }
+        try {
+          fg.currentTime = sourceTime;
+          if (bg) bg.currentTime = sourceTime;
+        } catch {
+          // ignore
+        }
       }
     }
     window.setTimeout(() => {
@@ -783,7 +906,8 @@ export function PreviewPhone({
                   aria-hidden
                 />
               )}
-              {!mediaReady && <div className="preview-loading">Loading clip…</div>}
+              {inGap && <div className="preview-black-gap" aria-hidden />}
+              {!mediaReady && !inGap && <div className="preview-loading">Loading clip…</div>}
               {transitionFlash && <div className="preview-flash" aria-hidden />}
             </div>
           ) : (

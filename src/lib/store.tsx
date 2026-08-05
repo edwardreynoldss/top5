@@ -486,9 +486,14 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       const assetId = placement?.assetId || assets[0]?.id;
       if (!assetId) return prev;
       const asset = assets.find((a) => a.id === assetId);
+      // Default to the full sample — callers may pass a shorter trimEnd
+      const fullDur =
+        typeof asset?.duration === "number" && asset.duration > 0 ? asset.duration : 1;
       const trimEnd = Math.min(
-        asset?.duration || 1,
-        placement?.trimEnd ?? Math.min(1.5, asset?.duration || 1.5)
+        fullDur,
+        placement?.trimEnd != null && Number.isFinite(placement.trimEnd)
+          ? Math.max(0.05, placement.trimEnd)
+          : fullDur
       );
       const next: SfxPlacement = {
         id,

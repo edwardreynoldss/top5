@@ -6,7 +6,8 @@ export const runtime = "nodejs";
 /** Lightweight list of files in /sfx — durations come from a cached manifest. */
 export async function GET() {
   try {
-    const { items, probed, folder } = await getSfxFolderLibrary({ probeBudgetMs: 200 });
+    // Probe thoroughly — fake 0.5s durations used to cut SFX short
+    const { items, probed, folder } = await getSfxFolderLibrary({ probeBudgetMs: 12000 });
     return NextResponse.json({
       items,
       probed,

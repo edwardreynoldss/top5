@@ -21,6 +21,7 @@ import {
   getClipCrop,
   getClipBedMusic,
   getClipPlaybackSegments,
+  getClipGapAfter,
 } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
 import { useEditor } from "@/lib/store";
@@ -205,6 +206,7 @@ export function TopBar({
                     }
                   : null;
               })(),
+              gapAfter: getClipGapAfter(c),
             };
           }),
           title: titlePayload,

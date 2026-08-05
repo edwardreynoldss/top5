@@ -44,17 +44,40 @@ export function runCommand(
 }
 
 export async function probeDuration(filePath: string): Promise<number> {
-  const { stdout } = await runCommand("ffprobe", [
-    "-v",
-    "error",
-    "-show_entries",
-    "format=duration",
-    "-of",
-    "default=noprint_wrappers=1:nokey=1",
-    filePath,
-  ]);
-  const n = parseFloat(stdout.trim());
-  return Number.isFinite(n) ? n : 0;
+  // Prefer format duration; fall back to stream duration (some files tag format wrong/short).
+  try {
+    const { stdout } = await runCommand("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      filePath,
+    ]);
+    const n = parseFloat(stdout.trim());
+    if (Number.isFinite(n) && n > 0.05) return n;
+  } catch {
+    // try stream below
+  }
+  try {
+    const { stdout } = await runCommand("ffprobe", [
+      "-v",
+      "error",
+      "-select_streams",
+      "a:0",
+      "-show_entries",
+      "stream=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      filePath,
+    ]);
+    const n = parseFloat(stdout.trim());
+    if (Number.isFinite(n) && n > 0.05) return n;
+  } catch {
+    // ignore
+  }
+  return 0;
 }
 
 /** Detect VP9/WebM (or other) streams that carry a real alpha channel. */

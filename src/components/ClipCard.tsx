@@ -13,11 +13,12 @@ import {
   X,
   Volume2,
   Gauge,
+  Square,
 } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import type { ClipBedMusic, ClipCrop, ClipHook, RankClip, TrimSegment } from "@/lib/types";
 import { TrimModal } from "./TrimModal";
-import { DEFAULT_CLIP_DURATION } from "@/lib/types";
+import { DEFAULT_CLIP_DURATION, MAX_CLIP_GAP } from "@/lib/types";
 import {
   createSegment,
   getClipMainSegments,
@@ -32,7 +33,10 @@ import {
   getClipBedMusic,
   getClipVolume,
   getClipSpeed,
+  getClipGapAfter,
+  clampClipGap,
   clampClipSpeed,
+  getPlaybackOrder,
 } from "@/lib/defaults";
 
 function isVideoFile(file: File) {
@@ -266,6 +270,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       speed: 1,
       bedMusic: undefined,
       hook: undefined,
+      gapAfter: 0,
       error: undefined,
     });
     setUrl("");
@@ -276,6 +281,11 @@ export function ClipCard({ clip }: { clip: RankClip }) {
   const clipVol = getClipVolume(clip);
   const clipSpeed = getClipSpeed(clip);
   const clipBed = getClipBedMusic(clip);
+  const clipGap = getClipGapAfter(clip);
+  const playbackOrder = getPlaybackOrder(project.clips, project.settings.playOrder);
+  const playIdx = playbackOrder.findIndex((c) => c.id === clip.id);
+  const canSetGap =
+    clip.status === "ready" && playIdx >= 0 && playIdx < playbackOrder.length - 1;
 
   // New ingest (upload/fetch) uses pendingMeta → fresh trim defaults.
   // Re-edit (scissors) only sets pendingSrc so existing trim/crop are kept.
@@ -414,6 +424,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                       ? ` · edge cropped`
                       : ""}
                     {clipBed?.fileName ? ` · bed ${clipBed.fileName}` : ""}
+                    {clipGap > 0 && canSetGap ? ` · black ${clipGap.toFixed(1)}s after` : ""}
                     {" · drop a new video to replace"}
                   </p>
                 </div>
@@ -453,6 +464,28 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                     }
                   />
                 </label>
+                {canSetGap ? (
+                  <label
+                    className="clip-volume"
+                    title="Black screen after this clip (overlays stay on)"
+                  >
+                    <Square size={14} className="muted-icon" />
+                    <span>{clipGap > 0 ? `${clipGap.toFixed(1)}s` : "off"}</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={MAX_CLIP_GAP}
+                      step={0.25}
+                      value={clipGap}
+                      aria-label={`Black gap after rank ${clip.rank}`}
+                      onChange={(e) =>
+                        updateClip(clip.id, {
+                          gapAfter: clampClipGap(parseFloat(e.target.value) || 0),
+                        })
+                      }
+                    />
+                  </label>
+                ) : null}
               </div>
             </div>
           ) : (

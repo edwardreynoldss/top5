@@ -82,6 +82,11 @@ export interface RankClip {
   bedMusic?: ClipBedMusic;
   /** Optional short teaser played before the main segments (same source). */
   hook?: ClipHook;
+  /**
+   * Black hold (seconds) AFTER this clip, before the next in playback order.
+   * Title/ranks overlays stay; video is black. Ignored for the last ready clip.
+   */
+  gapAfter?: number;
   status: "empty" | "loading" | "ready" | "error";
   error?: string;
 }
@@ -235,6 +240,8 @@ export const MAX_CLIP_DURATION = 60;
 export const MAX_HOOK_DURATION = 3;
 /** Min length of an optional hook teaser (seconds). */
 export const MIN_HOOK_DURATION = 0.5;
+/** Max black hold between clips (seconds). */
+export const MAX_CLIP_GAP = 10;
 
 export const TITLE_FONTS: {
   id: TitleFontId;

@@ -40,6 +40,8 @@ type ManifestFile = {
   bytes: number;
   mtimeMs: number;
   duration: number;
+  /** True only after a successful ffprobe (> 0). Legacy fakes (0.5) lack this. */
+  probedOk?: boolean;
 };
 
 type Manifest = {
@@ -121,15 +123,24 @@ function listAudioFiles(): { fileName: string; bytes: number; mtimeMs: number }[
   return out;
 }
 
+/** Cached duration is trusted only after a real probe. Legacy 0.5 fakes are discarded. */
+function cachedDurationOk(prev: ManifestFile | undefined, f: { bytes: number; mtimeMs: number }) {
+  if (!prev) return false;
+  if (prev.bytes !== f.bytes || prev.mtimeMs !== f.mtimeMs) return false;
+  if (!(prev.duration > 0)) return false;
+  // Old bug wrote 0.5 on probe failure — re-probe those entries
+  if (!prev.probedOk) return false;
+  return true;
+}
+
 /**
  * Fast folder inventory: readdir + cached durations only.
- * Optionally probes a few new/changed files within a short time budget
- * so the UI stays snappy while durations fill in over refreshes.
+ * Probes new/changed/untrusted files within a time budget so durations fill in.
  */
 export async function getSfxFolderLibrary(opts?: {
   probeBudgetMs?: number;
 }): Promise<{ items: SfxFolderItem[]; probed: number; folder: string }> {
-  const probeBudgetMs = opts?.probeBudgetMs ?? 200;
+  const probeBudgetMs = opts?.probeBudgetMs ?? 8000;
   const disk = listAudioFiles();
   const manifest = loadManifest();
   const nextFiles: Record<string, ManifestFile> = {};
@@ -137,16 +148,17 @@ export async function getSfxFolderLibrary(opts?: {
 
   for (const f of disk) {
     const prev = manifest.files[f.fileName];
-    if (prev && prev.bytes === f.bytes && prev.mtimeMs === f.mtimeMs && prev.duration > 0) {
-      nextFiles[f.fileName] = prev;
+    if (cachedDurationOk(prev, f)) {
+      nextFiles[f.fileName] = { ...prev!, probedOk: true };
     } else {
       nextFiles[f.fileName] = {
         fileName: f.fileName,
         bytes: f.bytes,
         mtimeMs: f.mtimeMs,
-        duration: prev && prev.bytes === f.bytes && prev.mtimeMs === f.mtimeMs ? prev.duration : 0,
+        duration: 0,
+        probedOk: false,
       };
-      if (!nextFiles[f.fileName].duration) toProbe.push(f.fileName);
+      toProbe.push(f.fileName);
     }
   }
 
@@ -157,13 +169,16 @@ export async function getSfxFolderLibrary(opts?: {
     const full = path.join(SFX_DIR, fileName);
     try {
       const duration = await probeDuration(full);
-      nextFiles[fileName] = {
-        ...nextFiles[fileName],
-        duration: duration > 0 ? duration : 0.5,
-      };
+      if (duration > 0) {
+        nextFiles[fileName] = {
+          ...nextFiles[fileName],
+          duration,
+          probedOk: true,
+        };
+      }
+      // Leave duration 0 on failure so the next refresh retries — never fake 0.5
       probed += 1;
     } catch {
-      nextFiles[fileName] = { ...nextFiles[fileName], duration: 0.5 };
       probed += 1;
     }
   }

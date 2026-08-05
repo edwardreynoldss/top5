@@ -125,12 +125,35 @@ export function SfxPanel() {
             mediaId: it.mediaId,
             mediaUrl: it.mediaUrl,
             fileName: pref?.fileName?.trim() || it.fileName,
-            duration: it.duration || 0.5,
+            duration: it.duration > 0 ? it.duration : 0,
             volume: pref?.volume ?? 1,
           };
         }
       );
       setFolderItems(items);
+
+      // Heal assets/placements stuck on the old fake 0.5s (or any shorter probed length)
+      for (const it of items) {
+        if (!(it.duration > 0.05)) continue;
+        const existing = project.sfxAssets.find(
+          (a) => a.id === it.id || a.mediaId === it.mediaId
+        );
+        if (!existing) continue;
+        const oldDur = existing.duration || 0;
+        if (Math.abs(oldDur - it.duration) < 0.04) continue;
+        updateSfxAsset(existing.id, { duration: it.duration, mediaUrl: it.mediaUrl });
+        for (const p of project.sfxPlacements || []) {
+          if (p.assetId !== existing.id) continue;
+          // Expand hits that used the full (wrong) old length or the classic 0.5 fake
+          const usedFullOld =
+            Math.abs(p.trimEnd - oldDur) < 0.06 ||
+            (oldDur > 0 && oldDur <= 0.55 && p.trimEnd <= 0.55);
+          if (usedFullOld && p.trimEnd < it.duration - 0.04) {
+            updateSfxPlacement(p.id, { trimEnd: it.duration });
+          }
+        }
+      }
+
       if (typeof data.folder === "string" && data.folder) {
         const parts = data.folder.replace(/\\/g, "/").split("/");
         setFolderPath(parts.slice(-2).join("/") || "sfx/");
@@ -180,7 +203,7 @@ export function SfxPanel() {
         clipId: null,
         offsetInClip: 0,
         trimStart: 0,
-        trimEnd: Math.min(1.5, data.duration || 1.5),
+        trimEnd: data.duration > 0 ? data.duration : 1,
         volume: 1,
       });
       setLibraryTick((n) => n + 1);
@@ -193,13 +216,14 @@ export function SfxPanel() {
 
   function addFromLibrary(asset: SfxAsset) {
     addSfxAsset(asset);
+    const dur = asset.duration > 0 ? asset.duration : 1;
     addSfxPlacement({
       assetId: asset.id,
       startAt: 0,
       clipId: null,
       offsetInClip: 0,
       trimStart: 0,
-      trimEnd: Math.min(1.5, asset.duration || 1.5),
+      trimEnd: dur,
       volume: 1,
     });
   }

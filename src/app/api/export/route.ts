@@ -52,6 +52,8 @@ interface ExportClip {
     startAt?: number;
     volume?: number;
   } | null;
+  /** Black hold (seconds) after this clip before the next — overlays stay */
+  gapAfter?: number;
 }
 
 interface ExportBody {
@@ -459,6 +461,114 @@ async function renderClipSegment(opts: {
   }
 }
 
+/** Black hold between clips — title/ranks stay on; sticker if it overlaps the gap. */
+async function renderBlackGapSegment(opts: {
+  output: string;
+  duration: number;
+  width: number;
+  height: number;
+  fps: number;
+  titleOverlay: string;
+  ranksOverlay: string | null;
+  stickerPath: string | null;
+  stickerScale: number;
+  stickerSpeed: number;
+  stickerDelay: number;
+  stickerSourceSeek: number;
+}) {
+  const {
+    output,
+    duration,
+    width,
+    height,
+    fps,
+    titleOverlay,
+    ranksOverlay,
+    stickerPath,
+    stickerScale,
+    stickerSpeed,
+    stickerDelay,
+    stickerSourceSeek,
+  } = opts;
+  const wallDuration = Math.max(0.05, duration);
+  const scale = Math.max(0.15, Math.min(1.5, stickerScale || 1));
+  const speed = Math.max(0.25, Math.min(3, stickerSpeed || 1));
+  const delay = Math.max(0, stickerDelay || 0);
+  const fitH = Math.max(16, Math.round(height * 0.45));
+
+  // Inputs: 0=black, 1=title, [2=ranks], [2|3=sticker], last=silence
+  const args: string[] = [
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `color=c=black:s=${width}x${height}:r=${fps}:d=${wallDuration}`,
+    "-loop",
+    "1",
+    "-t",
+    String(wallDuration),
+    "-i",
+    titleOverlay,
+  ];
+  let next = 2;
+  const ranksIdx = ranksOverlay ? next++ : -1;
+  if (ranksOverlay) {
+    args.push("-loop", "1", "-t", String(wallDuration), "-i", ranksOverlay);
+  }
+  const stickerIdx = stickerPath ? next++ : -1;
+  if (stickerPath) {
+    if (stickerSourceSeek > 0.01) args.push("-ss", String(stickerSourceSeek));
+    if (stickerPath.toLowerCase().endsWith(".webm")) args.push("-c:v", "libvpx-vp9");
+    args.push("-an", "-i", stickerPath);
+  }
+  const silenceIdx = next;
+  args.push("-f", "lavfi", "-t", String(wallDuration), "-i", "anullsrc=r=44100:cl=stereo");
+
+  const stickFilter =
+    stickerIdx >= 0
+      ? `[${stickerIdx}:v]format=yuva420p,fps=${fps},` +
+        `scale=${width}:${fitH}:force_original_aspect_ratio=decrease,` +
+        `scale=iw*${scale}:ih*${scale},` +
+        `setpts=PTS/${speed}+${delay}/TB[stk];`
+      : "";
+
+  let last = "base";
+  const parts: string[] = [`[0:v]setsar=1,format=yuv420p[base]`];
+  if (ranksIdx >= 0) {
+    parts.push(`[${last}][${ranksIdx}:v]overlay=0:0:shortest=1[withranks]`);
+    last = "withranks";
+  }
+  parts.push(`[${last}][1:v]overlay=0:0:shortest=1[withtitle]`);
+  last = "withtitle";
+  if (stickerIdx >= 0) {
+    parts.push(
+      `[${last}][stk]overlay=x=(W-w)/2:y=H-h:enable='gte(t\\,${delay.toFixed(3)})':eof_action=pass:format=rgb,format=yuv420p[vout]`
+    );
+  } else {
+    parts.push(`[${last}]format=yuv420p[vout]`);
+  }
+
+  args.push(
+    "-filter_complex",
+    `${stickFilter}${parts.join(";")}`,
+    "-map",
+    "[vout]",
+    "-map",
+    `${silenceIdx}:a`,
+    ...H264_COMPAT,
+    ...AAC_COMPAT,
+    "-shortest",
+    "-t",
+    String(wallDuration),
+    "-r",
+    String(fps),
+    ...MP4_FASTSTART,
+    output
+  );
+
+  await runCommand("ffmpeg", args);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const tools = whichTools();
@@ -713,6 +823,42 @@ export async function POST(req: NextRequest) {
         segmentPaths.push(zoomed);
       } else {
         segmentPaths.push(seg);
+      }
+
+      // Black hold between clips (overlays from this clip's progressive ranks stay on)
+      const gapAfter = Math.max(
+        0,
+        Math.min(10, Number.isFinite(clip.gapAfter) ? Number(clip.gapAfter) : 0)
+      );
+      if (gapAfter > 0.05 && i < ordered.length - 1) {
+        const gapPath = path.join(jobDir, `gap-${i}.mp4`);
+        const gapAbsStart = timelineCursor;
+        const gapAbsEnd = timelineCursor + gapAfter;
+        const stickerOverlapsGap =
+          stickerEnabled &&
+          stickerAbsEnd > gapAbsStart + 0.01 &&
+          stickerStartAt < gapAbsEnd - 0.01;
+        const gapStickerDelay = Math.max(0, stickerStartAt - gapAbsStart);
+        const gapStickerSeek =
+          gapAbsStart > stickerStartAt
+            ? Math.max(0, (gapAbsStart - stickerStartAt) * Math.max(0.25, Math.min(3, stickerSpeed)))
+            : 0;
+        await renderBlackGapSegment({
+          output: gapPath,
+          duration: gapAfter,
+          width,
+          height,
+          fps,
+          titleOverlay,
+          ranksOverlay: body.showRankList ? ranksOverlay : null,
+          stickerPath: stickerOverlapsGap ? stickerPath : null,
+          stickerScale,
+          stickerSpeed,
+          stickerDelay: gapStickerDelay,
+          stickerSourceSeek: gapStickerSeek,
+        });
+        segmentPaths.push(gapPath);
+        timelineCursor += gapAfter;
       }
     }
 

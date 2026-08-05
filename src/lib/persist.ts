@@ -6,6 +6,7 @@ import {
   normalizeHook,
   createSegment,
   clampClipSpeed,
+  clampClipGap,
 } from "./defaults";
 import type { EditorProject, ProjectSettings, RankClip } from "./types";
 import { DEFAULT_CLIP_DURATION } from "./types";
@@ -134,6 +135,9 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
     hook: normalizeHook(
       clip.hook,
       typeof clip.duration === "number" && clip.duration > 0 ? clip.duration : Infinity
+    ),
+    gapAfter: clampClipGap(
+      typeof clip.gapAfter === "number" && Number.isFinite(clip.gapAfter) ? clip.gapAfter : 0
     ),
     // Don't restore blob: URLs; keep server media paths
     mediaUrl:

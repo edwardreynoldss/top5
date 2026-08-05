@@ -36,7 +36,8 @@ export function ClipList() {
       <div className="panel-header">
         <h2>Clips</h2>
         <p className="muted">
-          Drag to reorder · drop a video onto a clip · or paste a link / upload
+          Drag to reorder · drop a video onto a clip · black gap slider adds a black
+          screen between clips (overlays stay)
         </p>
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>

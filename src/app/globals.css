@@ -1355,6 +1355,14 @@ a {
   min-width: 9.5rem;
 }
 
+.clip-gap-hint {
+  margin: 0.15rem 0 0.35rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  border-left: 2px solid rgba(200, 245, 66, 0.35);
+}
+
 .clip-volume {
   display: grid;
   grid-template-columns: auto auto 1fr;
@@ -1654,6 +1662,14 @@ a {
 
 .preview-video-area .crop-edge-bar {
   z-index: 5;
+}
+
+.preview-black-gap {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  z-index: 6;
+  pointer-events: none;
 }
 
 .crop-hint {
