@@ -289,7 +289,9 @@ async function renderClipSegment(opts: {
   const zoom = Math.max(0.25, Math.min(3, crop?.zoom ?? 1));
   const panX = Math.max(0, Math.min(100, crop?.panX ?? 50)) / 100;
   const panY = Math.max(0, Math.min(100, crop?.panY ?? 50)) / 100;
-  // Edge crop: paint black bars over top/bottom of the framed output (no punch-zoom)
+  // Edge crop: paint black bars over top/bottom of the framed output (no punch-zoom).
+  // IMPORTANT: never emit drawbox with h=0 and t=fill — ffmpeg treats that as
+  // “fill the entire frame”, which blanks the clip (esp. bottom-only crop).
   let cropTop = Math.max(0, Math.min(0.45, crop?.cropTop ?? 0));
   let cropBottom = Math.max(0, Math.min(0.45, crop?.cropBottom ?? 0));
   const maxEdgeSum = 0.8;
@@ -298,13 +300,20 @@ async function renderClipSegment(opts: {
     cropTop *= s;
     cropBottom *= s;
   }
-  const edgeBlackBars =
-    cropTop > 0.0005 || cropBottom > 0.0005
-      ? `,drawbox=x=0:y=0:w=iw:h=floor(ih*${cropTop}/2)*2:color=black:t=fill` +
-        `,drawbox=x=0:y=ih-floor(ih*${cropBottom}/2)*2:w=iw:h=floor(ih*${cropBottom}/2)*2:color=black:t=fill`
-      : "";
   const topPad = titleOverlap ? 0 : Math.max(0, Math.round(titleBarHeight));
   const contentH = Math.max(16, height - topPad);
+  const topBarPx = Math.floor((contentH * cropTop) / 2) * 2;
+  const botBarPx = Math.floor((contentH * cropBottom) / 2) * 2;
+  const edgeBarFilters: string[] = [];
+  if (topBarPx >= 2) {
+    edgeBarFilters.push(`drawbox=x=0:y=0:w=iw:h=${topBarPx}:color=black:t=fill`);
+  }
+  if (botBarPx >= 2) {
+    edgeBarFilters.push(
+      `drawbox=x=0:y=ih-${botBarPx}:w=iw:h=${botBarPx}:color=black:t=fill`
+    );
+  }
+  const edgeBlackBars = edgeBarFilters.length ? `,${edgeBarFilters.join(",")}` : "";
   const scale = Math.max(0.15, Math.min(1.5, stickerScale || 1));
   const speed = Math.max(0.25, Math.min(3, stickerSpeed || 1));
   const delay = Math.max(0, stickerDelay || 0);
