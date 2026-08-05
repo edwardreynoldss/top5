@@ -162,6 +162,7 @@ export async function POST(req: NextRequest) {
     let mediaExt = ext;
     if (ext !== "mp4") {
       const mp4Path = mediaPath(id, "mp4");
+      // Ultrafast is enough — the editor export re-encodes to the project look.
       await runCommand("ffmpeg", [
         "-y",
         "-i",
@@ -169,7 +170,7 @@ export async function POST(req: NextRequest) {
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        "ultrafast",
         "-crf",
         "23",
         "-c:a",

@@ -80,6 +80,44 @@ export async function probeDuration(filePath: string): Promise<number> {
   return 0;
 }
 
+/** Video stream pix_fmt / profile — used to skip redundant final re-encodes. */
+export async function probeVideoCompat(filePath: string): Promise<{
+  pixFmt: string;
+  profile: string;
+}> {
+  const { stdout } = await runCommand("ffprobe", [
+    "-v",
+    "error",
+    "-select_streams",
+    "v:0",
+    "-show_entries",
+    "stream=pix_fmt,profile",
+    "-of",
+    "json",
+    filePath,
+  ]);
+  const parsed = JSON.parse(stdout) as {
+    streams?: Array<{ pix_fmt?: string; profile?: string }>;
+  };
+  const stream = parsed.streams?.[0];
+  return {
+    pixFmt: (stream?.pix_fmt || "").toLowerCase(),
+    profile: stream?.profile || "",
+  };
+}
+
+/** True when the file is already widely playable H.264 (yuv420p, not 4:4:4). */
+export async function isCompatH264(filePath: string): Promise<boolean> {
+  try {
+    const { pixFmt, profile } = await probeVideoCompat(filePath);
+    if (pixFmt !== "yuv420p") return false;
+    if (/4:4:4/i.test(profile)) return false;
+    return /high|main|baseline/i.test(profile);
+  } catch {
+    return false;
+  }
+}
+
 /** Detect VP9/WebM (or other) streams that carry a real alpha channel. */
 export async function probeHasAlpha(filePath: string): Promise<boolean> {
   try {

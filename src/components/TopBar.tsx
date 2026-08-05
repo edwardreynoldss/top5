@@ -142,10 +142,9 @@ export function TopBar({
       const planned = planChannelExport(channelState, project.exportSlot);
       setChannelState(planned.state);
 
-      const restoredAssets = [];
-      for (const asset of project.sfxAssets || []) {
-        restoredAssets.push(await ensureSfxOnServer(asset));
-      }
+      const restoredAssets = await Promise.all(
+        (project.sfxAssets || []).map((asset) => ensureSfxOnServer(asset))
+      );
       const assetById = new Map(restoredAssets.map((a) => [a.id, a]));
 
       let t = 0;

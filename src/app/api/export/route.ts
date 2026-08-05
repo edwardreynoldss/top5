@@ -4,7 +4,7 @@ import { existsSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
 import { ensureDirs, EXPORT_DIR, UPLOAD_DIR, exportPath, publishChannelExport, publishProjectExport } from "@/lib/paths";
 import { channelSlug } from "@/lib/channels";
-import { runCommand } from "@/lib/ffmpeg";
+import { isCompatH264, runCommand } from "@/lib/ffmpeg";
 import { ensurePillow, whichTools } from "@/lib/bins";
 import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
 import { resolveMusicDropFile, isMusicDropMediaId } from "@/lib/musicFolder";
@@ -150,35 +150,46 @@ function resolveMedia(mediaId: string) {
   throw new Error(`Missing media: ${clean}`);
 }
 
-/** Cut multiple ranges from one source and concat into a single file */
+/**
+ * Cut multiple ranges from one source and concat into a single file.
+ * Parts use ultrafast (accurate cuts) — renderClipSegment re-encodes anyway.
+ * Segment cuts run in parallel.
+ */
 async function buildMergedSource(
   input: string,
   segments: { start: number; end: number }[],
   outPath: string,
   fps: number
 ) {
-  const parts: string[] = [];
   const dir = path.dirname(outPath);
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    const dur = Math.max(0.2, seg.end - seg.start);
-    const part = path.join(dir, `merge-part-${path.basename(outPath)}-${i}.mp4`);
-    await runCommand("ffmpeg", [
-      "-y",
-      "-ss",
-      String(Math.max(0, seg.start)),
-      "-t",
-      String(dur),
-      "-i",
-      input,
-      ...H264_COMPAT,
-      "-r",
-      String(fps),
-      ...AAC_COMPAT,
-      part,
-    ]);
-    parts.push(part);
-  }
+  const parts = await Promise.all(
+    segments.map(async (seg, i) => {
+      const dur = Math.max(0.2, seg.end - seg.start);
+      const part = path.join(dir, `merge-part-${path.basename(outPath)}-${i}.mp4`);
+      await runCommand("ffmpeg", [
+        "-y",
+        "-ss",
+        String(Math.max(0, seg.start)),
+        "-t",
+        String(dur),
+        "-i",
+        input,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "20",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        String(fps),
+        ...AAC_COMPAT,
+        part,
+      ]);
+      return part;
+    })
+  );
   if (parts.length === 1) {
     await runCommand("ffmpeg", ["-y", "-i", parts[0], "-c", "copy", outPath]);
     return;
@@ -233,6 +244,8 @@ async function renderClipSegment(opts: {
   bedMusicPath?: string | null;
   bedStartAt?: number;
   bedVolume?: number;
+  /** Bake flash/zoom outro into this encode (avoids a second full pass). */
+  endTransition?: { type: "flash" | "zoom"; duration: number } | null;
 }) {
   const {
     input,
@@ -261,6 +274,7 @@ async function renderClipSegment(opts: {
     bedMusicPath = null,
     bedStartAt = 0,
     bedVolume = 0.35,
+    endTransition = null,
   } = opts;
   void _stickerEnd;
 
@@ -335,14 +349,28 @@ async function renderClipSegment(opts: {
     }
     parts.push(`[${last}][1:v]overlay=0:0:shortest=1[withtitle]`);
     last = "withtitle";
+    const outLabel = endTransition ? "prefx" : "vout";
     if (stickerIdx >= 0) {
       // Start at delay; do NOT hard-end on probed duration (cuts the outro).
       // eof_action=pass lets the WebM finish its transition-out naturally.
       parts.push(
-        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:enable='gte(t\\,${delay.toFixed(3)})':eof_action=pass:format=rgb,format=yuv420p[vout]`
+        `[${last}][stk]overlay=x=(W-w)/2:y=H-h:enable='gte(t\\,${delay.toFixed(3)})':eof_action=pass:format=rgb,format=yuv420p[${outLabel}]`
       );
     } else {
-      parts.push(`[${last}]format=yuv420p[vout]`);
+      parts.push(`[${last}]format=yuv420p[${outLabel}]`);
+    }
+    if (endTransition?.type === "flash") {
+      const td = Math.min(0.35, Math.max(0.05, endTransition.duration));
+      const st = Math.max(0, wallDuration - td);
+      parts.push(
+        `[prefx]fade=t=out:st=${st}:d=${td}:color=white,format=yuv420p[vout]`
+      );
+    } else if (endTransition?.type === "zoom") {
+      const td = Math.min(0.4, Math.max(0.05, endTransition.duration));
+      const st = Math.max(0, wallDuration - td);
+      parts.push(
+        `[prefx]zoompan=z='if(gte(time,${st}),1+0.35*(time-(${st}))/${td},1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps},format=yuv420p[vout]`
+      );
     }
     return parts.join(";");
   }
@@ -756,6 +784,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      const wantsEndFx =
+        (body.transition === "flash" || body.transition === "zoom") &&
+        i < ordered.length - 1;
       await renderClipSegment({
         input,
         output: seg,
@@ -786,44 +817,16 @@ export async function POST(req: NextRequest) {
         bedMusicPath,
         bedStartAt,
         bedVolume,
+        endTransition: wantsEndFx
+          ? {
+              type: body.transition as "flash" | "zoom",
+              duration: body.transitionDuration || 0.25,
+            }
+          : null,
       });
 
       timelineCursor += renderWallDuration;
-
-      // Optional flash/zoom transition frames baked as a short cut — flash via fade
-      if (body.transition === "flash" && i < ordered.length - 1) {
-        const flashed = path.join(jobDir, `seg-${i}-flash.mp4`);
-        const td = Math.min(0.35, body.transitionDuration || 0.25);
-        await runCommand("ffmpeg", [
-          "-y",
-          "-i",
-          seg,
-          "-vf",
-          `fade=t=out:st=${Math.max(0, renderWallDuration - td)}:d=${td}:color=white,format=yuv420p`,
-          ...H264_COMPAT,
-          ...AAC_COMPAT,
-          ...MP4_FASTSTART,
-          flashed,
-        ]);
-        segmentPaths.push(flashed);
-      } else if (body.transition === "zoom" && i < ordered.length - 1) {
-        const zoomed = path.join(jobDir, `seg-${i}-zoom.mp4`);
-        const td = Math.min(0.4, body.transitionDuration || 0.25);
-        await runCommand("ffmpeg", [
-          "-y",
-          "-i",
-          seg,
-          "-vf",
-          `zoompan=z='if(gte(time,${Math.max(0, renderWallDuration - td)}),1+0.35*(time-(${Math.max(0, renderWallDuration - td)}))/${td},1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${width}x${height}:fps=${fps},format=yuv420p`,
-          ...H264_COMPAT,
-          ...AAC_COMPAT,
-          ...MP4_FASTSTART,
-          zoomed,
-        ]);
-        segmentPaths.push(zoomed);
-      } else {
-        segmentPaths.push(seg);
-      }
+      segmentPaths.push(seg);
 
       // Black hold between clips (overlays from this clip's progressive ranks stay on)
       const gapAfter = Math.max(
@@ -891,18 +894,29 @@ export async function POST(req: NextRequest) {
     const needsMix = hasMusic || sfxList.length > 0;
 
     if (!needsMix) {
-      // Always re-encode final for yuv420p / High profile (copy can keep unplayable 4:4:4)
+      // Segments already use H264_COMPAT (yuv420p High). Prefer remux — huge win.
       await runCommand("ffmpeg", [
         "-y",
         "-i",
         concatOut,
-        "-vf",
-        "format=yuv420p",
-        ...H264_COMPAT,
-        ...AAC_COMPAT,
+        "-c",
+        "copy",
         ...MP4_FASTSTART,
         finalOut,
       ]);
+      if (!(await isCompatH264(finalOut))) {
+        await runCommand("ffmpeg", [
+          "-y",
+          "-i",
+          concatOut,
+          "-vf",
+          "format=yuv420p",
+          ...H264_COMPAT,
+          ...AAC_COMPAT,
+          ...MP4_FASTSTART,
+          finalOut,
+        ]);
+      }
     } else {
       const args: string[] = ["-y", "-i", concatOut];
       let inputIdx = 1;
@@ -940,6 +954,7 @@ export async function POST(req: NextRequest) {
         `${mixInputs.join("")}amix=inputs=${n}:duration=first:dropout_transition=0:normalize=0[aout]`
       );
 
+      // Keep segment video bitstream; only re-encode the mixed audio.
       args.push(
         "-filter_complex",
         filterParts.join(";"),
@@ -947,7 +962,8 @@ export async function POST(req: NextRequest) {
         "0:v",
         "-map",
         "[aout]",
-        ...H264_COMPAT,
+        "-c:v",
+        "copy",
         ...AAC_COMPAT,
         "-shortest",
         ...MP4_FASTSTART,
@@ -957,7 +973,7 @@ export async function POST(req: NextRequest) {
       try {
         await runCommand("ffmpeg", args);
       } catch {
-        // If base has no audio, synthesize silence bed then mix
+        // If base has no audio, synthesize silence bed then mix (still copy video)
         const silentArgs: string[] = [
           "-y",
           "-i",
@@ -993,20 +1009,38 @@ export async function POST(req: NextRequest) {
         parts.push(
           `${mixes.join("")}amix=inputs=${mixes.length}:duration=first:dropout_transition=0:normalize=0[aout]`
         );
-        silentArgs.push(
+        const silentFilter = parts.join(";");
+        const silentMap = [
           "-filter_complex",
-          parts.join(";"),
+          silentFilter,
           "-map",
           "0:v",
           "-map",
           "[aout]",
-          ...H264_COMPAT,
-          ...AAC_COMPAT,
-          "-shortest",
-          ...MP4_FASTSTART,
-          finalOut
-        );
-        await runCommand("ffmpeg", silentArgs);
+        ] as const;
+        try {
+          await runCommand("ffmpeg", [
+            ...silentArgs,
+            ...silentMap,
+            "-c:v",
+            "copy",
+            ...AAC_COMPAT,
+            "-shortest",
+            ...MP4_FASTSTART,
+            finalOut,
+          ]);
+        } catch {
+          // Last resort: full re-encode (rare codec/container edge cases)
+          await runCommand("ffmpeg", [
+            ...silentArgs,
+            ...silentMap,
+            ...H264_COMPAT,
+            ...AAC_COMPAT,
+            "-shortest",
+            ...MP4_FASTSTART,
+            finalOut,
+          ]);
+        }
       }
     }
 

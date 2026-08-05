@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import path from "path";
-import { copyFile, writeFile } from "fs/promises";
+import { copyFile, unlink, writeFile } from "fs/promises";
 import { ensureDirs, mediaPath, UPLOAD_DIR } from "@/lib/paths";
 import { probeDuration, probeHasAlpha, runCommand } from "@/lib/ffmpeg";
 import { whichTools } from "@/lib/bins";
@@ -9,6 +9,14 @@ import { channelSlug, channelStickerMediaId } from "@/lib/channels";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+async function cleanupRaw(rawPath: string) {
+  try {
+    await unlink(rawPath);
+  } catch {
+    // ignore
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,7 +54,6 @@ export async function POST(req: NextRequest) {
       ? rawExt
       : "mp4";
     const rawPath = mediaPath(id, `raw.${safeExt}`);
-    await writeFile(rawPath, buf);
 
     // Transparent sticker / overlay: keep WebM (VP9+alpha) — never flatten to H.264
     if (purpose === "sticker") {
@@ -59,6 +66,7 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
+      await writeFile(rawPath, buf);
       // Per-channel stickers use a stable filename so re-uploads replace in place
       const channel = String(form.get("channelSlug") || "").trim();
       const mediaId = channel
@@ -71,8 +79,11 @@ export async function POST(req: NextRequest) {
       } catch {
         await copyFile(rawPath, outPath);
       }
-      const hasAlpha = await probeHasAlpha(outPath);
-      const duration = await probeDuration(outPath);
+      await cleanupRaw(rawPath);
+      const [hasAlpha, duration] = await Promise.all([
+        probeHasAlpha(outPath),
+        probeDuration(outPath),
+      ]);
       return NextResponse.json({
         mediaId,
         mediaUrl: `/api/media/${mediaId}`,
@@ -88,51 +99,42 @@ export async function POST(req: NextRequest) {
     const outPath = mediaPath(id, isAudio ? (safeExt === "mp3" ? "mp3" : "m4a") : "mp4");
 
     if (isAudio) {
-      await runCommand("ffmpeg", [
-        "-y",
-        "-i",
-        rawPath,
-        "-c:a",
-        safeExt === "mp3" ? "libmp3lame" : "aac",
-        "-b:a",
-        "192k",
-        outPath,
-      ]);
-    } else if (safeExt === "mp4") {
-      // Fast path: remux only (no re-encode) — much faster for large uploads
-      try {
+      await writeFile(rawPath, buf);
+      if (safeExt === "mp3") {
+        // Already mp3 — prefer stream copy (SFX restore uploads)
+        try {
+          await runCommand("ffmpeg", ["-y", "-i", rawPath, "-c", "copy", outPath]);
+        } catch {
+          await runCommand("ffmpeg", [
+            "-y",
+            "-i",
+            rawPath,
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "192k",
+            outPath,
+          ]);
+        }
+      } else {
         await runCommand("ffmpeg", [
           "-y",
           "-i",
           rawPath,
-          "-c",
-          "copy",
-          "-movflags",
-          "+faststart",
-          outPath,
-        ]);
-      } catch {
-        // Fallback if codecs aren't browser-friendly
-        await runCommand("ffmpeg", [
-          "-y",
-          "-i",
-          rawPath,
-          "-c:v",
-          "libx264",
-          "-preset",
-          "ultrafast",
-          "-crf",
-          "23",
           "-c:a",
           "aac",
           "-b:a",
-          "128k",
-          "-movflags",
-          "+faststart",
+          "192k",
           outPath,
         ]);
       }
+      await cleanupRaw(rawPath);
+    } else if (safeExt === "mp4") {
+      // Fastest path: keep the uploaded MP4 bytes (no remux). Preview uses Range
+      // requests; export re-encodes to the project format anyway.
+      await writeFile(outPath, buf);
     } else {
+      await writeFile(rawPath, buf);
       // Non-mp4: ultrafast transcode
       await runCommand("ffmpeg", [
         "-y",
@@ -152,6 +154,7 @@ export async function POST(req: NextRequest) {
         "+faststart",
         outPath,
       ]);
+      await cleanupRaw(rawPath);
     }
 
     const duration = await probeDuration(outPath);
