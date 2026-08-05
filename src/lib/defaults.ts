@@ -392,15 +392,24 @@ export function getClipCrop(clip: RankClip): ClipCrop {
   return normalizeCrop(clip.crop);
 }
 
-/** Per-clip volume (0–2), default 1 */
+/**
+ * UI volume of 100% maps to this real gain on import/playback.
+ * Keeps the clip volume slider at “100%” while sounding ~⅕ as loud as before.
+ */
+export const CLIP_VOLUME_UI_SCALE = 0.2;
+
+/** Per-clip UI volume (0–2), default 1 (= 100% on the slider). */
 export function getClipVolume(clip: RankClip) {
   return Math.max(0, Math.min(2, typeof clip.volume === "number" && Number.isFinite(clip.volume) ? clip.volume : 1));
 }
 
-/** Clip gain × project master clipVolume */
+/**
+ * Real clip gain for preview/export:
+ * UI volume × project master × {@link CLIP_VOLUME_UI_SCALE}.
+ */
 export function effectiveClipVolume(clip: RankClip, master = 1) {
   const m = Math.max(0, Math.min(2, Number.isFinite(master) ? master : 1));
-  return Math.max(0, Math.min(2, getClipVolume(clip) * m));
+  return Math.max(0, Math.min(2, getClipVolume(clip) * m * CLIP_VOLUME_UI_SCALE));
 }
 
 /** Clamp clip playback rate (0.5×–2×). */

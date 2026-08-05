@@ -11,6 +11,7 @@ import {
   Volume2,
   Pencil,
   Search,
+  Star,
 } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import {
@@ -27,6 +28,11 @@ import {
   loadSfxLibrary,
   upsertSfxLibraryAsset,
 } from "@/lib/sfxLibrary";
+import {
+  loadSfxFavoriteIds,
+  sortSfxWithFavorites,
+  toggleSfxFavorite,
+} from "@/lib/sfxFavorites";
 import type { SfxAsset } from "@/lib/types";
 
 export function SfxPanel() {
@@ -53,6 +59,7 @@ export function SfxPanel() {
   const [folderItems, setFolderItems] = useState<SfxAsset[]>([]);
   const [folderLoading, setFolderLoading] = useState(false);
   const [folderPath, setFolderPath] = useState("sfx/");
+  const [favoriteTick, setFavoriteTick] = useState(0);
   const previewRef = useRef<HTMLAudioElement | null>(null);
 
   const assets = useMemo(() => project.sfxAssets || [], [project.sfxAssets]);
@@ -62,6 +69,11 @@ export function SfxPanel() {
     return loadSfxLibrary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [libraryTick, assets]);
+  const favoriteIds = useMemo(() => {
+    void favoriteTick;
+    return loadSfxFavoriteIds();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [favoriteTick]);
 
   const readyClips = useMemo(
     () => getPlaybackOrder(project.clips, project.settings.playOrder),
@@ -79,29 +91,33 @@ export function SfxPanel() {
   const q = query.trim().toLowerCase();
   const filteredAssets = useMemo(
     () =>
-      assets
-        .filter((a) => !q || a.fileName.toLowerCase().includes(q))
-        .slice()
-        .sort((a, b) => a.fileName.localeCompare(b.fileName)),
-    [assets, q]
+      sortSfxWithFavorites(
+        assets.filter((a) => !q || a.fileName.toLowerCase().includes(q)),
+        favoriteIds
+      ),
+    [assets, q, favoriteIds]
   );
   const unusedLibrary = useMemo(
     () =>
-      library
-        .filter((a) => !assets.some((x) => x.id === a.id))
-        .filter((a) => !a.mediaId.startsWith("drop__"))
-        .filter((a) => !q || a.fileName.toLowerCase().includes(q))
-        .slice()
-        .sort((a, b) => a.fileName.localeCompare(b.fileName)),
-    [library, assets, q]
+      sortSfxWithFavorites(
+        library
+          .filter((a) => !assets.some((x) => x.id === a.id))
+          .filter((a) => !a.mediaId.startsWith("drop__"))
+          .filter((a) => !q || a.fileName.toLowerCase().includes(q)),
+        favoriteIds
+      ),
+    [library, assets, q, favoriteIds]
   );
 
   const filteredFolder = useMemo(
     () =>
-      folderItems
-        .filter((a) => !assets.some((x) => x.id === a.id || x.mediaId === a.mediaId))
-        .filter((a) => !q || a.fileName.toLowerCase().includes(q)),
-    [folderItems, assets, q]
+      sortSfxWithFavorites(
+        folderItems
+          .filter((a) => !assets.some((x) => x.id === a.id || x.mediaId === a.mediaId))
+          .filter((a) => !q || a.fileName.toLowerCase().includes(q)),
+        favoriteIds
+      ),
+    [folderItems, assets, q, favoriteIds]
   );
 
   async function refreshFolder(silent = false) {
@@ -345,6 +361,12 @@ export function SfxPanel() {
     }
   }
 
+  function toggleFavorite(mediaId: string) {
+    if (!mediaId) return;
+    toggleSfxFavorite(mediaId);
+    setFavoriteTick((n) => n + 1);
+  }
+
   function renderAssetRow(
     a: SfxAsset,
     mode: "project" | "library" | "folder"
@@ -352,6 +374,7 @@ export function SfxPanel() {
     const renaming = renamingId === a.id;
     const volumeOpen = volumeOpenId === a.id;
     const sampleVol = typeof a.volume === "number" ? a.volume : 1;
+    const fav = Boolean(a.mediaId && favoriteIds.has(a.mediaId));
     const modeLabel =
       mode === "project" ? "in project" : mode === "folder" ? "folder" : "library";
     return (
@@ -375,16 +398,30 @@ export function SfxPanel() {
               />
             ) : (
               <p className="truncate" title={a.fileName}>
+                {fav ? "★ " : ""}
                 {a.fileName}
               </p>
             )}
             <p className="muted">
               {a.duration > 0 ? formatTime(a.duration) : "…"}
               {` · ${modeLabel}`}
+              {fav ? " · favorite" : ""}
               {sampleVol !== 1 ? ` · ${(sampleVol * 100).toFixed(0)}%` : ""}
             </p>
           </div>
           <div className="sfx-asset-actions">
+            <button
+              className={`icon-btn sfx-fav-btn ${fav ? "favorited" : ""}`}
+              type="button"
+              title={fav ? "Remove from favorites" : "Favorite — pin to top"}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (a.mediaId) toggleFavorite(a.mediaId);
+              }}
+            >
+              <Star size={14} fill={fav ? "currentColor" : "none"} />
+            </button>
             <button
               className="icon-btn"
               type="button"
@@ -546,7 +583,7 @@ export function SfxPanel() {
             {q ? " matching" : ""}
           </p>
           <p className="muted sfx-folder-hint">
-            Drop audio into <code>sfx/</code>, then Refresh. Use ▶ to preview, pencil to rename.
+            Drop audio into <code>sfx/</code>, then Refresh. Star favorites to keep them on top.
           </p>
           {folderLoading && folderItems.length === 0 ? (
             <p className="muted">Scanning folder…</p>

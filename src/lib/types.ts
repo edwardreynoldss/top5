@@ -68,7 +68,10 @@ export interface RankClip {
   /** One or more ranges that are merged in playback/export */
   segments: TrimSegment[];
   crop: ClipCrop;
-  /** Per-clip gain 0–2 (1 = unchanged). Multiplied by project clipVolume on preview/export. */
+  /**
+   * Per-clip UI gain 0–2 (1 = 100% on the slider).
+   * Real playback uses UI × project clipVolume × 0.2 so default 100% is quieter on import.
+   */
   volume: number;
   /**
    * Playback rate 0.5–2 (1 = normal).

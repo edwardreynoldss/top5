@@ -672,6 +672,11 @@ a {
   color: var(--accent);
 }
 
+.sfx-fav-btn.favorited {
+  border-color: rgba(250, 204, 21, 0.55);
+  color: #facc15;
+}
+
 .sfx-timeline {
   margin-top: 0.75rem;
   display: grid;
@@ -1781,6 +1786,9 @@ a {
 
 .add-sfx-row-actions {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .crop-hint {
