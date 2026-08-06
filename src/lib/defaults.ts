@@ -644,6 +644,11 @@ export function clampCropZoom(zoom: number) {
   return Math.max(0.25, Math.min(3, Number.isFinite(zoom) ? zoom : 1));
 }
 
+/** Clamp framing pan (0–100, 50 = center). */
+export function clampCropPan(value: number) {
+  return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 50));
+}
+
 /** Absolute timeline start for each ready clip in playback order */
 export function clipTimelineOffsets(
   clips: RankClip[],

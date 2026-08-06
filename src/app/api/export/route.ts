@@ -496,6 +496,9 @@ async function renderClipSegment(opts: {
 
   // Continuous zoom matching preview CSS:
   // 1) speed  2) cover-fit  3) zoom  4) pan overlay on black  5) optional edge black bars
+  // Pan: when the scaled clip already fills the frame (W≈w), (W-w)*pan is a no-op —
+  // allow up to ~45% of the frame so “move up/down” still works for too-high/too-low subjects.
+  const panRoom = 0.45;
   const padTop =
     topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
   const framed =
@@ -504,7 +507,10 @@ async function renderClipSegment(opts: {
     `scale=${width}:${contentH}:force_original_aspect_ratio=increase,` +
     `scale=iw*${zoom}:ih*${zoom}[czfg];` +
     `color=c=black:s=${width}x${contentH}:r=${fps}:d=${wallDuration}[czbg];` +
-    `[czbg][czfg]overlay=x='(W-w)*${panX}':y='(H-h)*${panY}':shortest=1,setsar=1${edgeBlackBars}${padTop}`;
+    `[czbg][czfg]overlay=` +
+    `x='(W-w)/2+(0.5-${panX})*max(w-W\\,W*${panRoom})':` +
+    `y='(H-h)/2+(0.5-${panY})*max(h-H\\,H*${panRoom})':` +
+    `shortest=1,setsar=1${edgeBlackBars}${padTop}`;
 
   // Input layout: 0=clip, 1=title, [2=ranks], [2|3=sticker], [n=bed]
   let nextInput = 2;

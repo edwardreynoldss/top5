@@ -422,6 +422,10 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                     {getClipCrop(clip).zoom !== 1
                       ? ` · ${getClipCrop(clip).zoom.toFixed(1)}× zoom`
                       : ""}
+                    {Math.abs(getClipCrop(clip).panX - 50) > 1 ||
+                    Math.abs(getClipCrop(clip).panY - 50) > 1
+                      ? ` · moved`
+                      : ""}
                     {(getClipCrop(clip).cropTop || 0) > 0.001 ||
                     (getClipCrop(clip).cropBottom || 0) > 0.001 ||
                     (getClipCrop(clip).cropLeft || 0) > 0.001 ||
