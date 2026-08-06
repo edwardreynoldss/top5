@@ -12,7 +12,6 @@ import {
   normalizeHook,
   hookDuration,
   cropPreviewStyle,
-  cropEdgeBars,
   clampCropZoom,
   clampClipSpeed,
 } from "@/lib/defaults";
@@ -787,8 +786,7 @@ export function TrimModal({
   // Always preview in the final Short frame (9:16) so landscape sources
   // show cover-fit / zoom / edge crop the same way export will.
   const frameAspect = 9 / 16;
-  const cropStyle = cropPreviewStyle(crop, { frameAspect, videoAspect });
-  const edgeBars = cropEdgeBars(crop);
+  const cropLayout = cropPreviewStyle(crop, { frameAspect, videoAspect });
 
   return (
     <div
@@ -824,49 +822,23 @@ export function TrimModal({
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
           >
-            <video
-              key={src}
-              ref={videoRef}
-              src={src}
-              playsInline
-              preload="auto"
-              muted
-              controls={false}
-              draggable={false}
-              className="trim-video"
-              style={cropStyle}
-            />
+            <div className="crop-content-window" style={cropLayout.windowStyle}>
+              <video
+                key={src}
+                ref={videoRef}
+                src={src}
+                playsInline
+                preload="auto"
+                muted
+                controls={false}
+                draggable={false}
+                className="trim-video"
+                style={cropLayout.videoStyle}
+              />
+            </div>
             {/* Transparent hit target so drag always works over the video */}
             <div className="crop-drag-layer" aria-hidden />
             <div className="crop-guide" />
-            {edgeBars.top > 0.001 && (
-              <div
-                className="crop-edge-bar crop-edge-bar-top"
-                style={{ height: `${edgeBars.top * 100}%` }}
-                aria-hidden
-              />
-            )}
-            {edgeBars.bottom > 0.001 && (
-              <div
-                className="crop-edge-bar crop-edge-bar-bottom"
-                style={{ height: `${edgeBars.bottom * 100}%` }}
-                aria-hidden
-              />
-            )}
-            {edgeBars.left > 0.001 && (
-              <div
-                className="crop-edge-bar crop-edge-bar-left"
-                style={{ width: `${edgeBars.left * 100}%` }}
-                aria-hidden
-              />
-            )}
-            {edgeBars.right > 0.001 && (
-              <div
-                className="crop-edge-bar crop-edge-bar-right"
-                style={{ width: `${edgeBars.right * 100}%` }}
-                aria-hidden
-              />
-            )}
             {!ready && !loadError && <div className="trim-loading">Loading preview…</div>}
             {loadError && (
               <div className="trim-loading">

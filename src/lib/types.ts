@@ -28,23 +28,23 @@ export interface ClipCrop {
   /** 0–100 vertical focus (50 = center) */
   panY: number;
   /**
-   * Fraction of the frame height covered with black from the top (0–0.45).
-   * Removes letterbox text / watermarks without zooming the kept picture.
+   * Fraction of the SOURCE height to cut from the top (0–0.45).
+   * Applied to the video before pan/zoom — the crop moves with the clip.
    */
   cropTop?: number;
   /**
-   * Fraction of the frame height covered with black from the bottom (0–0.45).
-   * Removes letterbox text / watermarks without zooming the kept picture.
+   * Fraction of the SOURCE height to cut from the bottom (0–0.45).
+   * Applied to the video before pan/zoom — the crop moves with the clip.
    */
   cropBottom?: number;
   /**
-   * Fraction of the frame width covered with black from the left (0–0.45).
-   * Removes side bars / watermarks without zooming the kept picture.
+   * Fraction of the SOURCE width to cut from the left (0–0.45).
+   * Applied to the video before pan/zoom — the crop moves with the clip.
    */
   cropLeft?: number;
   /**
-   * Fraction of the frame width covered with black from the right (0–0.45).
-   * Removes side bars / watermarks without zooming the kept picture.
+   * Fraction of the SOURCE width to cut from the right (0–0.45).
+   * Applied to the video before pan/zoom — the crop moves with the clip.
    */
   cropRight?: number;
 }

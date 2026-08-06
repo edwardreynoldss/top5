@@ -859,10 +859,8 @@ a {
 }
 
 .preview-fg {
-  /* Box size/position come from cropPreviewStyle (1:1 with clip thumb + export) */
-  position: absolute;
+  /* Outer crop window — size/position from cropPreviewStyle.windowStyle */
   z-index: 2;
-  background: #000;
   border: 0;
   padding: 0;
   margin: 0;
@@ -870,6 +868,19 @@ a {
 
 .preview-fg.fill {
   background: #000;
+}
+
+.crop-content-window {
+  position: absolute;
+  overflow: hidden;
+  background: #000;
+}
+
+.crop-content-window video {
+  display: block;
+  border: 0;
+  padding: 0;
+  margin: 0;
 }
 
 .preview-loading {

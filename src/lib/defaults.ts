@@ -566,10 +566,27 @@ export function coverContainFactor(frameAspect: number, videoAspect: number) {
 }
 
 /**
+ * Aspect ratio of the kept band after edge crop (source fractions).
+ * cropTop/Bottom/Left/Right cut the VIDEO, then pan/zoom use this aspect.
+ */
+export function cropEffectiveAspect(
+  videoAspect: number,
+  crop?: Partial<ClipCrop> | null
+) {
+  const va =
+    typeof videoAspect === "number" && Number.isFinite(videoAspect) && videoAspect > 0
+      ? videoAspect
+      : 9 / 16;
+  const { top, bottom } = normalizeVerticalCrop(crop?.cropTop ?? 0, crop?.cropBottom ?? 0);
+  const { left, right } = normalizeHorizontalCrop(crop?.cropLeft ?? 0, crop?.cropRight ?? 0);
+  const visibleW = Math.max(0.2, 1 - left - right);
+  const visibleH = Math.max(0.2, 1 - top - bottom);
+  return (va * visibleW) / visibleH;
+}
+
+/**
  * CSS scale on top of object-fit:contain.
- * zoom=1 → full source frame (1:1, keeps baked black bars).
- * zoom = coverContainFactor → fills the Shorts frame (may crop sides).
- * Above that → punch in.
+ * zoom=1 → full (cropped) source; zoom = coverContainFactor → fills Shorts frame.
  */
 export function cropDisplayScale(
   zoom: number,
@@ -585,7 +602,6 @@ export function cropDisplayScale(
  */
 export function cropPanTranslatePct(crop: ClipCrop, scale: number) {
   const s = Math.max(0.25, scale);
-  // More room to pan when punched in past the frame
   const strength = Math.max(10, (s - 1) * 55 + 14);
   return {
     x: ((50 - (crop.panX ?? 50)) / 50) * strength,
@@ -594,8 +610,9 @@ export function cropPanTranslatePct(crop: ClipCrop, scale: number) {
 }
 
 /**
- * Edge fractions of the frame to cover with black (edge crop).
- * Does not change zoom/framing — those bars replace the cut regions.
+ * Normalized source-edge crop fractions (kept for callers that need the numbers).
+ * Prefer cropPreviewStyle — edge crop is applied to the video content, not as
+ * frame-fixed black overlays.
  */
 export function cropEdgeBars(crop?: Partial<ClipCrop> | null): {
   top: number;
@@ -614,31 +631,41 @@ export function cropEdgeBars(crop?: Partial<ClipCrop> | null): {
   return { top, bottom, left, right };
 }
 
+export type CropPreviewLayout = {
+  /** Outer window in the 9:16 frame (contain × zoom × pan of the CROPPED aspect). */
+  windowStyle: {
+    position: "absolute";
+    width: string;
+    height: string;
+    left: string;
+    top: string;
+    overflow: "hidden";
+    background: string;
+  };
+  /** Inner <video>: full source inset so only the kept band shows; moves with the window. */
+  videoStyle: {
+    position: "absolute";
+    width: string;
+    height: string;
+    left: string;
+    top: string;
+    objectFit: "fill";
+    maxWidth: string;
+    maxHeight: string;
+    background: string;
+  };
+};
+
 /**
- * Layout for a clip video inside a 9:16 (or other) frame.
- * zoom=1 → full source (contain) so baked black bars stay visible.
- * zoom > 1 → larger box (may clip under overflow:hidden) — same idea as export.
- *
- * Returns absolute positioning styles for the <video> (parent must be
- * position:relative; overflow:hidden; with the target frame aspect).
+ * Crop-then-pan layout for preview.
+ * 1) Edge fractions cut the source video
+ * 2) That cropped rect is fitted (contain × zoom) and panned in the Shorts frame
+ * So moving the clip keeps the same crop — bars are not glued to the viewport.
  */
 export function cropPreviewStyle(
   crop: ClipCrop,
   opts?: { frameAspect?: number; videoAspect?: number }
-): {
-  position: "absolute";
-  width: string;
-  height: string;
-  left: string;
-  top: string;
-  objectFit: "fill";
-  background: string;
-  maxWidth: string;
-  maxHeight: string;
-  transform?: string;
-  transformOrigin?: string;
-  willChange?: string;
-} {
+): CropPreviewLayout {
   const frameAspect = opts?.frameAspect ?? 9 / 16;
   const rawVa = opts?.videoAspect;
   const videoAspect =
@@ -646,41 +673,60 @@ export function cropPreviewStyle(
       ? rawVa
       : frameAspect;
   const normalized = normalizeCrop(crop);
+  const { top: ct, bottom: cb } = normalizeVerticalCrop(
+    normalized.cropTop ?? 0,
+    normalized.cropBottom ?? 0
+  );
+  const { left: cl, right: cr } = normalizeHorizontalCrop(
+    normalized.cropLeft ?? 0,
+    normalized.cropRight ?? 0
+  );
+  const visibleW = Math.max(0.2, 1 - cl - cr);
+  const visibleH = Math.max(0.2, 1 - ct - cb);
+  const croppedAspect = (videoAspect * visibleW) / visibleH;
   const z = clampCropZoom(normalized.zoom);
 
-  // Contain size as % of the frame, then multiply by zoom (matches export:
-  // force_original_aspect_ratio=decrease, then scale=iw*zoom).
   let baseW: number;
   let baseH: number;
-  if (videoAspect >= frameAspect) {
+  if (croppedAspect >= frameAspect) {
     baseW = 100;
-    baseH = (100 * frameAspect) / videoAspect;
+    baseH = (100 * frameAspect) / croppedAspect;
   } else {
     baseH = 100;
-    baseW = (100 * videoAspect) / frameAspect;
+    baseW = (100 * croppedAspect) / frameAspect;
   }
   const w = baseW * z;
   const h = baseH * z;
 
   const panX = normalized.panX / 100;
   const panY = normalized.panY / 100;
-  // Same pan-room idea as export: allow move even when box == frame
   const roomX = Math.max(w - 100, 100 * 0.45);
   const roomY = Math.max(h - 100, 100 * 0.45);
   const left = (100 - w) / 2 + (0.5 - panX) * roomX;
   const top = (100 - h) / 2 + (0.5 - panY) * roomY;
 
   return {
-    position: "absolute",
-    width: `${w}%`,
-    height: `${h}%`,
-    left: `${left}%`,
-    top: `${top}%`,
-    // Box aspect already matches the source — fill maps pixels 1:1 into the box
-    objectFit: "fill",
-    background: "#000",
-    maxWidth: "none",
-    maxHeight: "none",
+    windowStyle: {
+      position: "absolute",
+      width: `${w}%`,
+      height: `${h}%`,
+      left: `${left}%`,
+      top: `${top}%`,
+      overflow: "hidden",
+      background: "#000",
+    },
+    videoStyle: {
+      position: "absolute",
+      // Expand so the window shows only the kept band of the full source
+      width: `${(100 / visibleW).toFixed(4)}%`,
+      height: `${(100 / visibleH).toFixed(4)}%`,
+      left: `${((-cl / visibleW) * 100).toFixed(4)}%`,
+      top: `${((-ct / visibleH) * 100).toFixed(4)}%`,
+      objectFit: "fill",
+      maxWidth: "none",
+      maxHeight: "none",
+      background: "#000",
+    },
   };
 }
 

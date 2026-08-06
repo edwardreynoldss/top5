@@ -16,7 +16,6 @@ import {
   getHookGapAfter,
   getClipCrop,
   cropPreviewStyle,
-  cropEdgeBars,
   clipTimelineOffsets,
   totalTimelineDuration,
   resolveSfxStartAt,
@@ -1058,11 +1057,10 @@ export function PreviewPhone({
   const barHeightPx = title.barHeight * previewScale;
   const fitFill = settings.aspectMode === "crop-fill";
   const crop = activeClip ? getClipCrop(activeClip) : null;
-  const cropStyle = cropPreviewStyle(crop || { zoom: 1, panX: 50, panY: 50 }, {
+  const cropLayout = cropPreviewStyle(crop || { zoom: 1, panX: 50, panY: 50 }, {
     frameAspect: 9 / 16,
     videoAspect,
   });
-  const edgeBars = crop ? cropEdgeBars(crop) : { top: 0, bottom: 0, left: 0, right: 0 };
   const titleOverlap = settings.titleOverlap !== false;
   const titleEnabled = title.enabled !== false;
   const previewBarH = !titleEnabled
@@ -1102,53 +1100,29 @@ export function PreviewPhone({
                   }}
                 />
               )}
-              <video
-                ref={videoRef}
-                className={fitFill ? "preview-fg fill" : "preview-fg"}
-                playsInline
-                preload="auto"
-                style={cropStyle}
-                onLoadedData={(e) => {
-                  const v = e.currentTarget;
-                  if (activeClip) {
-                    v.volume = Math.min(
-                      1,
-                      effectiveClipVolume(activeClip, settings.clipVolume)
-                    );
-                  }
-                  if (v.videoWidth > 0 && v.videoHeight > 0) {
-                    setVideoAspect(v.videoWidth / v.videoHeight);
-                  }
-                }}
-              />
-              {edgeBars.top > 0.001 && (
-                <div
-                  className="crop-edge-bar crop-edge-bar-top"
-                  style={{ height: `${edgeBars.top * 100}%` }}
-                  aria-hidden
+              <div
+                className={fitFill ? "crop-content-window preview-fg fill" : "crop-content-window preview-fg"}
+                style={cropLayout.windowStyle}
+              >
+                <video
+                  ref={videoRef}
+                  playsInline
+                  preload="auto"
+                  style={cropLayout.videoStyle}
+                  onLoadedData={(e) => {
+                    const v = e.currentTarget;
+                    if (activeClip) {
+                      v.volume = Math.min(
+                        1,
+                        effectiveClipVolume(activeClip, settings.clipVolume)
+                      );
+                    }
+                    if (v.videoWidth > 0 && v.videoHeight > 0) {
+                      setVideoAspect(v.videoWidth / v.videoHeight);
+                    }
+                  }}
                 />
-              )}
-              {edgeBars.bottom > 0.001 && (
-                <div
-                  className="crop-edge-bar crop-edge-bar-bottom"
-                  style={{ height: `${edgeBars.bottom * 100}%` }}
-                  aria-hidden
-                />
-              )}
-              {edgeBars.left > 0.001 && (
-                <div
-                  className="crop-edge-bar crop-edge-bar-left"
-                  style={{ width: `${edgeBars.left * 100}%` }}
-                  aria-hidden
-                />
-              )}
-              {edgeBars.right > 0.001 && (
-                <div
-                  className="crop-edge-bar crop-edge-bar-right"
-                  style={{ width: `${edgeBars.right * 100}%` }}
-                  aria-hidden
-                />
-              )}
+              </div>
               {(inGap || inHookGap) && <div className="preview-black-gap" aria-hidden />}
               {!mediaReady && !inGap && !inHookGap && (
                 <div className="preview-loading">Loading clip…</div>

@@ -80,7 +80,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
   const color = project.settings.rankColors[clip.rank] || "#fff";
   const busy = clip.status === "loading";
   const clipCrop = getClipCrop(clip);
-  const thumbStyle = cropPreviewStyle(clipCrop, {
+  const thumbLayout = cropPreviewStyle(clipCrop, {
     frameAspect: 9 / 16,
     videoAspect: thumbAspect,
   });
@@ -409,20 +409,22 @@ export function ClipCard({ clip }: { clip: RankClip }) {
             <div className="clip-ready-wrap">
               <div className="clip-ready">
                 <div className="thumb" aria-hidden>
-                  <video
-                    key={clip.mediaUrl || clip.id}
-                    src={`${clip.mediaUrl!}#t=${segs[0]?.start || 0}`}
-                    muted
-                    playsInline
-                    preload="metadata"
-                    style={thumbStyle}
-                    onLoadedMetadata={(e) => {
-                      const v = e.currentTarget;
-                      if (v.videoWidth > 0 && v.videoHeight > 0) {
-                        setThumbAspect(v.videoWidth / v.videoHeight);
-                      }
-                    }}
-                  />
+                  <div className="crop-content-window" style={thumbLayout.windowStyle}>
+                    <video
+                      key={clip.mediaUrl || clip.id}
+                      src={`${clip.mediaUrl!}#t=${segs[0]?.start || 0}`}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      style={thumbLayout.videoStyle}
+                      onLoadedMetadata={(e) => {
+                        const v = e.currentTarget;
+                        if (v.videoWidth > 0 && v.videoHeight > 0) {
+                          setThumbAspect(v.videoWidth / v.videoHeight);
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
                 <div className="clip-meta">
                   <p className="truncate">{clip.fileName || "Clip ready"}</p>

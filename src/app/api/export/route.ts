@@ -445,12 +445,11 @@ async function renderClipSegment(opts: {
     Math.abs(clipSpeed - 1) > 0.001 ? `${ffmpegAtempoChain(clipSpeed)},` : "";
 
   const blur = Math.max(2, Math.min(64, Math.round(blurAmount / 2)));
-  const zoom = Math.max(0.25, Math.min(3, crop?.zoom ?? 1));
+  const zoom = Math.max(0.25, Math.min(4, crop?.zoom ?? 1));
   const panX = Math.max(0, Math.min(100, crop?.panX ?? 50)) / 100;
   const panY = Math.max(0, Math.min(100, crop?.panY ?? 50)) / 100;
-  // Edge crop: paint black bars over the framed output (no punch-zoom).
-  // IMPORTANT: never emit drawbox with h=0/w=0 and t=fill — ffmpeg treats that as
-  // “fill the entire frame”, which blanks the clip.
+  // Edge crop cuts the SOURCE first, then contain/zoom/pan — so pan moves the
+  // cropped video (not a static mask on the Shorts frame).
   let cropTop = Math.max(0, Math.min(0.45, crop?.cropTop ?? 0));
   let cropBottom = Math.max(0, Math.min(0.45, crop?.cropBottom ?? 0));
   let cropLeft = Math.max(0, Math.min(0.45, crop?.cropLeft ?? 0));
@@ -466,51 +465,35 @@ async function renderClipSegment(opts: {
     cropLeft *= s;
     cropRight *= s;
   }
+  const visibleW = Math.max(0.2, 1 - cropLeft - cropRight);
+  const visibleH = Math.max(0.2, 1 - cropTop - cropBottom);
+  const needsEdgeCrop =
+    cropTop > 0.001 || cropBottom > 0.001 || cropLeft > 0.001 || cropRight > 0.001;
+  // Even pixel sizes — ffmpeg crop prefers even dims for yuv420p
+  const edgeCropFilter = needsEdgeCrop
+    ? `crop=floor(iw*${visibleW}/2)*2:floor(ih*${visibleH}/2)*2:floor(iw*${cropLeft}/2)*2:floor(ih*${cropTop}/2)*2,`
+    : "";
   const topPad = titleOverlap ? 0 : Math.max(0, Math.round(titleBarHeight));
   const contentH = Math.max(16, height - topPad);
-  const topBarPx = Math.floor((contentH * cropTop) / 2) * 2;
-  const botBarPx = Math.floor((contentH * cropBottom) / 2) * 2;
-  const leftBarPx = Math.floor((width * cropLeft) / 2) * 2;
-  const rightBarPx = Math.floor((width * cropRight) / 2) * 2;
-  const edgeBarFilters: string[] = [];
-  if (topBarPx >= 2) {
-    edgeBarFilters.push(`drawbox=x=0:y=0:w=iw:h=${topBarPx}:color=black:t=fill`);
-  }
-  if (botBarPx >= 2) {
-    edgeBarFilters.push(
-      `drawbox=x=0:y=ih-${botBarPx}:w=iw:h=${botBarPx}:color=black:t=fill`
-    );
-  }
-  if (leftBarPx >= 2) {
-    edgeBarFilters.push(`drawbox=x=0:y=0:w=${leftBarPx}:h=ih:color=black:t=fill`);
-  }
-  if (rightBarPx >= 2) {
-    edgeBarFilters.push(
-      `drawbox=x=iw-${rightBarPx}:y=0:w=${rightBarPx}:h=ih:color=black:t=fill`
-    );
-  }
-  const edgeBlackBars = edgeBarFilters.length ? `,${edgeBarFilters.join(",")}` : "";
   const scale = Math.max(0.15, Math.min(1.5, stickerScale || 1));
   const speed = Math.max(0.25, Math.min(3, stickerSpeed || 1));
   const delay = Math.max(0, stickerDelay || 0);
 
-  // Continuous zoom matching preview CSS:
-  // 1) speed  2) fit-entire (contain)  3) zoom  4) pan overlay on black  5) optional edge black bars
-  // zoom=1 keeps the full source (including baked pillar/letterbox bars) — same as PreviewPhone.
-  // Punch in with zoom > 1 (≈ coverContainFactor fills a 16:9 source in 9:16).
+  // 1) speed  2) source edge crop  3) contain  4) zoom  5) pan overlay on black
   const panRoom = 0.45;
   const padTop =
     topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
   const framed =
     `[0:v]fps=${fps},` +
     speedFilter +
+    edgeCropFilter +
     `scale=${width}:${contentH}:force_original_aspect_ratio=decrease,` +
     `scale=iw*${zoom}:ih*${zoom}[czfg];` +
     `color=c=black:s=${width}x${contentH}:r=${fps}:d=${wallDuration}[czbg];` +
     `[czbg][czfg]overlay=` +
     `x='(W-w)/2+(0.5-${panX})*max(w-W\\,W*${panRoom})':` +
     `y='(H-h)/2+(0.5-${panY})*max(h-H\\,H*${panRoom})':` +
-    `shortest=1,setsar=1${edgeBlackBars}${padTop}`;
+    `shortest=1,setsar=1${padTop}`;
 
   // Input layout: 0=clip, 1=title, [2=ranks], [2|3=sticker], [n=bed]
   let nextInput = 2;
@@ -571,7 +554,7 @@ async function renderClipSegment(opts: {
       ? [`${framed}[base]`, stickFilter + withOverlays("base")].filter(Boolean).join(";")
       : [
           // Blur bg still fills full frame; FG uses same crop framing + speed
-          `[0:v]fps=${fps},${speedFilter}scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},gblur=sigma=${blur},setsar=1[bg]`,
+          `[0:v]fps=${fps},${speedFilter}${edgeCropFilter}scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},gblur=sigma=${blur},setsar=1[bg]`,
           `${framed}[fg]`,
           topPad > 0
             ? `[bg][fg]overlay=0:${topPad}[comp]`
