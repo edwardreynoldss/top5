@@ -732,7 +732,9 @@ export function TrimModal({
   const sliderMax = Math.max(dur || 1, active?.end || 1, 1);
   const canUseClip =
     segments.length > 0 && totalSelected > 0 && totalSelected <= MAX_CLIP_DURATION;
-  const frameAspect = portrait ? 9 / 16 : 16 / 9;
+  // Always preview in the final Short frame (9:16) so landscape sources
+  // show cover-fit / zoom / edge crop the same way export will.
+  const frameAspect = 9 / 16;
   const cropStyle = cropPreviewStyle(crop, { frameAspect, videoAspect });
   const edgeBars = cropEdgeBars(crop);
 
@@ -764,9 +766,7 @@ export function TrimModal({
         <div className="modal-scroll">
           <div
             ref={stageRef}
-            className={`trim-video-wrap ${portrait ? "portrait" : "landscape"} crop-stage ${
-              dragging ? "dragging" : ""
-            }`}
+            className={`trim-video-wrap crop-stage ${dragging ? "dragging" : ""}`}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -900,8 +900,8 @@ export function TrimModal({
                 {hookLen > 0 ? ` · +${hookLen.toFixed(1)}s hook` : ""}
                 {ready
                   ? portrait
-                    ? " · 9:16"
-                    : " · 16:9"
+                    ? " · source 9:16"
+                    : " · source 16:9 → framed in 9:16"
                   : loadError
                     ? " · preview unavailable"
                     : " · loading…"}

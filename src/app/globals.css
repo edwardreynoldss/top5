@@ -1630,24 +1630,25 @@ a {
 
 .trim-video-wrap {
   position: relative;
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
   background: #000;
-  aspect-ratio: 16 / 9;
-}
-
-.trim-video-wrap.portrait {
+  /* Always match the final Short frame so non-9:16 sources preview correctly */
   aspect-ratio: 9 / 16;
-  max-height: min(36vh, 360px);
-  width: auto;
+  width: min(100%, 240px);
+  max-height: min(42vh, 420px);
   margin: 0 auto;
-  max-width: 220px;
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
 }
 
+.trim-video-wrap.portrait,
 .trim-video-wrap.landscape {
-  aspect-ratio: 16 / 9;
-  width: 100%;
-  max-height: min(32vh, 280px);
+  /* Legacy class hooks — keep identical 9:16 framing */
+  aspect-ratio: 9 / 16;
+  width: min(100%, 240px);
+  max-height: min(42vh, 420px);
+  margin: 0 auto;
 }
 
 .crop-stage {
