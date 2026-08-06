@@ -28,6 +28,7 @@ function normalizeHorizontalCrop(cropLeft = 0, cropRight = 0) {
   return { left, right };
 }
 
+/** Window uses FULL aspect; video inset applies edge crop (no reflow). */
 function cropBox(crop, frameAspect, videoAspect) {
   const z = clampCropZoom(crop.zoom ?? 1);
   const { top: ct, bottom: cb } = normalizeVerticalCrop(crop.cropTop ?? 0, crop.cropBottom ?? 0);
@@ -37,15 +38,14 @@ function cropBox(crop, frameAspect, videoAspect) {
   );
   const visibleW = Math.max(0.2, 1 - cl - cr);
   const visibleH = Math.max(0.2, 1 - ct - cb);
-  const croppedAspect = (videoAspect * visibleW) / visibleH;
   let baseW;
   let baseH;
-  if (croppedAspect >= frameAspect) {
+  if (videoAspect >= frameAspect) {
     baseW = 100;
-    baseH = (100 * frameAspect) / croppedAspect;
+    baseH = (100 * frameAspect) / videoAspect;
   } else {
     baseH = 100;
-    baseW = (100 * croppedAspect) / frameAspect;
+    baseW = (100 * videoAspect) / frameAspect;
   }
   return {
     w: baseW * z,
@@ -58,18 +58,12 @@ function cropBox(crop, frameAspect, videoAspect) {
 }
 
 const frame = 9 / 16;
-
-const fit = cropBox({ zoom: 1 }, frame, 16 / 9);
-assert.ok(Math.abs(fit.w - 100) < 1e-6);
-assert.ok(fit.h < 100);
-
 const portrait = cropBox({ zoom: 1 }, frame, 9 / 16);
 assert.ok(Math.abs(portrait.w - 100) < 1e-6 && Math.abs(portrait.h - 100) < 1e-6);
 
-// Top crop insets the video upward inside the window
 const topped = cropBox({ zoom: 1, cropTop: 0.2 }, frame, 9 / 16);
-assert.ok(topped.videoTop < -0.01, "top crop shifts video up inside the window");
-assert.ok(topped.videoH > 100, "inner video taller than window so bottom is cut");
-assert.ok(topped.w > portrait.w || topped.h < portrait.h, "cropped aspect reflows the window");
+assert.ok(topped.videoTop < -0.01, "top crop insets video");
+assert.ok(Math.abs(topped.w - portrait.w) < 1e-6, "edge crop must NOT reflow window width");
+assert.ok(Math.abs(topped.h - portrait.h) < 1e-6, "edge crop must NOT reflow window height");
 
-console.log("crop box 1:1 framing tests passed");
+console.log("crop box framing tests passed");

@@ -469,9 +469,15 @@ async function renderClipSegment(opts: {
   const visibleH = Math.max(0.2, 1 - cropTop - cropBottom);
   const needsEdgeCrop =
     cropTop > 0.001 || cropBottom > 0.001 || cropLeft > 0.001 || cropRight > 0.001;
-  // Even pixel sizes — ffmpeg crop prefers even dims for yuv420p
+  // Crop source edges, then pad back to the original aspect with black in the
+  // cut margins. That keeps Shorts framing stable (subscribe sticker safe) while
+  // the crop still moves with pan/zoom — same as preview.
+  const padXRatio = cropLeft / visibleW;
+  const padYRatio = cropTop / visibleH;
   const edgeCropFilter = needsEdgeCrop
-    ? `crop=floor(iw*${visibleW}/2)*2:floor(ih*${visibleH}/2)*2:floor(iw*${cropLeft}/2)*2:floor(ih*${cropTop}/2)*2,`
+    ? `crop=floor(iw*${visibleW}/2)*2:floor(ih*${visibleH}/2)*2:floor(iw*${cropLeft}/2)*2:floor(ih*${cropTop}/2)*2,` +
+      `pad=ceil(iw/${visibleW}/2)*2:ceil(ih/${visibleH}/2)*2:` +
+      `floor(iw*${padXRatio}/2)*2:floor(ih*${padYRatio}/2)*2:black,`
     : "";
   const topPad = titleOverlap ? 0 : Math.max(0, Math.round(titleBarHeight));
   const contentH = Math.max(16, height - topPad);
@@ -479,7 +485,8 @@ async function renderClipSegment(opts: {
   const speed = Math.max(0.25, Math.min(3, stickerSpeed || 1));
   const delay = Math.max(0, stickerDelay || 0);
 
-  // 1) speed  2) source edge crop  3) contain  4) zoom  5) pan overlay on black
+  // 1) speed  2) source edge crop (+ pad to original aspect)  3) contain  4) zoom  5) pan
+  // Subscribe sticker / title / ranks are composited AFTER this on the full frame.
   const panRoom = 0.45;
   const padTop =
     topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";

@@ -7,7 +7,6 @@ import {
   clampCropPan,
   clampCropZoom,
   coverContainFactor,
-  cropEffectiveAspect,
   defaultCrop,
   normalizeCrop,
 } from "@/lib/defaults";
@@ -120,9 +119,7 @@ export function EdgeCropControls({
     onChange(normalizeCrop({ ...crop, ...partial }));
   const coverZoom =
     videoAspect && videoAspect > 0
-      ? clampCropZoom(
-          coverContainFactor(frameAspect, cropEffectiveAspect(videoAspect, n))
-        )
+      ? clampCropZoom(coverContainFactor(frameAspect, videoAspect))
       : null;
 
   return (
@@ -160,7 +157,8 @@ export function EdgeCropControls({
 
       <div className="edge-crop-grid">
         <p className="muted edge-crop-hint" style={{ gridColumn: "1 / -1", margin: 0 }}>
-          Cut edges of the video itself — then use Position to move that cropped clip
+          Cut edges of the clip (watermarks etc.) — subscribe sticker stays on the frame.
+          Position still moves the cropped clip.
         </p>
         <EdgeStepper
           label="Top"

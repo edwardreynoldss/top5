@@ -567,7 +567,7 @@ export function coverContainFactor(frameAspect: number, videoAspect: number) {
 
 /**
  * Aspect ratio of the kept band after edge crop (source fractions).
- * cropTop/Bottom/Left/Right cut the VIDEO, then pan/zoom use this aspect.
+ * Used when you intentionally want layout to follow the cropped picture.
  */
 export function cropEffectiveAspect(
   videoAspect: number,
@@ -610,9 +610,7 @@ export function cropPanTranslatePct(crop: ClipCrop, scale: number) {
 }
 
 /**
- * Normalized source-edge crop fractions (kept for callers that need the numbers).
- * Prefer cropPreviewStyle — edge crop is applied to the video content, not as
- * frame-fixed black overlays.
+ * Normalized source-edge crop fractions.
  */
 export function cropEdgeBars(crop?: Partial<ClipCrop> | null): {
   top: number;
@@ -632,7 +630,7 @@ export function cropEdgeBars(crop?: Partial<ClipCrop> | null): {
 }
 
 export type CropPreviewLayout = {
-  /** Outer window in the 9:16 frame (contain × zoom × pan of the CROPPED aspect). */
+  /** Outer window in the 9:16 frame (contain × zoom × pan of the FULL source aspect). */
   windowStyle: {
     position: "absolute";
     width: string;
@@ -642,7 +640,7 @@ export type CropPreviewLayout = {
     overflow: "hidden";
     background: string;
   };
-  /** Inner <video>: full source inset so only the kept band shows; moves with the window. */
+  /** Inner <video>: source inset so edge crop sticks to the clip; pan moves this with the window. */
   videoStyle: {
     position: "absolute";
     width: string;
@@ -658,9 +656,10 @@ export type CropPreviewLayout = {
 
 /**
  * Crop-then-pan layout for preview.
- * 1) Edge fractions cut the source video
- * 2) That cropped rect is fitted (contain × zoom) and panned in the Shorts frame
- * So moving the clip keeps the same crop — bars are not glued to the viewport.
+ *
+ * Edge crop cuts pixels on the VIDEO (overflow clip), but the window still uses the
+ * full source aspect so framing does not reflow under the subscribe sticker / title.
+ * Pan/zoom move the window — crop stays glued to the clip.
  */
 export function cropPreviewStyle(
   crop: ClipCrop,
@@ -683,17 +682,18 @@ export function cropPreviewStyle(
   );
   const visibleW = Math.max(0.2, 1 - cl - cr);
   const visibleH = Math.max(0.2, 1 - ct - cb);
-  const croppedAspect = (videoAspect * visibleW) / visibleH;
   const z = clampCropZoom(normalized.zoom);
 
+  // Layout from FULL source aspect (not cropped) so edge crop doesn't reflow
+  // the Shorts frame and eat into the subscribe sticker safe area.
   let baseW: number;
   let baseH: number;
-  if (croppedAspect >= frameAspect) {
+  if (videoAspect >= frameAspect) {
     baseW = 100;
-    baseH = (100 * frameAspect) / croppedAspect;
+    baseH = (100 * frameAspect) / videoAspect;
   } else {
     baseH = 100;
-    baseW = (100 * croppedAspect) / frameAspect;
+    baseW = (100 * videoAspect) / frameAspect;
   }
   const w = baseW * z;
   const h = baseH * z;
@@ -717,7 +717,7 @@ export function cropPreviewStyle(
     },
     videoStyle: {
       position: "absolute",
-      // Expand so the window shows only the kept band of the full source
+      // Full source inside the window; overflow clips the edge-crop band
       width: `${(100 / visibleW).toFixed(4)}%`,
       height: `${(100 / visibleH).toFixed(4)}%`,
       left: `${((-cl / visibleW) * 100).toFixed(4)}%`,
