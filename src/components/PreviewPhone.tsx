@@ -29,7 +29,8 @@ import {
   formatTime,
   effectiveSfxVolume,
   effectiveClipVolume,
-  getClipSpeed,
+  getSegmentSpeed,
+  segmentPlayDuration,
   getClipBedMusic,
   defaultSticker,
   stickerPlayDuration,
@@ -151,9 +152,9 @@ export function PreviewPhone({
     }
     if (inHookGap) {
       const hook = getClipHook(activeClip);
-      const hookPlay = hook
-        ? hookDuration(hook) / Math.max(0.5, getClipSpeed(activeClip))
-        : 0;
+      const hookSeg = getClipPlaybackSegments(activeClip)[0];
+      const hookPlay =
+        hook && hookSeg ? segmentPlayDuration(activeClip, hookSeg) : 0;
       if (hit) return hit.start + hookPlay + gapElapsed;
     }
     return absoluteTimeForClipPlayhead(activeClip.id, localPlay, offsets);
@@ -791,15 +792,15 @@ export function PreviewPhone({
     fg.volume = Math.min(1, effectiveClipVolume(activeClip, settings.clipVolume));
   }, [activeClip, activeClip?.volume, settings.clipVolume]);
 
-  // Per-clip speed (preview playbackRate; timeline length uses clipPlayDuration)
+  // Per-part speed (preview playbackRate; timeline length uses clipPlayDuration)
   useEffect(() => {
     const fg = videoRef.current;
     const bg = bgRef.current;
-    if (!fg || !activeClip) return;
-    const rate = getClipSpeed(activeClip);
+    if (!fg || !activeClip || !activeSeg) return;
+    const rate = getSegmentSpeed(activeClip, activeSeg);
     fg.playbackRate = rate;
     if (bg) bg.playbackRate = rate;
-  }, [activeClip, activeClip?.speed]);
+  }, [activeClip, activeClip?.speed, activeSeg, activeSeg?.speed, segIndex]);
 
   // Looping background music bed under the full ranking preview
   useEffect(() => {

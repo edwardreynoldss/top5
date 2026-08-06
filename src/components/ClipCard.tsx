@@ -32,6 +32,7 @@ import {
   getClipBedMusic,
   getClipVolume,
   getClipSpeed,
+  getSegmentSpeed,
   clampClipSpeed,
 } from "@/lib/defaults";
 
@@ -228,6 +229,10 @@ export function ClipCard({ clip }: { clip: RankClip }) {
     const first = segments[0];
     const last = segments[segments.length - 1];
     const sourceDur = meta?.duration ?? clip.duration;
+    const partSpeeds = segments.map((s) =>
+      clampClipSpeed(typeof s.speed === "number" ? s.speed : getClipSpeed(clip))
+    );
+    const syncedSpeed = partSpeeds[0] ?? getClipSpeed(clip);
     updateClip(clip.id, {
       status: "ready",
       mediaId: meta?.mediaId ?? clip.mediaId,
@@ -241,6 +246,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       hook: normalizeHook(hook, sourceDur || Infinity),
       trimStart: first?.start ?? 0,
       trimEnd: last?.end ?? DEFAULT_CLIP_DURATION,
+      speed: syncedSpeed,
       error: undefined,
     });
     setTrimOpen(false);
@@ -277,6 +283,11 @@ export function ClipCard({ clip }: { clip: RankClip }) {
   const clipHook = getClipHook(clip);
   const clipVol = getClipVolume(clip);
   const clipSpeed = getClipSpeed(clip);
+  const partSpeeds = segs.map((s) => getSegmentSpeed(clip, s));
+  const speedMixed =
+    partSpeeds.length > 1 &&
+    partSpeeds.some((s) => Math.abs(s - partSpeeds[0]) > 0.001);
+  const speedSliderValue = speedMixed ? partSpeeds[0] : clipSpeed;
   const clipBed = getClipBedMusic(clip);
 
   // New ingest (upload/fetch) uses pendingMeta → fresh trim defaults.
@@ -423,21 +434,34 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                 </div>
               </div>
               <div className="clip-controls" onClick={(e) => e.stopPropagation()}>
-                <label className="clip-volume" title="Speed for this clip">
+                <label
+                  className="clip-volume"
+                  title={
+                    speedMixed
+                      ? "Parts have different speeds — drag to set all, or open Trim for each part"
+                      : segs.length > 1
+                        ? "Speed for all parts (edit per-part in Trim)"
+                        : "Speed for this clip"
+                  }
+                >
                   <Gauge size={14} className="muted-icon" />
-                  <span>{clipSpeed.toFixed(2)}×</span>
+                  <span>
+                    {speedMixed ? "mix" : `${speedSliderValue.toFixed(2)}×`}
+                  </span>
                   <input
                     type="range"
                     min={0.5}
                     max={2}
                     step={0.05}
-                    value={clipSpeed}
+                    value={speedSliderValue}
                     aria-label={`Speed for rank ${clip.rank}`}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const speed = clampClipSpeed(parseFloat(e.target.value) || 1);
                       updateClip(clip.id, {
-                        speed: clampClipSpeed(parseFloat(e.target.value) || 1),
-                      })
-                    }
+                        speed,
+                        segments: segs.map((s) => ({ ...s, speed })),
+                      });
+                    }}
                   />
                 </label>
                 <label className="clip-volume" title="Volume for this clip">
@@ -531,6 +555,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
         initialCrop={trimCrop}
         initialBedMusic={trimBedMusic}
         initialHook={trimHook}
+        initialSpeed={getClipSpeed(clip)}
         duration={trimDuration}
         onClose={() => {
           setTrimOpen(false);

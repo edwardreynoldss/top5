@@ -41,7 +41,7 @@ interface ExportClip {
   label: string;
   trimStart: number;
   trimEnd: number;
-  segments?: { start: number; end: number }[];
+  segments?: { start: number; end: number; speed?: number }[];
   crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number; cropLeft?: number; cropRight?: number };
   /** Per-clip gain 0–2; multiplied by body.clipVolume */
   volume?: number;
@@ -297,28 +297,42 @@ async function burnOverlays(opts: {
 
 /**
  * Cut multiple ranges from one source and concat into a single file.
+ * Each part can have its own playback speed (baked in before concat).
  * Parts use ultrafast (accurate cuts) — renderClipSegment re-encodes anyway.
  * Segment cuts run in parallel.
  */
 async function buildMergedSource(
   input: string,
-  segments: { start: number; end: number }[],
+  segments: { start: number; end: number; speed?: number }[],
   outPath: string,
   fps: number
 ) {
   const dir = path.dirname(outPath);
   const parts = await Promise.all(
     segments.map(async (seg, i) => {
-      const dur = Math.max(0.2, seg.end - seg.start);
+      const sourceDur = Math.max(0.2, seg.end - seg.start);
+      const speed = Math.max(0.5, Math.min(2, seg.speed ?? 1));
       const part = path.join(dir, `merge-part-${path.basename(outPath)}-${i}.mp4`);
+      const vfilter =
+        Math.abs(speed - 1) > 0.001
+          ? `setpts=PTS/${speed}`
+          : "setpts=PTS-STARTPTS";
+      const afilter =
+        Math.abs(speed - 1) > 0.001
+          ? `${ffmpegAtempoChain(speed)},asetpts=PTS-STARTPTS`
+          : "asetpts=PTS-STARTPTS";
       await runCommand("ffmpeg", [
         "-y",
         "-ss",
         String(Math.max(0, seg.start)),
         "-t",
-        String(dur),
+        String(sourceDur),
         "-i",
         input,
+        "-filter:v",
+        vfilter,
+        "-filter:a",
+        afilter,
         "-c:v",
         "libx264",
         "-preset",
@@ -858,8 +872,19 @@ export async function POST(req: NextRequest) {
       const ranges =
         clip.segments && clip.segments.length > 0
           ? clip.segments
-          : [{ start: clip.trimStart, end: clip.trimEnd }];
-      const clipSpeed = Math.max(0.5, Math.min(2, clip.speed ?? 1));
+          : [{ start: clip.trimStart, end: clip.trimEnd, speed: clip.speed ?? 1 }];
+      const clipSpeedFallback = Math.max(0.5, Math.min(2, clip.speed ?? 1));
+      const ranged = ranges.map((s) => ({
+        start: s.start,
+        end: s.end,
+        speed: Math.max(
+          0.5,
+          Math.min(
+            2,
+            typeof s.speed === "number" && Number.isFinite(s.speed) ? s.speed : clipSpeedFallback
+          )
+        ),
+      }));
       const source = resolveMedia(clip.mediaId);
 
       // Keep labels for this clip and every earlier clip in playback order
@@ -923,34 +948,49 @@ export async function POST(req: NextRequest) {
         0,
         Math.min(10, Number.isFinite(clip.hookGapAfter) ? Number(clip.hookGapAfter) : 0)
       );
-      const splitHook = hookGapAfter > 0.05 && ranges.length >= 2;
-      const pieces: { ranges: typeof ranges; tag: string; endFx: boolean }[] = splitHook
+      const splitHook = hookGapAfter > 0.05 && ranged.length >= 2;
+      const pieces: {
+        ranges: typeof ranged;
+        tag: string;
+        endFx: boolean;
+      }[] = splitHook
         ? [
-            { ranges: [ranges[0]], tag: "hook", endFx: false },
-            { ranges: ranges.slice(1), tag: "main", endFx: wantsEndFx },
+            { ranges: [ranged[0]], tag: "hook", endFx: false },
+            { ranges: ranged.slice(1), tag: "main", endFx: wantsEndFx },
           ]
-        : [{ ranges, tag: "all", endFx: wantsEndFx }];
+        : [{ ranges: ranged, tag: "all", endFx: wantsEndFx }];
 
       for (let pi = 0; pi < pieces.length; pi++) {
         const piece = pieces[pi];
         const pieceRanges = piece.ranges;
-        const pieceSourceDuration = Math.max(
-          0.2,
-          pieceRanges.reduce((sum, s) => sum + Math.max(0.2, s.end - s.start), 0)
-        );
         let pieceInput = source;
         let pieceTrimStart = pieceRanges[0].start;
+        let pieceRenderSource: number;
+        let pieceWall: number;
+        let piecePlaybackSpeed: number;
+
         if (pieceRanges.length > 1) {
+          // Bake per-part speed into the merge, then render at 1×
           const merged = path.join(jobDir, `merged-src-${i}-${piece.tag}.mp4`);
           await buildMergedSource(source, pieceRanges, merged, fps);
           pieceInput = merged;
           pieceTrimStart = 0;
+          pieceWall = Math.max(
+            0.2,
+            pieceRanges.reduce(
+              (sum, s) => sum + Math.max(0.2, s.end - s.start) / s.speed,
+              0
+            )
+          );
+          pieceRenderSource = pieceWall;
+          piecePlaybackSpeed = 1;
+        } else {
+          const only = pieceRanges[0];
+          pieceTrimStart = only.start;
+          pieceRenderSource = Math.max(0.2, only.end - only.start);
+          piecePlaybackSpeed = only.speed;
+          pieceWall = Math.max(0.2, pieceRenderSource / piecePlaybackSpeed);
         }
-        const pieceRenderSource =
-          pieceRanges.length > 1
-            ? pieceSourceDuration
-            : Math.max(0.2, pieceRanges[0].end - pieceRanges[0].start);
-        const pieceWall = Math.max(0.2, pieceRenderSource / clipSpeed);
         const pieceOut = path.join(jobDir, `seg-${i}-${piece.tag}.mp4`);
 
         const pieceAbsStart = timelineCursor;
@@ -979,7 +1019,7 @@ export async function POST(req: NextRequest) {
           trimStart: pieceRanges.length > 1 ? 0 : pieceTrimStart,
           duration: pieceRenderSource,
           wallDuration: pieceWall,
-          playbackSpeed: clipSpeed,
+          playbackSpeed: piecePlaybackSpeed,
           width,
           height,
           blurAmount: body.blurAmount ?? 28,

@@ -115,8 +115,8 @@ export function createLine(words: Array<{ text: string; color?: string }>): Titl
   };
 }
 
-export function createSegment(start: number, end: number): TrimSegment {
-  return { id: uuidv4(), start, end };
+export function createSegment(start: number, end: number, speed = 1): TrimSegment {
+  return { id: uuidv4(), start, end, speed: clampClipSpeed(speed) };
 }
 
 /** Max fraction of height/width removable from one edge */
@@ -186,18 +186,38 @@ export function normalizeCrop(crop?: Partial<ClipCrop> | null): ClipCrop {
   };
 }
 
-export function normalizeSegments(segments: TrimSegment[]): TrimSegment[] {
+export function normalizeSegments(
+  segments: TrimSegment[],
+  defaultSpeed = 1
+): TrimSegment[] {
+  const fallback = clampClipSpeed(defaultSpeed);
   return segments
     .map((s) => ({
       ...s,
       start: Math.max(0, s.start),
       end: Math.max(s.start + 0.2, s.end),
+      speed: clampClipSpeed(
+        typeof s.speed === "number" && Number.isFinite(s.speed) ? s.speed : fallback
+      ),
     }))
     .filter((s) => s.end > s.start);
 }
 
 export function segmentsDuration(segments: TrimSegment[]) {
   return normalizeSegments(segments).reduce((sum, s) => sum + (s.end - s.start), 0);
+}
+
+/** Wall-clock length of segments after each part's speed. */
+export function segmentsPlayDuration(
+  segments: TrimSegment[],
+  defaultSpeed = 1
+) {
+  return normalizeSegments(segments, defaultSpeed).reduce((sum, s) => {
+    const spd = clampClipSpeed(
+      typeof s.speed === "number" && Number.isFinite(s.speed) ? s.speed : defaultSpeed
+    );
+    return sum + Math.max(0, s.end - s.start) / spd;
+  }, 0);
 }
 
 export function defaultBedMusic(): ClipBedMusic {
@@ -373,8 +393,9 @@ export function getPlaybackOrder(clips: RankClip[], playOrder: "countdown" | "as
 
 /** Main trim parts only (what Trim & crop edits) — does not include hook. */
 export function getClipMainSegments(clip: RankClip): TrimSegment[] {
-  if (clip.segments?.length) return normalizeSegments(clip.segments);
-  return [createSegment(clip.trimStart, clip.trimEnd)];
+  const fallback = getClipSpeed(clip);
+  if (clip.segments?.length) return normalizeSegments(clip.segments, fallback);
+  return [createSegment(clip.trimStart, clip.trimEnd, fallback)];
 }
 
 /** Normalize optional hook; returns undefined when disabled / invalid. */
@@ -416,7 +437,8 @@ export function getClipPlaybackSegments(clip: RankClip): TrimSegment[] {
   const main = getClipMainSegments(clip);
   const hook = getClipHook(clip);
   if (!hook) return main;
-  return [createSegment(hook.start, hook.end), ...main];
+  // Hook teaser uses the clip-level default speed (no per-hook control yet)
+  return [createSegment(hook.start, hook.end, getClipSpeed(clip)), ...main];
 }
 
 /** @deprecated Prefer getClipMainSegments or getClipPlaybackSegments */
@@ -459,6 +481,25 @@ export function getClipSpeed(clip: RankClip) {
   );
 }
 
+/** Effective speed for one trim part (segment override → clip default). */
+export function getSegmentSpeed(
+  clip: RankClip,
+  seg?: Pick<TrimSegment, "speed"> | null
+) {
+  if (seg && typeof seg.speed === "number" && Number.isFinite(seg.speed)) {
+    return clampClipSpeed(seg.speed);
+  }
+  return getClipSpeed(clip);
+}
+
+/** Wall-clock length of one part after its speed. */
+export function segmentPlayDuration(
+  clip: RankClip,
+  seg: Pick<TrimSegment, "start" | "end" | "speed">
+) {
+  return Math.max(0.05, Math.max(0, seg.end - seg.start) / getSegmentSpeed(clip, seg));
+}
+
 /** Selected source seconds (hook + main), before speed. Hook is extra on top of the 60s main budget. */
 export function clipSourceDuration(clip: RankClip) {
   const main = Math.min(MAX_CLIP_DURATION, segmentsDuration(getClipMainSegments(clip)));
@@ -466,12 +507,14 @@ export function clipSourceDuration(clip: RankClip) {
   return Math.max(0.2, main + hook);
 }
 
-/** Wall-clock play length on the timeline (= source ÷ speed + optional hook black). */
+/** Wall-clock play length on the timeline (Σ part source ÷ part speed + optional hook black). */
 export function clipPlayDuration(clip: RankClip) {
-  return Math.max(
-    0.2,
-    clipSourceDuration(clip) / getClipSpeed(clip) + getHookGapAfter(clip)
-  );
+  const segs = getClipPlaybackSegments(clip);
+  let play = 0;
+  for (const s of segs) {
+    play += segmentPlayDuration(clip, s);
+  }
+  return Math.max(0.2, play + getHookGapAfter(clip));
 }
 
 /**
@@ -714,18 +757,18 @@ export function clipLocalPlayProgress(
 ) {
   const segs = getClipPlaybackSegments(clip);
   const hook = getClipHook(clip);
-  const speed = getClipSpeed(clip);
   const hookGap = getHookGapAfter(clip);
   let t = 0;
   for (let i = 0; i < segIndex; i++) {
     const s = segs[i];
-    if (s) t += Math.max(0, s.end - s.start) / speed;
+    if (s) t += segmentPlayDuration(clip, s);
     // Black hold after the hook teaser (first playback segment)
     if (hook && i === 0) t += hookGap;
   }
   const seg = segs[segIndex];
   if (seg) {
-    t += Math.max(0, Math.min(sourceTime, seg.end) - seg.start) / speed;
+    const into = Math.max(0, Math.min(sourceTime, seg.end) - seg.start);
+    t += into / getSegmentSpeed(clip, seg);
   }
   return t;
 }
@@ -737,15 +780,19 @@ export function sourceSeekFromLocalPlay(clip: RankClip, localPlay: number) {
     return { segIndex: 0, sourceTime: 0, inHookGap: false };
   }
   const hook = getClipHook(clip);
-  const speed = getClipSpeed(clip);
   const hookGap = getHookGapAfter(clip);
   let remaining = Math.max(0, localPlay);
   for (let i = 0; i < segs.length; i++) {
-    const playLen = Math.max(0.05, (segs[i].end - segs[i].start) / speed);
+    const playLen = segmentPlayDuration(clip, segs[i]);
     if (remaining <= playLen) {
+      const speed = getSegmentSpeed(clip, segs[i]);
+      const sourceInto = Math.min(
+        remaining * speed,
+        Math.max(0, segs[i].end - segs[i].start)
+      );
       return {
         segIndex: i,
-        sourceTime: segs[i].start + Math.min(remaining * speed, segs[i].end - segs[i].start),
+        sourceTime: segs[i].start + sourceInto,
         inHookGap: false,
       };
     }

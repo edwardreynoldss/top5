@@ -7,6 +7,11 @@ export interface TrimSegment {
   id: string;
   start: number;
   end: number;
+  /**
+   * Playback rate for this part only (0.5–2). When omitted, falls back to clip.speed.
+   * Split parts can each have their own speed.
+   */
+  speed?: number;
 }
 
 /** Zoom/pan framing for fit-to-screen crop, plus optional edge crop */
@@ -84,8 +89,9 @@ export interface RankClip {
    */
   volume: number;
   /**
-   * Playback rate 0.5–2 (1 = normal).
-   * Speeds up / slows down preview + export; timeline length = source ÷ speed.
+   * Default playback rate 0.5–2 (1 = normal).
+   * Used for parts without their own speed, and as the ClipCard master control.
+   * Timeline length = Σ (part source ÷ part speed).
    */
   speed: number;
   /**

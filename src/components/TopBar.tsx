@@ -19,6 +19,7 @@ import {
   effectiveSfxVolume,
   effectiveClipVolume,
   getClipSpeed,
+  getSegmentSpeed,
   getClipCrop,
   getClipBedMusic,
   getClipPlaybackSegments,
@@ -222,6 +223,7 @@ export function TopBar({
             const playback = getClipPlaybackSegments(c).map((s) => ({
               start: s.start,
               end: s.end,
+              speed: getSegmentSpeed(c, s),
             }));
             const first = playback[0];
             const last = playback[playback.length - 1];
