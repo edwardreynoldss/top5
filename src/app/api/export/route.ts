@@ -55,6 +55,8 @@ interface ExportClip {
   } | null;
   /** Black hold (seconds) after this clip before the next — overlays stay */
   gapAfter?: number;
+  /** Black hold after the hook teaser, before main trim parts */
+  hookGapAfter?: number;
 }
 
 interface ExportBody {
@@ -857,30 +859,8 @@ export async function POST(req: NextRequest) {
         clip.segments && clip.segments.length > 0
           ? clip.segments
           : [{ start: clip.trimStart, end: clip.trimEnd }];
-      const sourceDuration = Math.max(
-        0.2,
-        ranges.reduce((sum, s) => sum + Math.max(0.2, s.end - s.start), 0)
-      );
       const clipSpeed = Math.max(0.5, Math.min(2, clip.speed ?? 1));
       const source = resolveMedia(clip.mediaId);
-      let input = source;
-      let trimStart = ranges[0].start;
-
-      if (ranges.length > 1) {
-        const merged = path.join(jobDir, `merged-src-${i}.mp4`);
-        await buildMergedSource(source, ranges, merged, fps);
-        input = merged;
-        trimStart = 0;
-      } else {
-        // single range — still use seek in renderClipSegment
-        trimStart = ranges[0].start;
-      }
-
-      const renderSourceDuration =
-        ranges.length > 1
-          ? sourceDuration
-          : Math.max(0.2, ranges[0].end - ranges[0].start);
-      const renderWallDuration = Math.max(0.2, renderSourceDuration / clipSpeed);
 
       // Keep labels for this clip and every earlier clip in playback order
       const ranksOverlay = body.showRankList ? path.join(jobDir, `ranks-${i}.png`) : null;
@@ -912,7 +892,6 @@ export async function POST(req: NextRequest) {
         ranksOverlay || path.join(jobDir, `ranks-unused-${i}.png`),
       ]);
 
-      const seg = path.join(jobDir, `seg-${i}.mp4`);
       const titleEnabled = body.title?.enabled !== false;
       const barH = !titleEnabled
         ? 0
@@ -922,23 +901,7 @@ export async function POST(req: NextRequest) {
             ? 0
             : 150;
 
-      const clipAbsStart = timelineCursor;
       const stickerAbsEnd = stickerStartAt + stickerPlayDur;
-      const clipAbsEnd = clipAbsStart + renderWallDuration;
-      const stickerOverlaps =
-        Boolean(stickerPath) &&
-        stickerAbsEnd > clipAbsStart + 0.01 &&
-        stickerStartAt < clipAbsEnd - 0.01;
-      const stickerDelay = stickerOverlaps
-        ? Math.max(0, stickerStartAt - clipAbsStart)
-        : 0;
-      const stickerEndLocal = stickerOverlaps
-        ? Math.min(renderWallDuration, stickerAbsEnd - clipAbsStart)
-        : 0;
-      const stickerSourceSeek =
-        stickerOverlaps && clipAbsStart > stickerStartAt
-          ? Math.max(0, (clipAbsStart - stickerStartAt) * Math.max(0.25, Math.min(3, stickerSpeed)))
-          : 0;
 
       let bedMusicPath: string | null = null;
       let bedStartAt = 0;
@@ -956,54 +919,143 @@ export async function POST(req: NextRequest) {
       const wantsEndFx =
         (body.transition === "flash" || body.transition === "zoom") &&
         i < ordered.length - 1;
-      await renderClipSegment({
-        input,
-        output: seg,
-        trimStart: ranges.length > 1 ? 0 : trimStart,
-        duration: renderSourceDuration,
-        wallDuration: renderWallDuration,
-        playbackSpeed: clipSpeed,
-        width,
-        height,
-        blurAmount: body.blurAmount ?? 28,
-        aspectMode: body.aspectMode || "crop-fill",
-        titleOverlay,
-        ranksOverlay: body.showRankList ? ranksOverlay : null,
-        stickerPath: stickerOverlaps ? stickerPath : null,
-        stickerScale,
-        stickerSpeed,
-        stickerDelay,
-        stickerEnd: stickerEndLocal,
-        stickerSourceSeek,
-        fps,
-        clipVolume: Math.max(
-          0,
-          Math.min(2, (clip.volume ?? 1) * (body.clipVolume ?? 1))
-        ),
-        crop: clip.crop || {
-          zoom: 1,
-          panX: 50,
-          panY: 50,
-          cropTop: 0,
-          cropBottom: 0,
-          cropLeft: 0,
-          cropRight: 0,
-        },
-        titleOverlap: !titleEnabled ? true : body.titleOverlap !== false,
-        titleBarHeight: barH,
-        bedMusicPath,
-        bedStartAt,
-        bedVolume,
-        endTransition: wantsEndFx
-          ? {
-              type: body.transition as "flash" | "zoom",
-              duration: body.transitionDuration || 0.25,
-            }
-          : null,
-      });
+      const hookGapAfter = Math.max(
+        0,
+        Math.min(10, Number.isFinite(clip.hookGapAfter) ? Number(clip.hookGapAfter) : 0)
+      );
+      const splitHook = hookGapAfter > 0.05 && ranges.length >= 2;
+      const pieces: { ranges: typeof ranges; tag: string; endFx: boolean }[] = splitHook
+        ? [
+            { ranges: [ranges[0]], tag: "hook", endFx: false },
+            { ranges: ranges.slice(1), tag: "main", endFx: wantsEndFx },
+          ]
+        : [{ ranges, tag: "all", endFx: wantsEndFx }];
 
-      timelineCursor += renderWallDuration;
-      segmentPaths.push(seg);
+      for (let pi = 0; pi < pieces.length; pi++) {
+        const piece = pieces[pi];
+        const pieceRanges = piece.ranges;
+        const pieceSourceDuration = Math.max(
+          0.2,
+          pieceRanges.reduce((sum, s) => sum + Math.max(0.2, s.end - s.start), 0)
+        );
+        let pieceInput = source;
+        let pieceTrimStart = pieceRanges[0].start;
+        if (pieceRanges.length > 1) {
+          const merged = path.join(jobDir, `merged-src-${i}-${piece.tag}.mp4`);
+          await buildMergedSource(source, pieceRanges, merged, fps);
+          pieceInput = merged;
+          pieceTrimStart = 0;
+        }
+        const pieceRenderSource =
+          pieceRanges.length > 1
+            ? pieceSourceDuration
+            : Math.max(0.2, pieceRanges[0].end - pieceRanges[0].start);
+        const pieceWall = Math.max(0.2, pieceRenderSource / clipSpeed);
+        const pieceOut = path.join(jobDir, `seg-${i}-${piece.tag}.mp4`);
+
+        const pieceAbsStart = timelineCursor;
+        const pieceAbsEnd = pieceAbsStart + pieceWall;
+        const pieceStickerOverlaps =
+          Boolean(stickerPath) &&
+          stickerAbsEnd > pieceAbsStart + 0.01 &&
+          stickerStartAt < pieceAbsEnd - 0.01;
+        const pieceStickerDelay = pieceStickerOverlaps
+          ? Math.max(0, stickerStartAt - pieceAbsStart)
+          : 0;
+        const pieceStickerEndLocal = pieceStickerOverlaps
+          ? Math.min(pieceWall, stickerAbsEnd - pieceAbsStart)
+          : 0;
+        const pieceStickerSeek =
+          pieceStickerOverlaps && pieceAbsStart > stickerStartAt
+            ? Math.max(
+                0,
+                (pieceAbsStart - stickerStartAt) * Math.max(0.25, Math.min(3, stickerSpeed))
+              )
+            : 0;
+
+        await renderClipSegment({
+          input: pieceInput,
+          output: pieceOut,
+          trimStart: pieceRanges.length > 1 ? 0 : pieceTrimStart,
+          duration: pieceRenderSource,
+          wallDuration: pieceWall,
+          playbackSpeed: clipSpeed,
+          width,
+          height,
+          blurAmount: body.blurAmount ?? 28,
+          aspectMode: body.aspectMode || "crop-fill",
+          titleOverlay,
+          ranksOverlay: body.showRankList ? ranksOverlay : null,
+          stickerPath: pieceStickerOverlaps ? stickerPath : null,
+          stickerScale,
+          stickerSpeed,
+          stickerDelay: pieceStickerDelay,
+          stickerEnd: pieceStickerEndLocal,
+          stickerSourceSeek: pieceStickerSeek,
+          fps,
+          clipVolume: Math.max(
+            0,
+            Math.min(2, (clip.volume ?? 1) * (body.clipVolume ?? 1))
+          ),
+          crop: clip.crop || {
+            zoom: 1,
+            panX: 50,
+            panY: 50,
+            cropTop: 0,
+            cropBottom: 0,
+            cropLeft: 0,
+            cropRight: 0,
+          },
+          titleOverlap: !titleEnabled ? true : body.titleOverlap !== false,
+          titleBarHeight: barH,
+          // Bed only under the main (or only) piece — not under the hook alone
+          bedMusicPath: piece.tag === "hook" ? null : bedMusicPath,
+          bedStartAt,
+          bedVolume,
+          endTransition: piece.endFx
+            ? {
+                type: body.transition as "flash" | "zoom",
+                duration: body.transitionDuration || 0.25,
+              }
+            : null,
+        });
+
+        timelineCursor += pieceWall;
+        segmentPaths.push(pieceOut);
+
+        // Black hold after hook teaser, before main
+        if (splitHook && pi === 0) {
+          const hookGapPath = path.join(jobDir, `gap-hook-${i}.mp4`);
+          const gapAbsStart = timelineCursor;
+          const gapAbsEnd = timelineCursor + hookGapAfter;
+          const stickerOverlapsGap =
+            stickerEnabled &&
+            stickerAbsEnd > gapAbsStart + 0.01 &&
+            stickerStartAt < gapAbsEnd - 0.01;
+          await renderBlackGapSegment({
+            output: hookGapPath,
+            duration: hookGapAfter,
+            width,
+            height,
+            fps,
+            titleOverlay,
+            ranksOverlay: body.showRankList ? ranksOverlay : null,
+            stickerPath: stickerOverlapsGap ? stickerPath : null,
+            stickerScale,
+            stickerSpeed,
+            stickerDelay: Math.max(0, stickerStartAt - gapAbsStart),
+            stickerSourceSeek:
+              gapAbsStart > stickerStartAt
+                ? Math.max(
+                    0,
+                    (gapAbsStart - stickerStartAt) * Math.max(0.25, Math.min(3, stickerSpeed))
+                  )
+                : 0,
+          });
+          segmentPaths.push(hookGapPath);
+          timelineCursor += hookGapAfter;
+        }
+      }
 
       // Black hold between clips (overlays from this clip's progressive ranks stay on)
       const gapAfter = Math.max(

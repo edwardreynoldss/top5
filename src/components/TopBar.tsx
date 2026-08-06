@@ -23,6 +23,7 @@ import {
   getClipBedMusic,
   getClipPlaybackSegments,
   getClipGapAfter,
+  getHookGapAfter,
   clipTimelineOffsets,
 } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
@@ -246,6 +247,7 @@ export function TopBar({
                   : null;
               })(),
               gapAfter: getClipGapAfter(c),
+              hookGapAfter: getHookGapAfter(c),
             };
           }),
           title: titlePayload,

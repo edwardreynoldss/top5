@@ -13,6 +13,8 @@ import {
   getClipPlaybackSegments,
   getClipHook,
   getClipGapAfter,
+  getHookGapAfter,
+  hookDuration,
   getClipCrop,
   cropPreviewStyle,
   cropEdgeBars,
@@ -83,8 +85,11 @@ export function PreviewPhone({
   const [transitionFlash, setTransitionFlash] = useState(false);
   /** Black hold after a clip finishes (overlays stay). */
   const [inGap, setInGap] = useState(false);
+  /** Black hold after the hook teaser, before main parts. */
+  const [inHookGap, setInHookGap] = useState(false);
   const [gapElapsed, setGapElapsed] = useState(0);
   const inGapRef = useRef(false);
+  const inHookGapRef = useRef(false);
   const gapElapsedRef = useRef(0);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
@@ -101,6 +106,7 @@ export function PreviewPhone({
   activeIndexRef.current = activeIndex;
   segIndexRef.current = segIndex;
   inGapRef.current = inGap;
+  inHookGapRef.current = inHookGap;
   gapElapsedRef.current = gapElapsed;
 
   const sequence = useMemo(
@@ -139,12 +145,19 @@ export function PreviewPhone({
 
   const absTime = useMemo(() => {
     if (!activeClip) return 0;
+    const hit = offsets.find((o) => o.clipId === activeClip.id);
     if (inGap) {
-      const hit = offsets.find((o) => o.clipId === activeClip.id);
       if (hit) return hit.start + hit.duration + gapElapsed;
     }
+    if (inHookGap) {
+      const hook = getClipHook(activeClip);
+      const hookPlay = hook
+        ? hookDuration(hook) / Math.max(0.5, getClipSpeed(activeClip))
+        : 0;
+      if (hit) return hit.start + hookPlay + gapElapsed;
+    }
     return absoluteTimeForClipPlayhead(activeClip.id, localPlay, offsets);
-  }, [activeClip, localPlay, offsets, inGap, gapElapsed]);
+  }, [activeClip, localPlay, offsets, inGap, inHookGap, gapElapsed]);
   absTimeRef.current = absTime;
 
   useEffect(() => {
@@ -398,6 +411,13 @@ export function PreviewPhone({
     let initialized = false;
     setMediaReady(false);
     advancingRef.current = false;
+    // Fresh clip load — leave any black-hold state from the previous clip
+    inGapRef.current = false;
+    inHookGapRef.current = false;
+    gapElapsedRef.current = 0;
+    setInGap(false);
+    setInHookGap(false);
+    setGapElapsed(0);
 
     const url = activeClip.mediaUrl;
     const start = scrubbingRef.current
@@ -544,21 +564,103 @@ export function PreviewPhone({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inGap, isPlaying, activeClip?.id, activeClip?.gapAfter, settings.transition]);
 
+  // Black hold after hook teaser → then main parts
+  useEffect(() => {
+    if (!inHookGap || !isPlaying || !activeClip) return;
+    const gapSec = getHookGapAfter(activeClip);
+    if (gapSec <= 0.05) {
+      inHookGapRef.current = false;
+      setInHookGap(false);
+      return;
+    }
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      if (!inHookGapRef.current || !isPlayingRef.current) return;
+      const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
+      last = now;
+      const next = gapElapsedRef.current + dt;
+      gapElapsedRef.current = next;
+      setGapElapsed(next);
+      if (next >= gapSec - 0.02) {
+        inHookGapRef.current = false;
+        gapElapsedRef.current = 0;
+        setInHookGap(false);
+        setGapElapsed(0);
+        const segs = getClipPlaybackSegments(activeClip);
+        if (segs.length > 1) {
+          advancingRef.current = true;
+          segIndexRef.current = 1;
+          setSegIndex(1);
+          const fg = videoRef.current;
+          const bg = bgRef.current;
+          try {
+            if (fg) fg.currentTime = segs[1].start;
+            if (bg) bg.currentTime = segs[1].start;
+          } catch {
+            // ignore
+          }
+          window.setTimeout(() => {
+            advancingRef.current = false;
+            if (isPlayingRef.current) {
+              safePlay(fg);
+              safePlay(bg);
+            }
+          }, 40);
+        }
+        return;
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inHookGap, isPlaying, activeClip?.id, activeClip?.hookGapAfter]);
+
   useEffect(() => {
     const fg = videoRef.current;
     const bg = bgRef.current;
     if (!fg || !activeClip || !activeSeg) return;
-    if (inGap) return;
+    if (inGap || inHookGap) return;
 
     const segEnd = activeSeg.end;
     const segStart = activeSeg.start;
 
     const completeCurrent = () => {
-      if (scrubbingRef.current || advancingRef.current || inGapRef.current) return;
+      if (
+        scrubbingRef.current ||
+        advancingRef.current ||
+        inGapRef.current ||
+        inHookGapRef.current
+      ) {
+        return;
+      }
       if (!isPlayingRef.current) return;
 
-      // Next trim part within the same ranking clip
+      // Finished hook → optional black → main parts
       if (segIndexRef.current < segments.length - 1) {
+        const cur = sequenceRef.current[activeIndexRef.current];
+        const leavingHook =
+          Boolean(cur && getClipHook(cur)) && segIndexRef.current === 0;
+        const hookGapSec = leavingHook && cur ? getHookGapAfter(cur) : 0;
+        if (hookGapSec > 0.05) {
+          advancingRef.current = true;
+          try {
+            fg.pause();
+            bg?.pause();
+          } catch {
+            // ignore
+          }
+          inHookGapRef.current = true;
+          gapElapsedRef.current = 0;
+          setInHookGap(true);
+          setGapElapsed(0);
+          window.setTimeout(() => {
+            advancingRef.current = false;
+          }, 40);
+          return;
+        }
+
         const nextSeg = segments[segIndexRef.current + 1];
         const ni = segIndexRef.current + 1;
         advancingRef.current = true;
@@ -604,8 +706,10 @@ export function PreviewPhone({
       // Advance to next ranking clip
       advancingRef.current = true;
       inGapRef.current = false;
+      inHookGapRef.current = false;
       gapElapsedRef.current = 0;
       setInGap(false);
+      setInHookGap(false);
       setGapElapsed(0);
       if (next < seq.length) {
         if (settings.transition === "flash") {
@@ -676,6 +780,8 @@ export function PreviewPhone({
     segments,
     onPlayingChange,
     settings.transition,
+    inGap,
+    inHookGap,
   ]);
 
   // Apply per-clip × master volume whenever the active clip or levels change
@@ -796,8 +902,10 @@ export function PreviewPhone({
     if (hit.inGap) {
       const ge = Math.max(0, clamped - hit.start - hit.duration);
       inGapRef.current = true;
+      inHookGapRef.current = false;
       gapElapsedRef.current = ge;
       setInGap(true);
+      setInHookGap(false);
       setGapElapsed(ge);
       const { segIndex: si, sourceTime } = sourceSeekFromLocalPlay(clip, hit.duration);
       setSegIndex(si);
@@ -825,14 +933,25 @@ export function PreviewPhone({
         }
       }
     } else {
-      inGapRef.current = false;
-      gapElapsedRef.current = 0;
-      setInGap(false);
-      setGapElapsed(0);
       const local = Math.min(hit.duration, Math.max(0, clamped - hit.start));
-      const { segIndex: si, sourceTime } = sourceSeekFromLocalPlay(clip, local);
-      setSegIndex(si);
-      setLocalTime(sourceTime);
+      const seek = sourceSeekFromLocalPlay(clip, local);
+      if (seek.inHookGap) {
+        inGapRef.current = false;
+        inHookGapRef.current = true;
+        gapElapsedRef.current = seek.hookGapElapsed || 0;
+        setInGap(false);
+        setInHookGap(true);
+        setGapElapsed(seek.hookGapElapsed || 0);
+      } else {
+        inGapRef.current = false;
+        inHookGapRef.current = false;
+        gapElapsedRef.current = 0;
+        setInGap(false);
+        setInHookGap(false);
+        setGapElapsed(0);
+      }
+      setSegIndex(seek.segIndex);
+      setLocalTime(seek.sourceTime);
       const fg = videoRef.current;
       const bg = bgRef.current;
       if (fg && clip.mediaUrl) {
@@ -845,8 +964,12 @@ export function PreviewPhone({
           }
         }
         try {
-          fg.currentTime = sourceTime;
-          if (bg) bg.currentTime = sourceTime;
+          if (seek.inHookGap) {
+            fg.pause();
+            if (bg) bg.pause();
+          }
+          fg.currentTime = seek.sourceTime;
+          if (bg) bg.currentTime = seek.sourceTime;
         } catch {
           // ignore
         }
@@ -879,8 +1002,10 @@ export function PreviewPhone({
         if (clip) {
           const start = getClipPlaybackSegments(clip)[0]?.start || 0;
           inGapRef.current = false;
+          inHookGapRef.current = false;
           gapElapsedRef.current = 0;
           setInGap(false);
+          setInHookGap(false);
           setGapElapsed(0);
           setActiveIndex(0);
           setSegIndex(0);
@@ -1024,8 +1149,10 @@ export function PreviewPhone({
                   aria-hidden
                 />
               )}
-              {inGap && <div className="preview-black-gap" aria-hidden />}
-              {!mediaReady && !inGap && <div className="preview-loading">Loading clip…</div>}
+              {(inGap || inHookGap) && <div className="preview-black-gap" aria-hidden />}
+              {!mediaReady && !inGap && !inHookGap && (
+                <div className="preview-loading">Loading clip…</div>
+              )}
               {transitionFlash && <div className="preview-flash" aria-hidden />}
             </div>
           ) : (

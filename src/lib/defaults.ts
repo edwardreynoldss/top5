@@ -261,6 +261,7 @@ export function createEmptyClip(rank: number): RankClip {
     volume: 1,
     speed: 1,
     gapAfter: 0,
+    hookGapAfter: 0,
     status: "empty",
   };
 }
@@ -273,6 +274,12 @@ export function clampClipGap(seconds: number) {
 
 export function getClipGapAfter(clip: RankClip) {
   return clampClipGap(typeof clip.gapAfter === "number" ? clip.gapAfter : 0);
+}
+
+/** Black hold after the hook teaser (0 unless a hook is set). */
+export function getHookGapAfter(clip: RankClip) {
+  if (!getClipHook(clip)) return 0;
+  return clampClipGap(typeof clip.hookGapAfter === "number" ? clip.hookGapAfter : 0);
 }
 
 /** Built-in factory settings (before any user “Save as default layout”). */
@@ -459,9 +466,12 @@ export function clipSourceDuration(clip: RankClip) {
   return Math.max(0.2, main + hook);
 }
 
-/** Wall-clock play length on the timeline (= source ÷ speed). */
+/** Wall-clock play length on the timeline (= source ÷ speed + optional hook black). */
 export function clipPlayDuration(clip: RankClip) {
-  return Math.max(0.2, clipSourceDuration(clip) / getClipSpeed(clip));
+  return Math.max(
+    0.2,
+    clipSourceDuration(clip) / getClipSpeed(clip) + getHookGapAfter(clip)
+  );
 }
 
 /**
@@ -696,7 +706,6 @@ export function nextSnapTextStyle(current: SnapTextStyle): SnapTextStyle {
   return SNAP_STYLES[(i + 1) % SNAP_STYLES.length];
 }
 
-/** How far into a clip's *played* timeline we are (merged segments). */
 /** Wall-clock progress into the clip from a source-time playhead. */
 export function clipLocalPlayProgress(
   clip: RankClip,
@@ -704,35 +713,64 @@ export function clipLocalPlayProgress(
   sourceTime: number
 ) {
   const segs = getClipPlaybackSegments(clip);
+  const hook = getClipHook(clip);
+  const speed = getClipSpeed(clip);
+  const hookGap = getHookGapAfter(clip);
   let t = 0;
   for (let i = 0; i < segIndex; i++) {
     const s = segs[i];
-    if (s) t += Math.max(0, s.end - s.start);
+    if (s) t += Math.max(0, s.end - s.start) / speed;
+    // Black hold after the hook teaser (first playback segment)
+    if (hook && i === 0) t += hookGap;
   }
   const seg = segs[segIndex];
   if (seg) {
-    t += Math.max(0, Math.min(sourceTime, seg.end) - seg.start);
+    t += Math.max(0, Math.min(sourceTime, seg.end) - seg.start) / speed;
   }
-  return t / getClipSpeed(clip);
+  return t;
 }
 
 /** Map a wall-clock local play offset back to source seek + segment index. */
 export function sourceSeekFromLocalPlay(clip: RankClip, localPlay: number) {
   const segs = getClipPlaybackSegments(clip);
-  if (segs.length === 0) return { segIndex: 0, sourceTime: 0 };
-  let remaining = Math.max(0, localPlay) * getClipSpeed(clip);
+  if (segs.length === 0) {
+    return { segIndex: 0, sourceTime: 0, inHookGap: false };
+  }
+  const hook = getClipHook(clip);
+  const speed = getClipSpeed(clip);
+  const hookGap = getHookGapAfter(clip);
+  let remaining = Math.max(0, localPlay);
   for (let i = 0; i < segs.length; i++) {
-    const len = Math.max(0.05, segs[i].end - segs[i].start);
-    if (remaining <= len || i === segs.length - 1) {
+    const playLen = Math.max(0.05, (segs[i].end - segs[i].start) / speed);
+    if (remaining <= playLen) {
       return {
         segIndex: i,
-        sourceTime: segs[i].start + Math.min(remaining, len),
+        sourceTime: segs[i].start + Math.min(remaining * speed, segs[i].end - segs[i].start),
+        inHookGap: false,
       };
     }
-    remaining -= len;
+    remaining -= playLen;
+    if (hook && i === 0 && hookGap > 0) {
+      if (remaining <= hookGap) {
+        return {
+          segIndex: 0,
+          sourceTime: segs[0].end,
+          inHookGap: true,
+          hookGapElapsed: remaining,
+        };
+      }
+      remaining -= hookGap;
+    }
+    if (i === segs.length - 1) {
+      return {
+        segIndex: i,
+        sourceTime: segs[i].end,
+        inHookGap: false,
+      };
+    }
   }
   const last = segs[segs.length - 1];
-  return { segIndex: segs.length - 1, sourceTime: last.start };
+  return { segIndex: segs.length - 1, sourceTime: last.start, inHookGap: false };
 }
 
 export function absoluteTimeForClipPlayhead(

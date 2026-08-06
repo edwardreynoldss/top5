@@ -142,6 +142,11 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
     gapAfter: clampClipGap(
       typeof clip.gapAfter === "number" && Number.isFinite(clip.gapAfter) ? clip.gapAfter : 0
     ),
+    hookGapAfter: clampClipGap(
+      typeof clip.hookGapAfter === "number" && Number.isFinite(clip.hookGapAfter)
+        ? clip.hookGapAfter
+        : 0
+    ),
     // Don't restore blob: URLs; keep server media paths
     mediaUrl:
       clip.mediaUrl && clip.mediaUrl.startsWith("/api/media/")

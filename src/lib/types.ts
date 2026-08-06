@@ -96,6 +96,11 @@ export interface RankClip {
   /** Optional short teaser played before the main segments (same source). */
   hook?: ClipHook;
   /**
+   * Black hold (seconds) AFTER the optional hook teaser, before main parts.
+   * Title/ranks stay; video is black. Ignored when there is no hook.
+   */
+  hookGapAfter?: number;
+  /**
    * Black hold (seconds) AFTER this clip, before the next in playback order.
    * Title/ranks overlays stay; video is black. Ignored for the last ready clip.
    */
