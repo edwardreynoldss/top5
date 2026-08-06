@@ -34,6 +34,7 @@ import {
   getClipSpeed,
   getSegmentSpeed,
   clampClipSpeed,
+  cropPreviewStyle,
 } from "@/lib/defaults";
 
 function isVideoFile(file: File) {
@@ -68,6 +69,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
   } | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [fileDragOver, setFileDragOver] = useState(false);
+  const [thumbAspect, setThumbAspect] = useState(9 / 16);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -77,6 +79,11 @@ export function ClipCard({ clip }: { clip: RankClip }) {
 
   const color = project.settings.rankColors[clip.rank] || "#fff";
   const busy = clip.status === "loading";
+  const clipCrop = getClipCrop(clip);
+  const thumbStyle = cropPreviewStyle(clipCrop, {
+    frameAspect: 9 / 16,
+    videoAspect: thumbAspect,
+  });
 
   function cancelIngest() {
     abortRef.current?.abort();
@@ -401,13 +408,20 @@ export function ClipCard({ clip }: { clip: RankClip }) {
           {clip.status === "ready" ? (
             <div className="clip-ready-wrap">
               <div className="clip-ready">
-                <div className="thumb">
+                <div className="thumb" aria-hidden>
                   <video
                     key={clip.mediaUrl || clip.id}
                     src={`${clip.mediaUrl!}#t=${segs[0]?.start || 0}`}
                     muted
                     playsInline
                     preload="metadata"
+                    style={thumbStyle}
+                    onLoadedMetadata={(e) => {
+                      const v = e.currentTarget;
+                      if (v.videoWidth > 0 && v.videoHeight > 0) {
+                        setThumbAspect(v.videoWidth / v.videoHeight);
+                      }
+                    }}
                   />
                 </div>
                 <div className="clip-meta">
@@ -419,17 +433,17 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                       ? ` · hook ${hookDuration(clipHook).toFixed(1)}s`
                       : ""}
                     {clipSpeed !== 1 ? ` · ${clipSpeed.toFixed(2)}×` : ""}
-                    {getClipCrop(clip).zoom !== 1
-                      ? ` · ${getClipCrop(clip).zoom.toFixed(1)}× zoom`
+                    {clipCrop.zoom !== 1
+                      ? ` · ${clipCrop.zoom.toFixed(1)}× zoom`
                       : ""}
-                    {Math.abs(getClipCrop(clip).panX - 50) > 1 ||
-                    Math.abs(getClipCrop(clip).panY - 50) > 1
+                    {Math.abs(clipCrop.panX - 50) > 1 ||
+                    Math.abs(clipCrop.panY - 50) > 1
                       ? ` · moved`
                       : ""}
-                    {(getClipCrop(clip).cropTop || 0) > 0.001 ||
-                    (getClipCrop(clip).cropBottom || 0) > 0.001 ||
-                    (getClipCrop(clip).cropLeft || 0) > 0.001 ||
-                    (getClipCrop(clip).cropRight || 0) > 0.001
+                    {(clipCrop.cropTop || 0) > 0.001 ||
+                    (clipCrop.cropBottom || 0) > 0.001 ||
+                    (clipCrop.cropLeft || 0) > 0.001 ||
+                    (clipCrop.cropRight || 0) > 0.001
                       ? ` · edge cropped`
                       : ""}
                     {clipBed?.fileName ? ` · bed ${clipBed.fileName}` : ""}

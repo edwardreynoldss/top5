@@ -859,22 +859,16 @@ a {
 }
 
 .preview-fg {
+  /* Box size/position come from cropPreviewStyle (1:1 with clip thumb + export) */
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  max-height: none;
-  object-fit: contain;
   z-index: 2;
-  background: transparent;
+  background: #000;
+  border: 0;
+  padding: 0;
+  margin: 0;
 }
 
 .preview-fg.fill {
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  max-height: none;
-  object-fit: contain;
   background: #000;
 }
 
@@ -1503,18 +1497,19 @@ a {
 }
 
 .thumb {
+  position: relative;
   width: 54px;
   height: 96px;
   border-radius: 8px;
   overflow: hidden;
   background: #000;
   border: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .thumb video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  /* cropPreviewStyle sets absolute box — keep pixels 1:1 with phone preview */
+  display: block;
   background: #000;
 }
 
@@ -1725,7 +1720,7 @@ a {
   /* Always match the final Short frame so non-9:16 sources preview correctly */
   aspect-ratio: 9 / 16;
   width: min(100%, 240px);
-  max-height: min(42vh, 420px);
+  height: auto;
   margin: 0 auto;
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow);
@@ -1736,7 +1731,7 @@ a {
   /* Legacy class hooks — keep identical 9:16 framing */
   aspect-ratio: 9 / 16;
   width: min(100%, 240px);
-  max-height: min(42vh, 420px);
+  height: auto;
   margin: 0 auto;
 }
 
@@ -1985,14 +1980,12 @@ a {
 }
 
 .trim-video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
   display: block;
   background: #000;
   pointer-events: none;
   user-select: none;
   -webkit-user-drag: none;
+  /* size/position from cropPreviewStyle */
 }
 
 .trim-loading {

@@ -614,28 +614,73 @@ export function cropEdgeBars(crop?: Partial<ClipCrop> | null): {
   return { top, bottom, left, right };
 }
 
+/**
+ * Layout for a clip video inside a 9:16 (or other) frame.
+ * zoom=1 → full source (contain) so baked black bars stay visible.
+ * zoom > 1 → larger box (may clip under overflow:hidden) — same idea as export.
+ *
+ * Returns absolute positioning styles for the <video> (parent must be
+ * position:relative; overflow:hidden; with the target frame aspect).
+ */
 export function cropPreviewStyle(
   crop: ClipCrop,
   opts?: { frameAspect?: number; videoAspect?: number }
-) {
+): {
+  position: "absolute";
+  width: string;
+  height: string;
+  left: string;
+  top: string;
+  objectFit: "fill";
+  background: string;
+  maxWidth: string;
+  maxHeight: string;
+  transform?: string;
+  transformOrigin?: string;
+  willChange?: string;
+} {
   const frameAspect = opts?.frameAspect ?? 9 / 16;
-  const videoAspect = opts?.videoAspect ?? frameAspect;
+  const rawVa = opts?.videoAspect;
+  const videoAspect =
+    typeof rawVa === "number" && Number.isFinite(rawVa) && rawVa > 0
+      ? rawVa
+      : frameAspect;
   const normalized = normalizeCrop(crop);
-  // Edge crop is applied as black bars over the frame (see cropEdgeBars overlays /
-  // export drawbox) — it must NOT punch-zoom the kept band.
-  const scale = cropDisplayScale(normalized.zoom, frameAspect, videoAspect);
-  const pan = cropPanTranslatePct(normalized, scale);
+  const z = clampCropZoom(normalized.zoom);
+
+  // Contain size as % of the frame, then multiply by zoom (matches export:
+  // force_original_aspect_ratio=decrease, then scale=iw*zoom).
+  let baseW: number;
+  let baseH: number;
+  if (videoAspect >= frameAspect) {
+    baseW = 100;
+    baseH = (100 * frameAspect) / videoAspect;
+  } else {
+    baseH = 100;
+    baseW = (100 * videoAspect) / frameAspect;
+  }
+  const w = baseW * z;
+  const h = baseH * z;
+
+  const panX = normalized.panX / 100;
+  const panY = normalized.panY / 100;
+  // Same pan-room idea as export: allow move even when box == frame
+  const roomX = Math.max(w - 100, 100 * 0.45);
+  const roomY = Math.max(h - 100, 100 * 0.45);
+  const left = (100 - w) / 2 + (0.5 - panX) * roomX;
+  const top = (100 - h) / 2 + (0.5 - panY) * roomY;
 
   return {
-    // object-fit contain + scale(zoom): zoom=1 is full source (1:1)
-    objectFit: "contain" as const,
-    objectPosition: "50% 50%",
-    // translate then scale (CSS applies right-to-left) so drag offsets feel natural
-    transform: `scale(${scale}) translate(${pan.x}%, ${pan.y}%)`,
-    transformOrigin: "center center",
-    width: "100%",
-    height: "100%",
-    willChange: "transform",
+    position: "absolute",
+    width: `${w}%`,
+    height: `${h}%`,
+    left: `${left}%`,
+    top: `${top}%`,
+    // Box aspect already matches the source — fill maps pixels 1:1 into the box
+    objectFit: "fill",
+    background: "#000",
+    maxWidth: "none",
+    maxHeight: "none",
   };
 }
 

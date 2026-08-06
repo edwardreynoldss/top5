@@ -1,41 +1,47 @@
 import assert from "node:assert/strict";
 
-function coverContainFactor(frameAspect, videoAspect) {
-  if (
-    !Number.isFinite(frameAspect) ||
-    !Number.isFinite(videoAspect) ||
-    frameAspect <= 0 ||
-    videoAspect <= 0
-  ) {
-    return 1;
-  }
-  return Math.max(frameAspect / videoAspect, videoAspect / frameAspect);
-}
-
 function clampCropZoom(zoom) {
   return Math.max(0.25, Math.min(4, Number.isFinite(zoom) ? zoom : 1));
 }
 
-/** zoom=1 is full-frame contain; scale === zoom */
-function cropDisplayScale(zoom, _frameAspect, _videoAspect) {
-  return clampCropZoom(zoom);
+function normalizeCrop(crop) {
+  return {
+    zoom: clampCropZoom(crop?.zoom ?? 1),
+    panX: Math.max(0, Math.min(100, crop?.panX ?? 50)),
+    panY: Math.max(0, Math.min(100, crop?.panY ?? 50)),
+  };
+}
+
+/** Mirror of cropPreviewStyle box math */
+function cropBox(crop, frameAspect, videoAspect) {
+  const n = normalizeCrop(crop);
+  const z = n.zoom;
+  const va = videoAspect > 0 ? videoAspect : frameAspect;
+  let baseW;
+  let baseH;
+  if (va >= frameAspect) {
+    baseW = 100;
+    baseH = (100 * frameAspect) / va;
+  } else {
+    baseH = 100;
+    baseW = (100 * va) / frameAspect;
+  }
+  return { w: baseW * z, h: baseH * z };
 }
 
 const frame = 9 / 16;
 const landscape = 16 / 9;
-const cover = coverContainFactor(frame, landscape);
 
-assert.ok(cover > 3 && cover < 3.3, `expected ~3.16 cover factor, got ${cover}`);
+const fit = cropBox({ zoom: 1, panX: 50, panY: 50 }, frame, landscape);
+assert.ok(Math.abs(fit.w - 100) < 1e-6, "16:9 at zoom 1 fills width");
+assert.ok(fit.h < 100, "16:9 at zoom 1 letterboxes top/bottom (keeps side bars in pixels)");
 
-const at1 = cropDisplayScale(1, frame, landscape);
-const at095 = cropDisplayScale(0.95, frame, landscape);
-const atFill = cropDisplayScale(cover, frame, landscape);
+const portrait = cropBox({ zoom: 1, panX: 50, panY: 50 }, frame, 9 / 16);
+assert.ok(Math.abs(portrait.w - 100) < 1e-6);
+assert.ok(Math.abs(portrait.h - 100) < 1e-6, "matching 9:16 fills the frame exactly");
 
-assert.equal(at1, 1, "zoom 1 must be full-frame contain (keep baked bars)");
-assert.ok(at095 < at1, "0.95x must be slightly smaller than 1x");
-assert.ok(Math.abs(atFill - cover) < 1e-9, "zoom at coverFactor fills the Shorts frame");
+const cover = Math.max(frame / landscape, landscape / frame);
+const filled = cropBox({ zoom: cover, panX: 50, panY: 50 }, frame, landscape);
+assert.ok(filled.w > 100 && Math.abs(filled.h - 100) < 1e-6, "cover zoom fills height");
 
-const portrait = cropDisplayScale(0.95, frame, 9 / 16);
-assert.ok(Math.abs(portrait - 0.95) < 1e-9, "matching aspect: scale === zoom");
-
-console.log("crop zoom contain-at-1 tests passed");
+console.log("crop box 1:1 framing tests passed");

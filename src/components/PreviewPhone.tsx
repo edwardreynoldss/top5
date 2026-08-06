@@ -1058,9 +1058,10 @@ export function PreviewPhone({
   const barHeightPx = title.barHeight * previewScale;
   const fitFill = settings.aspectMode === "crop-fill";
   const crop = activeClip ? getClipCrop(activeClip) : null;
-  const cropStyle = crop
-    ? cropPreviewStyle(crop, { frameAspect: 9 / 16, videoAspect })
-    : undefined;
+  const cropStyle = cropPreviewStyle(crop || { zoom: 1, panX: 50, panY: 50 }, {
+    frameAspect: 9 / 16,
+    videoAspect,
+  });
   const edgeBars = crop ? cropEdgeBars(crop) : { top: 0, bottom: 0, left: 0, right: 0 };
   const titleOverlap = settings.titleOverlap !== false;
   const titleEnabled = title.enabled !== false;
@@ -1098,7 +1099,6 @@ export function PreviewPhone({
                   preload="auto"
                   style={{
                     filter: `blur(${settings.blurAmount}px) saturate(1.1)`,
-                    ...(cropStyle || null),
                   }}
                 />
               )}
