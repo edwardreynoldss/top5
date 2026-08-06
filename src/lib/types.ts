@@ -17,9 +17,10 @@ export interface TrimSegment {
 /** Zoom/pan framing for fit-to-screen crop, plus optional edge crop */
 export interface ClipCrop {
   /**
-   * Continuous zoom relative to cover-fill.
-   * 1 = fill frame (cover), below 1 = zoom out gradually toward the full frame,
-   * above 1 = punch in. Range roughly 0.25–3.
+   * Continuous zoom on top of fit-entire (object-fit contain).
+   * 1 = full source frame (1:1 — keeps baked black bars),
+   * above 1 = punch in (at coverContainFactor the Shorts frame is filled),
+   * below 1 = zoom out further.
    */
   zoom: number;
   /** 0–100 horizontal focus (50 = center) */

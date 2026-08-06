@@ -495,16 +495,16 @@ async function renderClipSegment(opts: {
   const delay = Math.max(0, stickerDelay || 0);
 
   // Continuous zoom matching preview CSS:
-  // 1) speed  2) cover-fit  3) zoom  4) pan overlay on black  5) optional edge black bars
-  // Pan: when the scaled clip already fills the frame (W≈w), (W-w)*pan is a no-op —
-  // allow up to ~45% of the frame so “move up/down” still works for too-high/too-low subjects.
+  // 1) speed  2) fit-entire (contain)  3) zoom  4) pan overlay on black  5) optional edge black bars
+  // zoom=1 keeps the full source (including baked pillar/letterbox bars) — same as PreviewPhone.
+  // Punch in with zoom > 1 (≈ coverContainFactor fills a 16:9 source in 9:16).
   const panRoom = 0.45;
   const padTop =
     topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
   const framed =
     `[0:v]fps=${fps},` +
     speedFilter +
-    `scale=${width}:${contentH}:force_original_aspect_ratio=increase,` +
+    `scale=${width}:${contentH}:force_original_aspect_ratio=decrease,` +
     `scale=iw*${zoom}:ih*${zoom}[czfg];` +
     `color=c=black:s=${width}x${contentH}:r=${fps}:d=${wallDuration}[czbg];` +
     `[czbg][czfg]overlay=` +

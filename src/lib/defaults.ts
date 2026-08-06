@@ -566,17 +566,17 @@ export function coverContainFactor(frameAspect: number, videoAspect: number) {
 }
 
 /**
- * CSS scale applied on top of object-fit:contain so zoom=1 matches cover-fill,
- * and values just below 1 only nudge out slightly (no sudden shrink).
+ * CSS scale on top of object-fit:contain.
+ * zoom=1 → full source frame (1:1, keeps baked black bars).
+ * zoom = coverContainFactor → fills the Shorts frame (may crop sides).
+ * Above that → punch in.
  */
 export function cropDisplayScale(
   zoom: number,
-  frameAspect: number,
-  videoAspect: number
+  _frameAspect: number,
+  _videoAspect: number
 ) {
-  const z = clampCropZoom(zoom);
-  const cover = coverContainFactor(frameAspect, videoAspect);
-  return cover * z;
+  return clampCropZoom(zoom);
 }
 
 /**
@@ -627,7 +627,7 @@ export function cropPreviewStyle(
   const pan = cropPanTranslatePct(normalized, scale);
 
   return {
-    // Contain + scale(coverFactor*zoom): zoom=1 fills like cover; zoom out is continuous
+    // object-fit contain + scale(zoom): zoom=1 is full source (1:1)
     objectFit: "contain" as const,
     objectPosition: "50% 50%",
     // translate then scale (CSS applies right-to-left) so drag offsets feel natural
@@ -639,9 +639,9 @@ export function cropPreviewStyle(
   };
 }
 
-/** Clamp crop zoom into the supported range */
+/** Clamp crop zoom into the supported range (1 = full frame; ~3+ fills 16:9→9:16). */
 export function clampCropZoom(zoom: number) {
-  return Math.max(0.25, Math.min(3, Number.isFinite(zoom) ? zoom : 1));
+  return Math.max(0.25, Math.min(4, Number.isFinite(zoom) ? zoom : 1));
 }
 
 /** Clamp framing pan (0–100, 50 = center). */

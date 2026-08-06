@@ -1005,7 +1005,12 @@ export function TrimModal({
 
           <div className="crop-controls">
             <p className="field-label">Position, zoom & edge crop</p>
-            <EdgeCropControls crop={crop} onChange={setCrop} />
+            <EdgeCropControls
+              crop={crop}
+              onChange={setCrop}
+              videoAspect={videoAspect}
+              frameAspect={frameAspect}
+            />
           </div>
 
           <div className="trim-hook-block">

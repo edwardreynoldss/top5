@@ -1,27 +1,18 @@
 "use client";
 
-import {
-  Minus,
-  Plus,
-  RotateCcw,
-  ArrowUp,
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  Crosshair,
-} from "lucide-react";
+import { Minus, Plus, RotateCcw, Crosshair } from "lucide-react";
 import {
   MAX_EDGE_CROP,
   clampCropEdge,
   clampCropPan,
   clampCropZoom,
+  coverContainFactor,
   defaultCrop,
   normalizeCrop,
 } from "@/lib/defaults";
 import type { ClipCrop } from "@/lib/types";
 
 const EDGE_STEP = 0.01;
-const PAN_STEP = 5;
 
 function EdgeStepper({
   label,
@@ -96,40 +87,16 @@ function PanAxis({
           {lowLabel} {Math.round(v)} {highLabel}
         </strong>
       </div>
-      <div className="crop-pan-axis-row">
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label={`Move toward ${lowLabel}`}
-          disabled={v <= 0}
-          onClick={() => onChange(clampCropPan(v - PAN_STEP))}
-        >
-          {lowLabel === "Left" ? <ArrowLeft size={14} /> : <ArrowUp size={14} />}
-        </button>
-        <input
-          type="range"
-          className="slider-inline"
-          min={0}
-          max={100}
-          step={1}
-          value={v}
-          onChange={(e) => onChange(clampCropPan(parseFloat(e.target.value)))}
-          aria-label={label}
-        />
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label={`Move toward ${highLabel}`}
-          disabled={v >= 100}
-          onClick={() => onChange(clampCropPan(v + PAN_STEP))}
-        >
-          {highLabel === "Right" ? (
-            <ArrowRight size={14} />
-          ) : (
-            <ArrowDown size={14} />
-          )}
-        </button>
-      </div>
+      <input
+        type="range"
+        className="slider-inline"
+        min={0}
+        max={100}
+        step={1}
+        value={v}
+        onChange={(e) => onChange(clampCropPan(parseFloat(e.target.value)))}
+        aria-label={label}
+      />
     </div>
   );
 }
@@ -138,13 +105,22 @@ function PanAxis({
 export function EdgeCropControls({
   crop,
   onChange,
+  videoAspect,
+  frameAspect = 9 / 16,
 }: {
   crop: ClipCrop;
   onChange: (next: ClipCrop) => void;
+  /** Source pixel aspect — used for “Fill frame” zoom. */
+  videoAspect?: number;
+  frameAspect?: number;
 }) {
   const n = normalizeCrop(crop);
   const patch = (partial: Partial<ClipCrop>) =>
     onChange(normalizeCrop({ ...crop, ...partial }));
+  const coverZoom =
+    videoAspect && videoAspect > 0
+      ? clampCropZoom(coverContainFactor(frameAspect, videoAspect))
+      : null;
 
   return (
     <div className="edge-crop-controls">
@@ -161,54 +137,8 @@ export function EdgeCropControls({
           </button>
         </div>
         <p className="muted edge-crop-hint">
-          Move the clip up / down / left / right when the subject sits too high or low
+          Slide to move the clip when the subject sits too high, low, or off-center
         </p>
-        <div className="crop-pan-pad" aria-label="Nudge position">
-          <button
-            type="button"
-            className="icon-btn crop-pan-nudge"
-            aria-label="Move up"
-            disabled={n.panY <= 0}
-            onClick={() => patch({ panY: clampCropPan(n.panY - PAN_STEP) })}
-          >
-            <ArrowUp size={16} />
-          </button>
-          <button
-            type="button"
-            className="icon-btn crop-pan-nudge"
-            aria-label="Move left"
-            disabled={n.panX <= 0}
-            onClick={() => patch({ panX: clampCropPan(n.panX - PAN_STEP) })}
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <button
-            type="button"
-            className="icon-btn crop-pan-nudge crop-pan-nudge-center"
-            aria-label="Center"
-            onClick={() => patch({ panX: 50, panY: 50 })}
-          >
-            <Crosshair size={14} />
-          </button>
-          <button
-            type="button"
-            className="icon-btn crop-pan-nudge"
-            aria-label="Move right"
-            disabled={n.panX >= 100}
-            onClick={() => patch({ panX: clampCropPan(n.panX + PAN_STEP) })}
-          >
-            <ArrowRight size={16} />
-          </button>
-          <button
-            type="button"
-            className="icon-btn crop-pan-nudge"
-            aria-label="Move down"
-            disabled={n.panY >= 100}
-            onClick={() => patch({ panY: clampCropPan(n.panY + PAN_STEP) })}
-          >
-            <ArrowDown size={16} />
-          </button>
-        </div>
         <PanAxis
           label="Horizontal"
           value={n.panX}
@@ -252,14 +182,18 @@ export function EdgeCropControls({
           <span>Zoom</span>
           <strong>
             {n.zoom.toFixed(2)}×
-            {n.zoom < 1 ? " out" : n.zoom > 1 ? " in" : ""}
+            {Math.abs(n.zoom - 1) < 0.02
+              ? " · full frame"
+              : n.zoom < 1
+                ? " out"
+                : " in"}
           </strong>
         </div>
         <input
           type="range"
           className="slider-inline"
           min={0.25}
-          max={3}
+          max={4}
           step={0.05}
           value={clampCropZoom(n.zoom)}
           onChange={(e) =>
@@ -267,8 +201,28 @@ export function EdgeCropControls({
           }
           aria-label="Zoom"
         />
+        <div className="crop-zoom-actions">
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={() => patch({ zoom: 1 })}
+          >
+            Full frame
+          </button>
+          {coverZoom && coverZoom > 1.02 ? (
+            <button
+              type="button"
+              className="btn ghost small"
+              onClick={() => patch({ zoom: coverZoom })}
+              title="Fill the Shorts frame (may crop edges / baked bars)"
+            >
+              Fill screen
+            </button>
+          ) : null}
+        </div>
         <p className="muted edge-crop-hint">
-          Drag the preview to pan · scroll to zoom · edge % covers with black
+          1× shows the whole source (keeps baked black bars). Drag preview to pan ·
+          scroll to zoom.
         </p>
       </div>
       <button type="button" className="btn ghost small" onClick={() => onChange(defaultCrop())}>

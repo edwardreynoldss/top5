@@ -197,8 +197,8 @@ export function SettingsPanel() {
               updateSettings({ aspectMode: e.target.value as AspectMode })
             }
           >
-            <option value="crop-fill">Fit to screen (fill / crop)</option>
-            <option value="blur-pad">Blurred background (letterbox fill)</option>
+            <option value="crop-fill">Black bars behind (letterbox)</option>
+            <option value="blur-pad">Blurred background (letterbox)</option>
           </select>
         </label>
 

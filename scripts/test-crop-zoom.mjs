@@ -13,13 +13,12 @@ function coverContainFactor(frameAspect, videoAspect) {
 }
 
 function clampCropZoom(zoom) {
-  return Math.max(0.25, Math.min(3, Number.isFinite(zoom) ? zoom : 1));
+  return Math.max(0.25, Math.min(4, Number.isFinite(zoom) ? zoom : 1));
 }
 
-function cropDisplayScale(zoom, frameAspect, videoAspect) {
-  const z = clampCropZoom(zoom);
-  const cover = coverContainFactor(frameAspect, videoAspect);
-  return cover * z;
+/** zoom=1 is full-frame contain; scale === zoom */
+function cropDisplayScale(zoom, _frameAspect, _videoAspect) {
+  return clampCropZoom(zoom);
 }
 
 const frame = 9 / 16;
@@ -30,14 +29,13 @@ assert.ok(cover > 3 && cover < 3.3, `expected ~3.16 cover factor, got ${cover}`)
 
 const at1 = cropDisplayScale(1, frame, landscape);
 const at095 = cropDisplayScale(0.95, frame, landscape);
-const atFit = cropDisplayScale(1 / cover, frame, landscape);
+const atFill = cropDisplayScale(cover, frame, landscape);
 
-assert.ok(Math.abs(at1 - cover) < 1e-9);
-assert.ok(at095 < at1, "0.95x must be slightly smaller than 1x, not a cliff");
-assert.ok(at095 / at1 > 0.9, "0.95x must stay near fill size (no tiny contain jump)");
-assert.ok(Math.abs(atFit - 1) < 1e-6, "zoom at 1/coverFactor must equal contain size");
+assert.equal(at1, 1, "zoom 1 must be full-frame contain (keep baked bars)");
+assert.ok(at095 < at1, "0.95x must be slightly smaller than 1x");
+assert.ok(Math.abs(atFill - cover) < 1e-9, "zoom at coverFactor fills the Shorts frame");
 
 const portrait = cropDisplayScale(0.95, frame, 9 / 16);
 assert.ok(Math.abs(portrait - 0.95) < 1e-9, "matching aspect: scale === zoom");
 
-console.log("crop zoom continuous tests passed");
+console.log("crop zoom contain-at-1 tests passed");
