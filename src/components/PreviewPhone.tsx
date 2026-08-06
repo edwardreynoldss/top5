@@ -14,7 +14,6 @@ import {
   getClipHook,
   getClipGapAfter,
   getHookGapAfter,
-  hookDuration,
   getClipCrop,
   cropPreviewStyle,
   cropEdgeBars,
