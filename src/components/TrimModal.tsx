@@ -1004,7 +1004,7 @@ export function TrimModal({
           )}
 
           <div className="crop-controls">
-            <p className="field-label">Frame & edge crop</p>
+            <p className="field-label">Position, zoom & edge crop</p>
             <EdgeCropControls crop={crop} onChange={setCrop} />
           </div>
 
