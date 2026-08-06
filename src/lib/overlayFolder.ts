@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "fs";
 import path from "path";
 import {
   isOverlayMediaId,
@@ -100,8 +100,70 @@ export function getOverlayFolderLibrary(): {
   const byName = new Map<string, OverlayFolderItem>();
   for (const it of listDir(PUBLIC_OVERLAY_DIR, true)) byName.set(it.fileName, it);
   for (const it of listDir(OVERLAY_DIR, false)) byName.set(it.fileName, it);
-  const items = Array.from(byName.values()).sort((a, b) =>
-    a.fileName.localeCompare(b.fileName)
-  );
+  const items = Array.from(byName.values()).sort((a, b) => {
+    // Uploads / drop-folder first, then bundled samples
+    if (a.bundled !== b.bundled) return a.bundled ? 1 : -1;
+    return b.mtimeMs - a.mtimeMs || a.fileName.localeCompare(b.fileName);
+  });
   return { items, folder: OVERLAY_DIR };
+}
+
+const UPLOAD_EXT = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".webm",
+  ".mov",
+  ".mp4",
+]);
+
+/** Sanitize an upload basename and pick a free name under overlays/. */
+export function uniqueOverlayFileName(originalName: string): string {
+  ensureOverlayDir();
+  const base = path.basename(originalName || "overlay.png");
+  const ext = path.extname(base).toLowerCase();
+  if (!UPLOAD_EXT.has(ext)) {
+    throw new Error("Use PNG, GIF, WebP, JPG, WebM, MOV, or MP4");
+  }
+  let stem = path
+    .basename(base, path.extname(base))
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  if (!stem) stem = "overlay";
+  let candidate = `${stem}${ext}`;
+  let n = 2;
+  while (
+    existsSync(path.join(OVERLAY_DIR, candidate)) ||
+    existsSync(path.join(PUBLIC_OVERLAY_DIR, candidate))
+  ) {
+    candidate = `${stem}-${n}${ext}`;
+    n += 1;
+  }
+  return candidate;
+}
+
+/** Write bytes into overlays/ and return a library item (overlaydrop__). */
+export function saveOverlayUpload(
+  originalName: string,
+  bytes: Buffer
+): OverlayFolderItem {
+  ensureOverlayDir();
+  if (!bytes.length) throw new Error("Empty file");
+  const fileName = uniqueOverlayFileName(originalName);
+  const full = path.join(OVERLAY_DIR, fileName);
+  writeFileSync(full, bytes);
+  const st = statSync(full);
+  const mediaId = overlayMediaId(fileName, false);
+  return {
+    id: mediaId,
+    fileName,
+    mediaId,
+    mediaUrl: overlayMediaUrl(mediaId),
+    bytes: st.size,
+    mtimeMs: st.mtimeMs,
+    bundled: false,
+  };
 }

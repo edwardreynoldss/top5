@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, Type, Shapes, X, Check } from "lucide-react";
+import { Loader2, Type, Shapes, X, Check, Upload } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import { formatTime, nextSnapTextStyle } from "@/lib/defaults";
 import { overlayMediaUrl } from "@/lib/overlayMedia";
@@ -64,20 +64,39 @@ export function AddOverlayAtTimeModal({
   const [y, setY] = useState(50);
   const [folderItems, setFolderItems] = useState<FolderItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedMediaId, setSelectedMediaId] = useState("");
   const [placing, setPlacing] = useState(false);
+  const [showSamples, setShowSamples] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedMediaIdRef = useRef(selectedMediaId);
+  selectedMediaIdRef.current = selectedMediaId;
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const uploadedItems = useMemo(
+    () => folderItems.filter((i) => !i.bundled),
+    [folderItems]
+  );
+  const sampleItems = useMemo(
+    () => folderItems.filter((i) => i.bundled),
+    [folderItems]
+  );
+  const visibleItems = useMemo(
+    () => (showSamples ? [...uploadedItems, ...sampleItems] : uploadedItems),
+    [showSamples, uploadedItems, sampleItems]
+  );
 
   const selectedMedia = useMemo(
     () => folderItems.find((i) => i.mediaId === selectedMediaId) || null,
     [folderItems, selectedMediaId]
   );
 
-  const refreshFolder = useCallback(async () => {
+  const refreshFolder = useCallback(async (preferMediaId?: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -86,13 +105,44 @@ export function AddOverlayAtTimeModal({
       if (!res.ok) throw new Error(data.error || "Could not read overlays folder");
       const items: FolderItem[] = data.items || [];
       setFolderItems(items);
-      if (!selectedMediaId && items[0]) setSelectedMediaId(items[0].mediaId);
+      const prefer = preferMediaId || selectedMediaIdRef.current;
+      const uploads = items.filter((i) => !i.bundled);
+      const pick =
+        (prefer && items.find((i) => i.mediaId === prefer)?.mediaId) ||
+        uploads[0]?.mediaId ||
+        "";
+      setSelectedMediaId(pick);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load objects");
     } finally {
       setLoading(false);
     }
-  }, [selectedMediaId]);
+  }, []);
+
+  async function uploadOverlayFiles(files: FileList | File[]) {
+    const list = Array.from(files).filter(Boolean);
+    if (list.length === 0) return;
+    setUploading(true);
+    setError(null);
+    let lastId = "";
+    try {
+      for (const file of list) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/overlays/upload", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Upload failed: ${file.name}`);
+        lastId = data.mediaId || lastId;
+      }
+      setShowSamples(false);
+      await refreshFolder(lastId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -106,6 +156,8 @@ export function AddOverlayAtTimeModal({
     setY(50);
     setError(null);
     setPlacing(false);
+    setShowSamples(false);
+    setDragOver(false);
     void refreshFolder();
   }, [open, atTime, initialKind, refreshFolder]);
 
@@ -132,7 +184,7 @@ export function AddOverlayAtTimeModal({
           x: 50,
         });
       } else {
-        if (!selectedMedia) throw new Error("Pick an object (arrow, circle, GIF…)");
+        if (!selectedMedia) throw new Error("Upload or pick an object first");
         id = placeOverlay({
           kind: "media",
           startAt: Number(atTime.toFixed(2)),
@@ -169,8 +221,7 @@ export function AddOverlayAtTimeModal({
           <div>
             <h3>Add at {formatTime(atTime)}</h3>
             <p className="muted">
-              Snapchat-style text (Public Sans + bar) or objects from{" "}
-              <code>overlays/</code>
+              Snapchat-style text, or upload your own arrows / GIFs / stickers
             </p>
           </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
@@ -299,21 +350,80 @@ export function AddOverlayAtTimeModal({
           </div>
         ) : (
           <div className="add-overlay-body">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,video/webm,video/mp4,video/quicktime,.png,.jpg,.jpeg,.webp,.gif,.webm,.mp4,.mov"
+              multiple
+              hidden
+              onChange={(e) => {
+                if (e.target.files?.length) void uploadOverlayFiles(e.target.files);
+              }}
+            />
+            <button
+              type="button"
+              className={`add-overlay-dropzone ${dragOver ? "drag-over" : ""}`}
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                if (e.dataTransfer.files?.length) {
+                  void uploadOverlayFiles(e.dataTransfer.files);
+                }
+              }}
+            >
+              {uploading ? (
+                <Loader2 size={18} className="spin" />
+              ) : (
+                <Upload size={18} />
+              )}
+              <span>
+                {uploading
+                  ? "Uploading…"
+                  : "Upload your own arrows, circles, GIFs…"}
+              </span>
+              <span className="muted">PNG · GIF · WebP · JPG · WebM · MP4</span>
+            </button>
+
             <div className="add-sfx-toolbar">
-              <strong>Objects</strong>
-              <button
-                type="button"
-                className="btn ghost small"
-                onClick={() => void refreshFolder()}
-                disabled={loading}
-              >
-                {loading ? <Loader2 size={14} className="spin" /> : null}
-                Refresh
-              </button>
+              <strong>Your objects</strong>
+              <div className="row" style={{ gap: "0.35rem" }}>
+                {sampleItems.length > 0 ? (
+                  <button
+                    type="button"
+                    className="btn ghost small"
+                    onClick={() => setShowSamples((v) => !v)}
+                  >
+                    {showSamples ? "Hide samples" : "Show samples"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  onClick={() => void refreshFolder()}
+                  disabled={loading || uploading}
+                >
+                  {loading ? <Loader2 size={14} className="spin" /> : null}
+                  Refresh
+                </button>
+              </div>
             </div>
             {error ? <p className="error-text">{error}</p> : null}
             <div className="add-overlay-grid">
-              {folderItems.map((it) => (
+              {visibleItems.map((it) => (
                 <button
                   key={it.mediaId}
                   type="button"
@@ -325,11 +435,17 @@ export function AddOverlayAtTimeModal({
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={it.mediaUrl} alt={it.fileName} />
-                  <span>{it.fileName.replace(/\.[^.]+$/, "")}</span>
+                  <span>
+                    {it.bundled ? "sample · " : ""}
+                    {it.fileName.replace(/\.[^.]+$/, "")}
+                  </span>
                 </button>
               ))}
-              {!loading && folderItems.length === 0 ? (
-                <p className="muted">Drop GIFs/PNGs into the overlays/ folder.</p>
+              {!loading && uploadedItems.length === 0 && !showSamples ? (
+                <p className="muted" style={{ gridColumn: "1 / -1", margin: 0 }}>
+                  No uploads yet — use the button above, or drop files into{" "}
+                  <code>overlays/</code>.
+                </p>
               ) : null}
             </div>
             <label className="field">
