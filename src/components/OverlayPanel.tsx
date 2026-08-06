@@ -32,8 +32,8 @@ export function OverlayPanel() {
         <span>Text & objects</span>
       </div>
       <p className="muted">
-        Right-click the middle preview to add Snapchat-style text or objects
-        (arrows, circles, GIFs from <code>overlays/</code>). Marks show on the
+        Right-click the middle preview to add Snapchat-style text or upload your
+        own objects (PNG / GIF / WebM). Marks show on the
         scrubber like SFX.
       </p>
 
