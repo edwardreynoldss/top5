@@ -640,7 +640,19 @@ export type CropPreviewLayout = {
     overflow: "hidden";
     background: string;
   };
-  /** Inner <video>: source inset so edge crop sticks to the clip; pan moves this with the window. */
+  /**
+   * Pad-back content box: remaining video sits here; black window bg fills cropped
+   * margins (matches export crop→pad). Keeps subject scale stable when edge-cropping.
+   */
+  contentStyle: {
+    position: "absolute";
+    left: string;
+    top: string;
+    width: string;
+    height: string;
+    overflow: "hidden";
+  };
+  /** Inner <video>: samples the cropped source region inside contentStyle. */
   videoStyle: {
     position: "absolute";
     width: string;
@@ -657,9 +669,10 @@ export type CropPreviewLayout = {
 /**
  * Crop-then-pan layout for preview.
  *
- * Edge crop cuts pixels on the VIDEO (overflow clip), but the window still uses the
- * full source aspect so framing does not reflow under the subscribe sticker / title.
- * Pan/zoom move the window — crop stays glued to the clip.
+ * Matches export: edge-crop source pixels, pad black back to the original aspect,
+ * then contain × zoom × pan. Window size uses the FULL source aspect so framing
+ * never reflows under the subscribe sticker. Edge crop only grows black margins —
+ * it must not rescale the subject (that was the pan-then-crop glitch).
  */
 export function cropPreviewStyle(
   crop: ClipCrop,
@@ -715,9 +728,17 @@ export function cropPreviewStyle(
       overflow: "hidden",
       background: "#000",
     },
+    contentStyle: {
+      position: "absolute",
+      left: `${(cl * 100).toFixed(4)}%`,
+      top: `${(ct * 100).toFixed(4)}%`,
+      width: `${(visibleW * 100).toFixed(4)}%`,
+      height: `${(visibleH * 100).toFixed(4)}%`,
+      overflow: "hidden",
+    },
     videoStyle: {
       position: "absolute",
-      // Full source inside the window; overflow clips the edge-crop band
+      // Sample cropped region inside the pad-back content box
       width: `${(100 / visibleW).toFixed(4)}%`,
       height: `${(100 / visibleH).toFixed(4)}%`,
       left: `${((-cl / visibleW) * 100).toFixed(4)}%`,
