@@ -186,6 +186,50 @@ export function normalizeCrop(crop?: Partial<ClipCrop> | null): ClipCrop {
   };
 }
 
+export type CropEdge = "left" | "right" | "top" | "bottom";
+
+/**
+ * Map a pointer position inside the crop WINDOW (0–1, full source aspect box)
+ * to an updated edge-crop value. Pan/zoom only move that window on the stage —
+ * measuring in window-local space keeps edge drag stable while placing the clip.
+ */
+export function cropEdgeFromWindowPoint(
+  edge: CropEdge,
+  nx: number,
+  ny: number,
+  current: Partial<ClipCrop> | null | undefined
+): ClipCrop {
+  const base = normalizeCrop(current);
+  const x = Math.max(0, Math.min(1, Number.isFinite(nx) ? nx : 0));
+  const y = Math.max(0, Math.min(1, Number.isFinite(ny) ? ny : 0));
+  if (edge === "left") {
+    const maxLeft = Math.max(0, 1 - MIN_VISIBLE_WIDTH - (base.cropRight ?? 0));
+    return normalizeCrop({
+      ...base,
+      cropLeft: Math.max(0, Math.min(MAX_EDGE_CROP, maxLeft, x)),
+    });
+  }
+  if (edge === "right") {
+    const maxRight = Math.max(0, 1 - MIN_VISIBLE_WIDTH - (base.cropLeft ?? 0));
+    return normalizeCrop({
+      ...base,
+      cropRight: Math.max(0, Math.min(MAX_EDGE_CROP, maxRight, 1 - x)),
+    });
+  }
+  if (edge === "top") {
+    const maxTop = Math.max(0, 1 - MIN_VISIBLE_HEIGHT - (base.cropBottom ?? 0));
+    return normalizeCrop({
+      ...base,
+      cropTop: Math.max(0, Math.min(MAX_EDGE_CROP, maxTop, y)),
+    });
+  }
+  const maxBottom = Math.max(0, 1 - MIN_VISIBLE_HEIGHT - (base.cropTop ?? 0));
+  return normalizeCrop({
+    ...base,
+    cropBottom: Math.max(0, Math.min(MAX_EDGE_CROP, maxBottom, 1 - y)),
+  });
+}
+
 export function normalizeSegments(
   segments: TrimSegment[],
   defaultSpeed = 1

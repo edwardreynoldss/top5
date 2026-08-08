@@ -14,6 +14,8 @@ import {
   cropPreviewStyle,
   clampCropZoom,
   clampClipSpeed,
+  cropEdgeFromWindowPoint,
+  type CropEdge,
 } from "@/lib/defaults";
 import {
   MAX_CLIP_DURATION,
@@ -111,6 +113,9 @@ export function TrimModal({
   const [ready, setReady] = useState(false);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const edgeDragRef = useRef<{ edge: CropEdge; pointerId: number } | null>(null);
+  const [edgeDragging, setEdgeDragging] = useState<CropEdge | null>(null);
+  const cropWindowRef = useRef<HTMLDivElement>(null);
   const segmentsRef = useRef(segments);
   const hookRef = useRef(hook);
   const playQueueRef = useRef<TrimSegment[]>(segments);
@@ -750,6 +755,7 @@ export function TrimModal({
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    if (edgeDragRef.current) return;
     e.preventDefault();
     e.stopPropagation();
     stageRef.current?.setPointerCapture?.(e.pointerId);
@@ -758,6 +764,7 @@ export function TrimModal({
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (edgeDragRef.current) return;
     if (!dragRef.current || !stageRef.current) return;
     e.preventDefault();
     const rect = stageRef.current.getBoundingClientRect();
@@ -780,6 +787,57 @@ export function TrimModal({
     setDragging(false);
   };
 
+  function windowNormFromClient(clientX: number, clientY: number) {
+    const el = cropWindowRef.current;
+    if (!el) return { nx: 0.5, ny: 0.5 };
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return { nx: 0.5, ny: 0.5 };
+    return {
+      nx: (clientX - rect.left) / rect.width,
+      ny: (clientY - rect.top) / rect.height,
+    };
+  }
+
+  function applyEdgeAtClient(edge: CropEdge, clientX: number, clientY: number) {
+    const { nx, ny } = windowNormFromClient(clientX, clientY);
+    setCrop((c) => cropEdgeFromWindowPoint(edge, nx, ny, c));
+  }
+
+  const onEdgePointerDown = (edge: CropEdge, e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // Cancel any pan drag
+    dragRef.current = null;
+    setDragging(false);
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    edgeDragRef.current = { edge, pointerId: e.pointerId };
+    setEdgeDragging(edge);
+    applyEdgeAtClient(edge, e.clientX, e.clientY);
+  };
+
+  const onEdgePointerMove = (e: React.PointerEvent) => {
+    const drag = edgeDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    applyEdgeAtClient(drag.edge, e.clientX, e.clientY);
+  };
+
+  const onEdgePointerUp = (e: React.PointerEvent) => {
+    const drag = edgeDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    edgeDragRef.current = null;
+    setEdgeDragging(null);
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const sliderMax = Math.max(dur || 1, active?.end || 1, 1);
   const canUseClip =
     segments.length > 0 && totalSelected > 0 && totalSelected <= MAX_CLIP_DURATION;
@@ -787,6 +845,12 @@ export function TrimModal({
   // show cover-fit / zoom / edge crop the same way export will.
   const frameAspect = 9 / 16;
   const cropLayout = cropPreviewStyle(crop, { frameAspect, videoAspect });
+  const edges = {
+    left: crop.cropLeft || 0,
+    right: crop.cropRight || 0,
+    top: crop.cropTop || 0,
+    bottom: crop.cropBottom || 0,
+  };
 
   return (
     <div
@@ -817,7 +881,9 @@ export function TrimModal({
           <div className="trim-preview-col">
             <div
               ref={stageRef}
-              className={`trim-video-wrap crop-stage ${dragging ? "dragging" : ""}`}
+              className={`trim-video-wrap crop-stage ${dragging ? "dragging" : ""} ${
+                edgeDragging ? `edge-dragging edge-${edgeDragging}` : ""
+              }`}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
@@ -841,6 +907,90 @@ export function TrimModal({
               </div>
               {/* Transparent hit target so drag always works over the video */}
               <div className="crop-drag-layer" aria-hidden />
+              {/* Edge handles sit in window space (above pan layer) so pan/zoom don't skew crop math */}
+              <div
+                ref={cropWindowRef}
+                className="crop-edge-layer"
+                style={{
+                  ...cropLayout.windowStyle,
+                  overflow: "visible",
+                  background: "transparent",
+                  pointerEvents: "none",
+                }}
+              >
+                <div
+                  className="crop-edge-shade crop-edge-shade-left"
+                  style={{ width: `${(edges.left * 100).toFixed(4)}%` }}
+                />
+                <div
+                  className="crop-edge-shade crop-edge-shade-right"
+                  style={{ width: `${(edges.right * 100).toFixed(4)}%` }}
+                />
+                <div
+                  className="crop-edge-shade crop-edge-shade-top"
+                  style={{
+                    height: `${(edges.top * 100).toFixed(4)}%`,
+                    left: `${(edges.left * 100).toFixed(4)}%`,
+                    right: `${(edges.right * 100).toFixed(4)}%`,
+                  }}
+                />
+                <div
+                  className="crop-edge-shade crop-edge-shade-bottom"
+                  style={{
+                    height: `${(edges.bottom * 100).toFixed(4)}%`,
+                    left: `${(edges.left * 100).toFixed(4)}%`,
+                    right: `${(edges.right * 100).toFixed(4)}%`,
+                  }}
+                />
+                <button
+                  type="button"
+                  className={`crop-edge-handle crop-edge-handle-left ${
+                    edgeDragging === "left" ? "active" : ""
+                  }`}
+                  style={{ left: `${(edges.left * 100).toFixed(4)}%` }}
+                  aria-label="Drag left edge to crop"
+                  onPointerDown={(e) => onEdgePointerDown("left", e)}
+                  onPointerMove={onEdgePointerMove}
+                  onPointerUp={onEdgePointerUp}
+                  onPointerCancel={onEdgePointerUp}
+                />
+                <button
+                  type="button"
+                  className={`crop-edge-handle crop-edge-handle-right ${
+                    edgeDragging === "right" ? "active" : ""
+                  }`}
+                  style={{ left: `${((1 - edges.right) * 100).toFixed(4)}%` }}
+                  aria-label="Drag right edge to crop"
+                  onPointerDown={(e) => onEdgePointerDown("right", e)}
+                  onPointerMove={onEdgePointerMove}
+                  onPointerUp={onEdgePointerUp}
+                  onPointerCancel={onEdgePointerUp}
+                />
+                <button
+                  type="button"
+                  className={`crop-edge-handle crop-edge-handle-top ${
+                    edgeDragging === "top" ? "active" : ""
+                  }`}
+                  style={{ top: `${(edges.top * 100).toFixed(4)}%` }}
+                  aria-label="Drag top edge to crop"
+                  onPointerDown={(e) => onEdgePointerDown("top", e)}
+                  onPointerMove={onEdgePointerMove}
+                  onPointerUp={onEdgePointerUp}
+                  onPointerCancel={onEdgePointerUp}
+                />
+                <button
+                  type="button"
+                  className={`crop-edge-handle crop-edge-handle-bottom ${
+                    edgeDragging === "bottom" ? "active" : ""
+                  }`}
+                  style={{ top: `${((1 - edges.bottom) * 100).toFixed(4)}%` }}
+                  aria-label="Drag bottom edge to crop"
+                  onPointerDown={(e) => onEdgePointerDown("bottom", e)}
+                  onPointerMove={onEdgePointerMove}
+                  onPointerUp={onEdgePointerUp}
+                  onPointerCancel={onEdgePointerUp}
+                />
+              </div>
               <div className="crop-guide" />
               {!ready && !loadError && <div className="trim-loading">Loading preview…</div>}
               {loadError && (
@@ -850,7 +1000,8 @@ export function TrimModal({
                 </div>
               )}
               <div className="crop-hint">
-                Drag to pan · scroll to zoom · {crop.zoom.toFixed(2)}×
+                Drag sides to crop · drag center to pan · scroll to zoom ·{" "}
+                {crop.zoom.toFixed(2)}×
                 {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
               </div>
             </div>
