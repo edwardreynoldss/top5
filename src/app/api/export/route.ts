@@ -9,8 +9,8 @@ import { ensurePillow, whichTools } from "@/lib/bins";
 import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
 import { resolveMusicDropFile, isMusicDropMediaId } from "@/lib/musicFolder";
 import { resolveOverlayFile, isOverlayMediaId } from "@/lib/overlayFolder";
-import { ffmpegAtempoChain } from "@/lib/defaults";
-import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
+import { ffmpegAtempoChain, buildOverlayAxisExpr } from "@/lib/defaults";
+import type { AspectMode, OverlayMotionKeypoint, PlayOrder, TransitionType } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
@@ -114,6 +114,13 @@ interface ExportBody {
     mediaId?: string | null;
     /** Full-frame transparent PNG (base64, no data: prefix) for text captions */
     pngBase64?: string | null;
+    /** Optional motion path (normalized t 0–1 within duration) */
+    motionPath?: {
+      t: number;
+      x: number;
+      y: number;
+      scale?: number;
+    }[];
   }[];
 }
 
@@ -176,6 +183,7 @@ function resolveMedia(mediaId: string) {
 
 /**
  * Burn timed overlays (Snapchat captions / GIF objects) onto a concatenated video.
+ * Media objects use center-anchored x/y (matching preview) and optional motion paths.
  */
 async function burnOverlays(opts: {
   input: string;
@@ -196,6 +204,8 @@ async function burnOverlays(opts: {
     xPct: number;
     yPct: number;
     targetW: number;
+    xExpr?: string;
+    yExpr?: string;
   };
 
   const prepared: Prepared[] = [];
@@ -228,14 +238,24 @@ async function burnOverlays(opts: {
         continue;
       }
       const scale = Math.max(0.15, Math.min(3, ov.scale ?? 1));
+      const xPct = Math.max(0, Math.min(100, ov.x ?? 50)) / 100;
+      const yPct = Math.max(0, Math.min(100, ov.y ?? 50)) / 100;
+      const motionPath = (ov.motionPath || []) as OverlayMotionKeypoint[];
+      const hasMotion = Array.isArray(motionPath) && motionPath.length >= 2;
       prepared.push({
         path: mediaPath,
         start,
         end,
         mode: "anchored",
-        xPct: Math.max(0, Math.min(100, ov.x ?? 50)) / 100,
-        yPct: Math.max(0, Math.min(100, ov.y ?? 50)) / 100,
+        xPct,
+        yPct,
         targetW: Math.max(2, Math.round((width * 0.42 * scale) / 2) * 2),
+        xExpr: hasMotion
+          ? buildOverlayAxisExpr(motionPath, start, dur, "x", xPct)
+          : undefined,
+        yExpr: hasMotion
+          ? buildOverlayAxisExpr(motionPath, start, dur, "y", yPct)
+          : undefined,
       });
     }
   }
@@ -270,8 +290,15 @@ async function burnOverlays(opts: {
         `[${idx}:v]fps=${fps},scale=${p.targetW}:-1:flags=lanczos,format=rgba${scaled}`
       );
       const next = i === prepared.length - 1 ? "[vout]" : `[ov${i}]`;
+      // Center-anchored: matches preview translate(-50%, -50%) at (x%, y%)
+      const xPos = p.xExpr
+        ? `W*(${p.xExpr})-w/2`
+        : `W*${p.xPct.toFixed(6)}-w/2`;
+      const yPos = p.yExpr
+        ? `H*(${p.yExpr})-h/2`
+        : `H*${p.yPct.toFixed(6)}-h/2`;
       filterParts.push(
-        `${last}${scaled}overlay=x='(W-w)*${p.xPct}':y='(H-h)*${p.yPct}':enable='${enable}'${next}`
+        `${last}${scaled}overlay=x='${xPos}':y='${yPos}':enable='${enable}'${next}`
       );
       last = next;
     }

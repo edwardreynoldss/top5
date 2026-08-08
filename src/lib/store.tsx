@@ -98,6 +98,9 @@ interface EditorContextValue {
   setSelectedOverlayId: (id: string | null) => void;
   overlaysTabNonce: number;
   requestOverlaysTab: () => void;
+  /** Live preview playhead (absolute timeline seconds) — for overlay keyframe capture. */
+  previewAbsTime: number;
+  setPreviewAbsTime: (t: number) => void;
   resetProject: () => void;
   /**
    * Open a previously saved film archive (full clips + settings).
@@ -123,6 +126,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [sfxTabNonce, setSfxTabNonce] = useState(0);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [overlaysTabNonce, setOverlaysTabNonce] = useState(0);
+  const [previewAbsTime, setPreviewAbsTime] = useState(0);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const channelStateRef = useRef(channelState);
@@ -661,7 +665,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         ...prev,
         overlayPlacements: (prev.overlayPlacements || []).map((p) => {
           if (p.id !== id) return p;
-          const merged = { ...p, ...patch };
+          const merged = createOverlayPlacement({ ...p, ...patch, id: p.id });
           if (merged.kind === "media" && merged.mediaId) {
             merged.mediaUrl = overlayMediaUrl(merged.mediaId, merged.mediaUrl);
           }
@@ -788,6 +792,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       sfxTabNonce,
       selectedOverlayId,
       overlaysTabNonce,
+      previewAbsTime,
+      setPreviewAbsTime,
       saveStatus,
       setSelectedClipId,
       setSelectedSfxPlacementId,
@@ -832,6 +838,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       sfxTabNonce,
       selectedOverlayId,
       overlaysTabNonce,
+      previewAbsTime,
       saveStatus,
       requestSfxTab,
       requestOverlaysTab,
