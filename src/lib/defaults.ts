@@ -186,6 +186,50 @@ export function normalizeCrop(crop?: Partial<ClipCrop> | null): ClipCrop {
   };
 }
 
+export type CropEdge = "left" | "right" | "top" | "bottom";
+
+/**
+ * Map a pointer position inside the crop WINDOW (0–1, full source aspect box)
+ * to an updated edge-crop value. Pan/zoom only move that window on the stage —
+ * measuring in window-local space keeps edge drag stable while placing the clip.
+ */
+export function cropEdgeFromWindowPoint(
+  edge: CropEdge,
+  nx: number,
+  ny: number,
+  current: Partial<ClipCrop> | null | undefined
+): ClipCrop {
+  const base = normalizeCrop(current);
+  const x = Math.max(0, Math.min(1, Number.isFinite(nx) ? nx : 0));
+  const y = Math.max(0, Math.min(1, Number.isFinite(ny) ? ny : 0));
+  if (edge === "left") {
+    const maxLeft = Math.max(0, 1 - MIN_VISIBLE_WIDTH - (base.cropRight ?? 0));
+    return normalizeCrop({
+      ...base,
+      cropLeft: Math.max(0, Math.min(MAX_EDGE_CROP, maxLeft, x)),
+    });
+  }
+  if (edge === "right") {
+    const maxRight = Math.max(0, 1 - MIN_VISIBLE_WIDTH - (base.cropLeft ?? 0));
+    return normalizeCrop({
+      ...base,
+      cropRight: Math.max(0, Math.min(MAX_EDGE_CROP, maxRight, 1 - x)),
+    });
+  }
+  if (edge === "top") {
+    const maxTop = Math.max(0, 1 - MIN_VISIBLE_HEIGHT - (base.cropBottom ?? 0));
+    return normalizeCrop({
+      ...base,
+      cropTop: Math.max(0, Math.min(MAX_EDGE_CROP, maxTop, y)),
+    });
+  }
+  const maxBottom = Math.max(0, 1 - MIN_VISIBLE_HEIGHT - (base.cropTop ?? 0));
+  return normalizeCrop({
+    ...base,
+    cropBottom: Math.max(0, Math.min(MAX_EDGE_CROP, maxBottom, 1 - y)),
+  });
+}
+
 export function normalizeSegments(
   segments: TrimSegment[],
   defaultSpeed = 1
@@ -640,7 +684,19 @@ export type CropPreviewLayout = {
     overflow: "hidden";
     background: string;
   };
-  /** Inner <video>: source inset so edge crop sticks to the clip; pan moves this with the window. */
+  /**
+   * Pad-back content box: remaining video sits here; black window bg fills cropped
+   * margins (matches export crop→pad). Keeps subject scale stable when edge-cropping.
+   */
+  contentStyle: {
+    position: "absolute";
+    left: string;
+    top: string;
+    width: string;
+    height: string;
+    overflow: "hidden";
+  };
+  /** Inner <video>: samples the cropped source region inside contentStyle. */
   videoStyle: {
     position: "absolute";
     width: string;
@@ -657,9 +713,10 @@ export type CropPreviewLayout = {
 /**
  * Crop-then-pan layout for preview.
  *
- * Edge crop cuts pixels on the VIDEO (overflow clip), but the window still uses the
- * full source aspect so framing does not reflow under the subscribe sticker / title.
- * Pan/zoom move the window — crop stays glued to the clip.
+ * Matches export: edge-crop source pixels, pad black back to the original aspect,
+ * then contain × zoom × pan. Window size uses the FULL source aspect so framing
+ * never reflows under the subscribe sticker. Edge crop only grows black margins —
+ * it must not rescale the subject (that was the pan-then-crop glitch).
  */
 export function cropPreviewStyle(
   crop: ClipCrop,
@@ -715,9 +772,17 @@ export function cropPreviewStyle(
       overflow: "hidden",
       background: "#000",
     },
+    contentStyle: {
+      position: "absolute",
+      left: `${(cl * 100).toFixed(4)}%`,
+      top: `${(ct * 100).toFixed(4)}%`,
+      width: `${(visibleW * 100).toFixed(4)}%`,
+      height: `${(visibleH * 100).toFixed(4)}%`,
+      overflow: "hidden",
+    },
     videoStyle: {
       position: "absolute",
-      // Full source inside the window; overflow clips the edge-crop band
+      // Sample cropped region inside the pad-back content box
       width: `${(100 / visibleW).toFixed(4)}%`,
       height: `${(100 / visibleH).toFixed(4)}%`,
       left: `${((-cl / visibleW) * 100).toFixed(4)}%`,

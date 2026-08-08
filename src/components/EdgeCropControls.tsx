@@ -157,7 +157,8 @@ export function EdgeCropControls({
 
       <div className="edge-crop-grid">
         <p className="muted edge-crop-hint" style={{ gridColumn: "1 / -1", margin: 0 }}>
-          Cut edges of the clip (watermarks etc.) — subscribe sticker stays on the frame.
+          Cut edges of the clip (watermarks etc.) — drag the green handles on the
+          preview, or use the steppers. Subscribe sticker stays on the frame.
           Position still moves the cropped clip.
         </p>
         <EdgeStepper
