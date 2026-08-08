@@ -803,6 +803,25 @@ function clampOverlayScale(n: number, fallback = 1) {
   return Math.max(0.35, Math.min(3, Number.isFinite(n) ? n : fallback));
 }
 
+/** Clamp overlay rotation to −180…180 degrees. */
+export function clampOverlayRotation(deg: number, fallback = 0) {
+  if (!Number.isFinite(deg)) return fallback;
+  // Normalize into (−180, 180]
+  let d = ((deg + 180) % 360) - 180;
+  if (d <= -180) d += 360;
+  return Math.max(-180, Math.min(180, d));
+}
+
+/** Shortest-path linear interpolation between two angles (degrees). */
+export function lerpOverlayRotation(a: number, b: number, u: number) {
+  const from = clampOverlayRotation(a, 0);
+  const to = clampOverlayRotation(b, 0);
+  let delta = to - from;
+  if (delta > 180) delta -= 360;
+  if (delta < -180) delta += 360;
+  return clampOverlayRotation(from + delta * Math.max(0, Math.min(1, u)), from);
+}
+
 /** Normalize / sort motion keypoints. Drops invalid entries; ensures unique ids. */
 export function normalizeMotionPath(
   raw: OverlayMotionKeypoint[] | null | undefined
@@ -822,6 +841,9 @@ export function normalizeMotionPath(
       };
       if (k.scale != null && Number.isFinite(Number(k.scale))) {
         point.scale = clampOverlayScale(Number(k.scale), 1);
+      }
+      if (k.rotation != null && Number.isFinite(Number(k.rotation))) {
+        point.rotation = clampOverlayRotation(Number(k.rotation), 0);
       }
       return point;
     })
@@ -861,19 +883,30 @@ export type OverlaySampledTransform = {
   x: number;
   y: number;
   scale: number;
+  /** Degrees (−180…180). */
+  rotation: number;
+  flipX: boolean;
+  flipY: boolean;
   /** True when a multi-point path is driving position. */
   animated: boolean;
 };
 
 /**
- * Sample overlay position/scale at a wall-clock time within its visible window.
+ * Sample overlay position/scale/rotation at a wall-clock time within its visible window.
  * `localTime` is seconds since the overlay appeared (0 … duration).
+ * Flip is placement-level (constant while tracking); rotation may lerp along keypoints.
  */
 export function sampleOverlayTransform(
-  placement: Pick<OverlayPlacement, "x" | "y" | "scale" | "duration" | "motionPath">,
+  placement: Pick<
+    OverlayPlacement,
+    "x" | "y" | "scale" | "duration" | "motionPath" | "rotation" | "flipX" | "flipY"
+  >,
   localTime: number
 ): OverlaySampledTransform {
   const baseScale = clampOverlayScale(placement.scale ?? 1, 1);
+  const baseRot = clampOverlayRotation(placement.rotation ?? 0, 0);
+  const flipX = Boolean(placement.flipX);
+  const flipY = Boolean(placement.flipY);
   const baseX = clampOverlayPos(placement.x ?? 50, 50);
   const baseY = clampOverlayPos(placement.y ?? 50, 50);
   const path = normalizeMotionPath(placement.motionPath);
@@ -883,10 +916,21 @@ export function sampleOverlayTransform(
         x: path[0].x,
         y: path[0].y,
         scale: path[0].scale ?? baseScale,
+        rotation: path[0].rotation ?? baseRot,
+        flipX,
+        flipY,
         animated: false,
       };
     }
-    return { x: baseX, y: baseY, scale: baseScale, animated: false };
+    return {
+      x: baseX,
+      y: baseY,
+      scale: baseScale,
+      rotation: baseRot,
+      flipX,
+      flipY,
+      animated: false,
+    };
   }
 
   const dur = Math.max(0.2, placement.duration || 3);
@@ -894,11 +938,27 @@ export function sampleOverlayTransform(
 
   if (progress <= path[0].t) {
     const p = path[0];
-    return { x: p.x, y: p.y, scale: p.scale ?? baseScale, animated: true };
+    return {
+      x: p.x,
+      y: p.y,
+      scale: p.scale ?? baseScale,
+      rotation: p.rotation ?? baseRot,
+      flipX,
+      flipY,
+      animated: true,
+    };
   }
   const last = path[path.length - 1];
   if (progress >= last.t) {
-    return { x: last.x, y: last.y, scale: last.scale ?? baseScale, animated: true };
+    return {
+      x: last.x,
+      y: last.y,
+      scale: last.scale ?? baseScale,
+      rotation: last.rotation ?? baseRot,
+      flipX,
+      flipY,
+      animated: true,
+    };
   }
 
   let i = 0;
@@ -909,12 +969,26 @@ export function sampleOverlayTransform(
   const u = Math.max(0, Math.min(1, (progress - a.t) / span));
   const scaleA = a.scale ?? baseScale;
   const scaleB = b.scale ?? baseScale;
+  const rotA = a.rotation ?? baseRot;
+  const rotB = b.rotation ?? baseRot;
   return {
     x: a.x + (b.x - a.x) * u,
     y: a.y + (b.y - a.y) * u,
     scale: scaleA + (scaleB - scaleA) * u,
+    rotation: lerpOverlayRotation(rotA, rotB, u),
+    flipX,
+    flipY,
     animated: true,
   };
+}
+
+/** CSS transform for a sampled media overlay (center-anchored). */
+export function overlayCssTransform(pose: Pick<OverlaySampledTransform, "scale" | "rotation" | "flipX" | "flipY">) {
+  const s = clampOverlayScale(pose.scale ?? 1, 1);
+  const sx = (pose.flipX ? -1 : 1) * s;
+  const sy = (pose.flipY ? -1 : 1) * s;
+  const r = clampOverlayRotation(pose.rotation ?? 0, 0);
+  return `translate(-50%, -50%) rotate(${r}deg) scale(${sx}, ${sy})`;
 }
 
 /**
@@ -969,6 +1043,51 @@ export function buildOverlayAxisExpr(
   return expr;
 }
 
+/**
+ * Piecewise rotation (degrees) expression for ffmpeg `rotate=a='EXPR*PI/180'`.
+ * Falls back to a constant when the path has no per-point rotation overrides.
+ */
+export function buildOverlayRotationExpr(
+  path: OverlayMotionKeypoint[],
+  overlayStart: number,
+  duration: number,
+  baseRotationDeg: number
+): { expr: string; animated: boolean } {
+  const pts = normalizeMotionPath(path);
+  const base = clampOverlayRotation(baseRotationDeg, 0);
+  const dur = Math.max(0.2, duration);
+  const hasKeyed = pts.some((p) => p.rotation != null && Number.isFinite(p.rotation));
+  if (!hasKeyed || pts.length < 2) {
+    return { expr: base.toFixed(6), animated: false };
+  }
+
+  const rotAt = (p: OverlayMotionKeypoint) =>
+    p.rotation != null ? clampOverlayRotation(p.rotation, base) : base;
+
+  function lerpRotExpr(t0: number, a: number, t1: number, b: number): string {
+    let delta = b - a;
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    const span = Math.max(1e-6, t1 - t0);
+    return `${a.toFixed(6)}+(${delta.toFixed(6)})*(t-${t0.toFixed(3)})/${span.toFixed(6)}`;
+  }
+
+  let expr = rotAt(pts[pts.length - 1]).toFixed(6);
+  for (let i = pts.length - 2; i >= 0; i--) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const t0 = overlayStart + a.t * dur;
+    const t1 = overlayStart + b.t * dur;
+    const segment = lerpRotExpr(t0, rotAt(a), t1, rotAt(b));
+    expr = `if(lt(t\\,${t1.toFixed(3)})\\,${segment}\\,${expr})`;
+  }
+  const first = pts[0];
+  const tFirst = overlayStart + first.t * dur;
+  const vFirst = rotAt(first).toFixed(6);
+  expr = `if(lt(t\\,${tFirst.toFixed(3)})\\,${vFirst}\\,${expr})`;
+  return { expr, animated: true };
+}
+
 /** Insert a keypoint, keeping path sorted/normalized. */
 export function upsertMotionKeypoint(
   path: OverlayMotionKeypoint[] | null | undefined,
@@ -984,6 +1103,7 @@ export function upsertMotionKeypoint(
     y: clampOverlayPos(point.y, 50),
   };
   if (point.scale != null) kp.scale = clampOverlayScale(point.scale, 1);
+  if (point.rotation != null) kp.rotation = clampOverlayRotation(point.rotation, 0);
   if (existing >= 0) next[existing] = kp;
   else next.push(kp);
   return normalizeMotionPath(next);
@@ -996,6 +1116,10 @@ export function createOverlayPlacement(
   const x = clampOverlayPos(Number(patch?.x), 50);
   const y = clampOverlayPos(Number(patch?.y), 50);
   const scale = clampOverlayScale(Number(patch?.scale), 1);
+  const rotation =
+    kind === "media" ? clampOverlayRotation(Number(patch?.rotation ?? 0), 0) : 0;
+  const flipX = kind === "media" ? Boolean(patch?.flipX) : false;
+  const flipY = kind === "media" ? Boolean(patch?.flipY) : false;
   const motionPath =
     kind === "media" ? normalizeMotionPath(patch?.motionPath) : [];
   // Keep static x/y aligned with the first keypoint when a path exists
@@ -1014,6 +1138,9 @@ export function createOverlayPlacement(
     x: syncX,
     y: syncY,
     scale,
+    rotation,
+    flipX,
+    flipY,
     motionPath: motionPath.length > 0 ? motionPath : undefined,
     text: typeof patch?.text === "string" ? patch.text : kind === "text" ? "Type here 😂" : "",
     textStyle: normalizeSnapTextStyle(patch?.textStyle),

@@ -264,6 +264,8 @@ export interface OverlayMotionKeypoint {
   y: number;
   /** Optional size at this point; omit to keep the placement scale. */
   scale?: number;
+  /** Optional rotation degrees at this point; omit to keep placement rotation. */
+  rotation?: number;
 }
 
 /** Timed text box or media object (arrow/circle GIF, etc.) on the timeline. */
@@ -282,6 +284,12 @@ export interface OverlayPlacement {
   y: number;
   /** Relative size (text font scale / media scale). 1 = default. */
   scale: number;
+  /** Rotation in degrees (−180…180). Media objects only. */
+  rotation: number;
+  /** Mirror horizontally. Media objects only. */
+  flipX: boolean;
+  /** Mirror vertically. Media objects only. */
+  flipY: boolean;
   /**
    * Optional multi-point motion path (media objects).
    * Empty / omitted = static at x,y for the whole duration.

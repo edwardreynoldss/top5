@@ -2693,6 +2693,24 @@ a {
   background: #6ec8ff !important;
 }
 
+.overlay-orient-block {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.1);
+}
+.overlay-orient-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.overlay-orient-actions .btn.active-toggle {
+  border-color: rgba(110, 200, 255, 0.65);
+  color: #9adcff;
+}
+
 .motion-path-block {
   display: grid;
   gap: 0.45rem;

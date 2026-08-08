@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Type, Shapes, Trash2, Plus, Route, Crosshair } from "lucide-react";
+import { Type, Shapes, Trash2, Plus, Route, Crosshair, FlipHorizontal2, FlipVertical2, RotateCcw } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import {
   clipTimelineOffsets,
   createDefaultMotionPath,
+  clampOverlayRotation,
   formatTime,
   normalizeMotionPath,
   resolveOverlayStartAt,
@@ -184,8 +185,12 @@ function OverlayRow({
             </>
           ) : (
             <p className="muted edge-crop-hint">
-              Live at playhead: {live.x.toFixed(0)}%, {live.y.toFixed(0)}% — edit
-              points below or drag the object on the preview.
+              Live at playhead: {live.x.toFixed(0)}%, {live.y.toFixed(0)}% ·{" "}
+              {Math.round(live.rotation)}°
+              {live.flipX || live.flipY
+                ? ` · flip${live.flipX ? "H" : ""}${live.flipY ? "V" : ""}`
+                : ""}{" "}
+              — edit points below or drag the object on the preview.
             </p>
           )}
 
@@ -204,6 +209,80 @@ function OverlayRow({
               }
             />
           </label>
+
+          {placement.kind === "media" ? (
+            <div className="overlay-orient-block">
+              <div className="overlay-orient-actions">
+                <button
+                  type="button"
+                  className={`btn ghost small ${placement.flipX ? "active-toggle" : ""}`}
+                  onClick={() => onChange({ flipX: !placement.flipX })}
+                  title="Flip horizontal"
+                >
+                  <FlipHorizontal2 size={14} /> Flip H
+                </button>
+                <button
+                  type="button"
+                  className={`btn ghost small ${placement.flipY ? "active-toggle" : ""}`}
+                  onClick={() => onChange({ flipY: !placement.flipY })}
+                  title="Flip vertical"
+                >
+                  <FlipVertical2 size={14} /> Flip V
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  onClick={() => onChange({ rotation: 0 })}
+                  title="Reset rotation"
+                >
+                  <RotateCcw size={14} /> 0°
+                </button>
+              </div>
+              <label className="field">
+                <span>Rotate ({Math.round(placement.rotation || 0)}°)</span>
+                <input
+                  type="range"
+                  min={-180}
+                  max={180}
+                  step={1}
+                  value={clampOverlayRotation(placement.rotation || 0)}
+                  onChange={(e) =>
+                    onChange({
+                      rotation: clampOverlayRotation(parseFloat(e.target.value) || 0),
+                    })
+                  }
+                />
+              </label>
+              <div className="overlay-orient-actions">
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  onClick={() =>
+                    onChange({
+                      rotation: clampOverlayRotation((placement.rotation || 0) - 90),
+                    })
+                  }
+                >
+                  −90°
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost small"
+                  onClick={() =>
+                    onChange({
+                      rotation: clampOverlayRotation((placement.rotation || 0) + 90),
+                    })
+                  }
+                >
+                  +90°
+                </button>
+              </div>
+              <p className="muted edge-crop-hint">
+                Flip/rotate apply while the object moves on a motion path. Optional
+                per-point rotation is on each path point below.
+              </p>
+            </div>
+          ) : null}
 
           {placement.kind === "media" ? (
             <MotionPathEditor
@@ -252,8 +331,19 @@ function MotionPathEditor({
   function enablePath() {
     const next = createDefaultMotionPath(placement.x, placement.y, placement.scale);
     // Sensible default: start left-ish, end right-ish so motion is obvious
-    next[0] = { ...next[0], x: Math.max(8, placement.x - 25), y: placement.y };
-    next[1] = { ...next[1], x: Math.min(92, placement.x + 25), y: placement.y };
+    const rot = clampOverlayRotation(placement.rotation || 0);
+    next[0] = {
+      ...next[0],
+      x: Math.max(8, placement.x - 25),
+      y: placement.y,
+      rotation: rot,
+    };
+    next[1] = {
+      ...next[1],
+      x: Math.min(92, placement.x + 25),
+      y: placement.y,
+      rotation: rot,
+    };
     onChange({ motionPath: next, x: next[0].x, y: next[0].y });
     setSelectedId(next[0].id);
   }
@@ -428,6 +518,29 @@ function MotionPathEditor({
                       onChange={(e) =>
                         patchPoint(kp.id, {
                           y: Math.max(0, Math.min(100, parseFloat(e.target.value) || 50)),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>
+                      Rotate (
+                      {Math.round(
+                        kp.rotation ?? clampOverlayRotation(placement.rotation || 0)
+                      )}
+                      °)
+                    </span>
+                    <input
+                      type="range"
+                      min={-180}
+                      max={180}
+                      step={1}
+                      value={clampOverlayRotation(
+                        kp.rotation ?? placement.rotation ?? 0
+                      )}
+                      onChange={(e) =>
+                        patchPoint(kp.id, {
+                          rotation: clampOverlayRotation(parseFloat(e.target.value) || 0),
                         })
                       }
                     />

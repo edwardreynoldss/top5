@@ -179,6 +179,9 @@ export function TopBar({
         x?: number;
         y?: number;
         scale?: number;
+        rotation?: number;
+        flipX?: boolean;
+        flipY?: boolean;
         mediaId?: string | null;
         pngBase64?: string | null;
         motionPath?: {
@@ -186,6 +189,7 @@ export function TopBar({
           x: number;
           y: number;
           scale?: number;
+          rotation?: number;
         }[];
       }[] = [];
       for (const ov of project.overlayPlacements || []) {
@@ -211,6 +215,9 @@ export function TopBar({
             x: ov.x,
             y: ov.y,
             scale: ov.scale,
+            rotation: ov.rotation || 0,
+            flipX: Boolean(ov.flipX),
+            flipY: Boolean(ov.flipY),
             mediaId: ov.mediaId,
             motionPath: (ov.motionPath || [])
               .map((k) => ({
@@ -218,6 +225,7 @@ export function TopBar({
                 x: k.x,
                 y: k.y,
                 ...(k.scale != null ? { scale: k.scale } : {}),
+                ...(k.rotation != null ? { rotation: k.rotation } : {}),
               }))
               .sort((a, b) => a.t - b.t),
           });

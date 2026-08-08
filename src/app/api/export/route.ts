@@ -9,7 +9,7 @@ import { ensurePillow, whichTools } from "@/lib/bins";
 import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
 import { resolveMusicDropFile, isMusicDropMediaId } from "@/lib/musicFolder";
 import { resolveOverlayFile, isOverlayMediaId } from "@/lib/overlayFolder";
-import { ffmpegAtempoChain, buildOverlayAxisExpr } from "@/lib/defaults";
+import { ffmpegAtempoChain, buildOverlayAxisExpr, buildOverlayRotationExpr } from "@/lib/defaults";
 import type { AspectMode, OverlayMotionKeypoint, PlayOrder, TransitionType } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -111,6 +111,9 @@ interface ExportBody {
     x?: number;
     y?: number;
     scale?: number;
+    rotation?: number;
+    flipX?: boolean;
+    flipY?: boolean;
     mediaId?: string | null;
     /** Full-frame transparent PNG (base64, no data: prefix) for text captions */
     pngBase64?: string | null;
@@ -120,6 +123,7 @@ interface ExportBody {
       x: number;
       y: number;
       scale?: number;
+      rotation?: number;
     }[];
   }[];
 }
@@ -206,6 +210,10 @@ async function burnOverlays(opts: {
     targetW: number;
     xExpr?: string;
     yExpr?: string;
+    flipX: boolean;
+    flipY: boolean;
+    /** Degrees expression (may be constant or piecewise in t) */
+    rotExpr: string;
   };
 
   const prepared: Prepared[] = [];
@@ -226,6 +234,9 @@ async function burnOverlays(opts: {
         xPct: 0.5,
         yPct: 0.5,
         targetW: width,
+        flipX: false,
+        flipY: false,
+        rotExpr: "0",
       });
       continue;
     }
@@ -242,6 +253,8 @@ async function burnOverlays(opts: {
       const yPct = Math.max(0, Math.min(100, ov.y ?? 50)) / 100;
       const motionPath = (ov.motionPath || []) as OverlayMotionKeypoint[];
       const hasMotion = Array.isArray(motionPath) && motionPath.length >= 2;
+      const baseRot = Number.isFinite(ov.rotation) ? Number(ov.rotation) : 0;
+      const rot = buildOverlayRotationExpr(motionPath, start, dur, baseRot);
       prepared.push({
         path: mediaPath,
         start,
@@ -256,6 +269,9 @@ async function burnOverlays(opts: {
         yExpr: hasMotion
           ? buildOverlayAxisExpr(motionPath, start, dur, "y", yPct)
           : undefined,
+        flipX: Boolean(ov.flipX),
+        flipY: Boolean(ov.flipY),
+        rotExpr: rot.expr,
       });
     }
   }
@@ -286,8 +302,12 @@ async function burnOverlays(opts: {
       filterParts.push(`${last}${scaled}overlay=0:0:enable='${enable}'${next}`);
       last = next;
     } else {
+      const flip =
+        (p.flipX ? ",hflip" : "") + (p.flipY ? ",vflip" : "");
+      // Rotate after flip; expand canvas so corners aren't clipped; transparent fill
+      const rotate = `,rotate=a='(${p.rotExpr})*PI/180':ow=rotw(iw):oh=roth(ih):c=black@0`;
       filterParts.push(
-        `[${idx}:v]fps=${fps},scale=${p.targetW}:-1:flags=lanczos,format=rgba${scaled}`
+        `[${idx}:v]fps=${fps},scale=${p.targetW}:-1:flags=lanczos,format=rgba${flip}${rotate}${scaled}`
       );
       const next = i === prepared.length - 1 ? "[vout]" : `[ov${i}]`;
       // Center-anchored: matches preview translate(-50%, -50%) at (x%, y%)

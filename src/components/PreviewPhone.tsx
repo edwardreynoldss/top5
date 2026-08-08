@@ -21,6 +21,7 @@ import {
   resolveSfxStartAt,
   resolveOverlayStartAt,
   sampleOverlayTransform,
+  overlayCssTransform,
   normalizeMotionPath,
   upsertMotionKeypoint,
   clipLocalPlayProgress,
@@ -1398,7 +1399,7 @@ export function PreviewPhone({
                   style={{
                     left: `${pose.x}%`,
                     top: `${pose.y}%`,
-                    transform: `translate(-50%, -50%) scale(${pose.scale || 1})`,
+                    transform: overlayCssTransform(pose),
                   }}
                   onPointerDown={(e) => onOverlayPointerDown(e, ov.id)}
                   onPointerMove={onOverlayPointerMove}
