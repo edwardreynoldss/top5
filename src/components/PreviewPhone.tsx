@@ -20,6 +20,10 @@ import {
   totalTimelineDuration,
   resolveSfxStartAt,
   resolveOverlayStartAt,
+  sampleOverlayTransform,
+  overlayCssTransform,
+  normalizeMotionPath,
+  upsertMotionKeypoint,
   clipLocalPlayProgress,
   sourceSeekFromLocalPlay,
   absoluteTimeForClipPlayhead,
@@ -59,6 +63,8 @@ export function PreviewPhone({
     selectedOverlayId,
     setSelectedOverlayId,
     requestOverlaysTab,
+    updateOverlayPlacement,
+    setPreviewAbsTime,
   } = useEditor();
   const { settings } = project;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -101,6 +107,13 @@ export function PreviewPhone({
   const [addOverlayAt, setAddOverlayAt] = useState(0);
   const [addOverlayKind, setAddOverlayKind] = useState<"text" | "media">("text");
   const absTimeRef = useRef(0);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const overlayDragRef = useRef<{
+    id: string;
+    pointerId: number;
+    pathActive: boolean;
+  } | null>(null);
+  const [overlayDragging, setOverlayDragging] = useState(false);
   isPlayingRef.current = isPlaying;
   activeIndexRef.current = activeIndex;
   segIndexRef.current = segIndex;
@@ -158,6 +171,10 @@ export function PreviewPhone({
     return absoluteTimeForClipPlayhead(activeClip.id, localPlay, offsets);
   }, [activeClip, localPlay, offsets, inGap, inHookGap, gapElapsed]);
   absTimeRef.current = absTime;
+
+  useEffect(() => {
+    setPreviewAbsTime(Number(absTime.toFixed(3)));
+  }, [absTime, setPreviewAbsTime]);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -227,6 +244,90 @@ export function PreviewPhone({
     setAddOverlayKind(kind);
     setAddOverlayOpen(true);
     setCtxMenu(null);
+  }
+
+  function clientToStagePct(clientX: number, clientY: number) {
+    const el = stageRef.current;
+    if (!el) return { x: 50, y: 50 };
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return { x: 50, y: 50 };
+    return {
+      x: Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100)),
+      y: Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100)),
+    };
+  }
+
+  function commitOverlayDragPosition(id: string, x: number, y: number) {
+    const ov = (project.overlayPlacements || []).find((p) => p.id === id);
+    if (!ov || ov.kind !== "media") return;
+    const start = resolveOverlayStartAt(ov, offsets);
+    const dur = Math.max(0.2, ov.duration || 3);
+    const local = Math.max(0, Math.min(dur, absTimeRef.current - start));
+    const t = local / dur;
+    const path = normalizeMotionPath(ov.motionPath);
+    if (path.length < 2) {
+      updateOverlayPlacement(id, { x, y });
+      return;
+    }
+    let best = path[0];
+    let bestDist = Infinity;
+    for (const p of path) {
+      const d = Math.abs(p.t - t);
+      if (d < bestDist) {
+        best = p;
+        bestDist = d;
+      }
+    }
+    // Near an existing point → move it; otherwise insert a waypoint at the playhead
+    if (bestDist <= 0.08) {
+      updateOverlayPlacement(id, {
+        motionPath: upsertMotionKeypoint(path, { ...best, x, y }),
+      });
+    } else {
+      updateOverlayPlacement(id, {
+        motionPath: upsertMotionKeypoint(path, { t, x, y, scale: ov.scale }),
+      });
+    }
+  }
+
+  function onOverlayPointerDown(e: React.PointerEvent, id: string) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const ov = (project.overlayPlacements || []).find((p) => p.id === id);
+    if (!ov || ov.kind !== "media") return;
+    setSelectedOverlayId(id);
+    setSelectedSfxPlacementId(null);
+    onPlayingChange(false);
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    overlayDragRef.current = {
+      id,
+      pointerId: e.pointerId,
+      pathActive: normalizeMotionPath(ov.motionPath).length >= 2,
+    };
+    setOverlayDragging(true);
+    const pct = clientToStagePct(e.clientX, e.clientY);
+    commitOverlayDragPosition(id, pct.x, pct.y);
+  }
+
+  function onOverlayPointerMove(e: React.PointerEvent) {
+    const drag = overlayDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    e.preventDefault();
+    const pct = clientToStagePct(e.clientX, e.clientY);
+    commitOverlayDragPosition(drag.id, pct.x, pct.y);
+  }
+
+  function onOverlayPointerUp(e: React.PointerEvent) {
+    const drag = overlayDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    overlayDragRef.current = null;
+    setOverlayDragging(false);
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
   }
 
   useEffect(() => {
@@ -1074,7 +1175,8 @@ export function PreviewPhone({
     <div className="preview-shell">
       <div className="preview-phone">
         <div
-          className="preview-stage"
+          ref={stageRef}
+          className={`preview-stage ${overlayDragging ? "overlay-dragging" : ""}`}
           onContextMenu={openPreviewContextMenu}
           title={totalDur > 0 ? "Right-click to add text, object, or SFX at this time" : undefined}
         >
@@ -1245,6 +1347,8 @@ export function PreviewPhone({
             const visible = absTime + 0.02 >= start && absTime < end - 0.01;
             if (!visible) return null;
             const selected = ov.id === selectedOverlayId;
+            const localTime = Math.max(0, absTime - start);
+            const pose = sampleOverlayTransform(ov, localTime);
             if (ov.kind === "text") {
               return (
                 <SnapCaptionView
@@ -1262,27 +1366,53 @@ export function PreviewPhone({
             const url = ov.mediaUrl || (ov.mediaId ? overlayMediaUrl(ov.mediaId) : "");
             if (!url) return null;
             const isVideo = /\.(webm|mp4|mov)(\?|$)/i.test(url);
+            const path = normalizeMotionPath(ov.motionPath);
             return (
-              <div
-                key={ov.id}
-                className={`media-overlay ${selected ? "selected" : ""}`}
-                style={{
-                  left: `${ov.x}%`,
-                  top: `${ov.y}%`,
-                  transform: `translate(-50%, -50%) scale(${ov.scale || 1})`,
-                }}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  setSelectedOverlayId(ov.id);
-                  setSelectedSfxPlacementId(null);
-                }}
-              >
-                {isVideo ? (
-                  <video src={url} muted playsInline autoPlay loop draggable={false} />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={url} alt={ov.fileName || "overlay"} draggable={false} />
-                )}
+              <div key={ov.id} className="media-overlay-layer">
+                {selected && path.length >= 2
+                  ? path.map((kp, i) => (
+                      <div
+                        key={kp.id}
+                        className={`motion-waypoint ${
+                          i === 0 ? "start" : i === path.length - 1 ? "end" : "mid"
+                        }`}
+                        style={{ left: `${kp.x}%`, top: `${kp.y}%` }}
+                        title={`${i === 0 ? "Start" : i === path.length - 1 ? "End" : "Point"} · ${(kp.t * Math.max(0.2, ov.duration || 3)).toFixed(2)}s`}
+                      />
+                    ))
+                  : null}
+                {selected && path.length >= 2 ? (
+                  <svg className="motion-path-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    <polyline
+                      fill="none"
+                      stroke="rgba(110, 200, 255, 0.85)"
+                      strokeWidth="0.6"
+                      strokeDasharray="1.5 1.2"
+                      points={path.map((kp) => `${kp.x},${kp.y}`).join(" ")}
+                    />
+                  </svg>
+                ) : null}
+                <div
+                  className={`media-overlay ${selected ? "selected" : ""} ${
+                    pose.animated ? "motion" : ""
+                  }`}
+                  style={{
+                    left: `${pose.x}%`,
+                    top: `${pose.y}%`,
+                    transform: overlayCssTransform(pose),
+                  }}
+                  onPointerDown={(e) => onOverlayPointerDown(e, ov.id)}
+                  onPointerMove={onOverlayPointerMove}
+                  onPointerUp={onOverlayPointerUp}
+                  onPointerCancel={onOverlayPointerUp}
+                >
+                  {isVideo ? (
+                    <video src={url} muted playsInline autoPlay loop draggable={false} />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={url} alt={ov.fileName || "overlay"} draggable={false} />
+                  )}
+                </div>
               </div>
             );
           })}

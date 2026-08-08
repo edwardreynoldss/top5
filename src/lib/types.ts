@@ -252,6 +252,22 @@ export interface SfxPlacement {
  */
 export type SnapTextStyle = "classic" | "box" | "plain";
 
+/**
+ * One waypoint on an overlay motion path.
+ * `t` is normalized 0–1 within the overlay’s on-screen duration
+ * (0 = appear / start point, 1 = disappear / end point).
+ */
+export interface OverlayMotionKeypoint {
+  id: string;
+  t: number;
+  x: number;
+  y: number;
+  /** Optional size at this point; omit to keep the placement scale. */
+  scale?: number;
+  /** Optional rotation degrees at this point; omit to keep placement rotation. */
+  rotation?: number;
+}
+
 /** Timed text box or media object (arrow/circle GIF, etc.) on the timeline. */
 export interface OverlayPlacement {
   id: string;
@@ -268,6 +284,18 @@ export interface OverlayPlacement {
   y: number;
   /** Relative size (text font scale / media scale). 1 = default. */
   scale: number;
+  /** Rotation in degrees (−180…180). Media objects only. */
+  rotation: number;
+  /** Mirror horizontally. Media objects only. */
+  flipX: boolean;
+  /** Mirror vertically. Media objects only. */
+  flipY: boolean;
+  /**
+   * Optional multi-point motion path (media objects).
+   * Empty / omitted = static at x,y for the whole duration.
+   * 2+ points = interpolate (linear) between waypoints over time.
+   */
+  motionPath?: OverlayMotionKeypoint[];
   /** Caption text (supports emoji). */
   text: string;
   textStyle: SnapTextStyle;

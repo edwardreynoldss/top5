@@ -2431,14 +2431,53 @@ a {
   display: inline-block;
 }
 
+.media-overlay-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 27;
+  pointer-events: none;
+}
+.media-overlay-layer .media-overlay {
+  pointer-events: auto;
+  z-index: 2;
+}
+.motion-path-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  overflow: visible;
+}
+.motion-waypoint {
+  position: absolute;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: rgba(110, 200, 255, 0.95);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.motion-waypoint.start {
+  background: #8dff6e;
+}
+.motion-waypoint.end {
+  background: #ff8d6e;
+}
+
 .media-overlay {
   position: absolute;
   z-index: 27;
   width: 42%;
   max-width: 220px;
   pointer-events: auto;
-  cursor: pointer;
+  cursor: grab;
   user-select: none;
+  touch-action: none;
 }
 .media-overlay img,
 .media-overlay video {
@@ -2447,11 +2486,19 @@ a {
   display: block;
   object-fit: contain;
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+  pointer-events: none;
 }
 .media-overlay.selected {
   outline: 1px solid rgba(200, 245, 66, 0.85);
   outline-offset: 3px;
   border-radius: 4px;
+}
+.media-overlay.motion.selected {
+  outline-color: rgba(110, 200, 255, 0.9);
+}
+.preview-stage.overlay-dragging,
+.preview-stage.overlay-dragging .media-overlay {
+  cursor: grabbing;
 }
 
 .preview-scrub-mark.overlay-scrub-mark::after {
@@ -2644,4 +2691,82 @@ a {
 }
 .overlay-timeline-mark {
   background: #6ec8ff !important;
+}
+
+.overlay-orient-block {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.1);
+}
+.overlay-orient-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.overlay-orient-actions .btn.active-toggle {
+  border-color: rgba(110, 200, 255, 0.65);
+  color: #9adcff;
+}
+
+.motion-path-block {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.12);
+}
+.motion-path-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.motion-path-head .btn {
+  margin-left: auto;
+}
+.motion-path-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.motion-keypoint-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.motion-keypoint {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+.motion-keypoint.selected {
+  border-color: rgba(110, 200, 255, 0.55);
+}
+.motion-keypoint-main {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.78rem;
+}
+.motion-keypoint-edit {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.45rem 0.5rem 0.55rem;
+  border-top: 1px solid var(--border);
 }
