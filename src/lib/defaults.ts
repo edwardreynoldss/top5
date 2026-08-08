@@ -4,6 +4,7 @@ import type {
   ClipCrop,
   ClipHook,
   EditorProject,
+  OverlayMotionKeypoint,
   OverlayPlacement,
   ProjectSettings,
   RankClip,
@@ -794,10 +795,212 @@ export function normalizeSnapTextStyle(style?: string | null): SnapTextStyle {
   return "classic";
 }
 
+function clampOverlayPos(n: number, fallback = 50) {
+  return Math.max(0, Math.min(100, Number.isFinite(n) ? n : fallback));
+}
+
+function clampOverlayScale(n: number, fallback = 1) {
+  return Math.max(0.35, Math.min(3, Number.isFinite(n) ? n : fallback));
+}
+
+/** Normalize / sort motion keypoints. Drops invalid entries; ensures unique ids. */
+export function normalizeMotionPath(
+  raw: OverlayMotionKeypoint[] | null | undefined
+): OverlayMotionKeypoint[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const points = raw
+    .map((k) => {
+      if (!k || typeof k !== "object") return null;
+      const t = Math.max(0, Math.min(1, Number.isFinite(k.t) ? Number(k.t) : 0));
+      const x = clampOverlayPos(Number(k.x), 50);
+      const y = clampOverlayPos(Number(k.y), 50);
+      const point: OverlayMotionKeypoint = {
+        id: typeof k.id === "string" && k.id ? k.id : uuidv4(),
+        t,
+        x,
+        y,
+      };
+      if (k.scale != null && Number.isFinite(Number(k.scale))) {
+        point.scale = clampOverlayScale(Number(k.scale), 1);
+      }
+      return point;
+    })
+    .filter(Boolean) as OverlayMotionKeypoint[];
+  points.sort((a, b) => a.t - b.t || a.id.localeCompare(b.id));
+  // Nudge duplicate t values so segments never have zero duration
+  for (let i = 1; i < points.length; i++) {
+    if (points[i].t <= points[i - 1].t) {
+      points[i] = {
+        ...points[i],
+        t: Math.min(1, points[i - 1].t + 0.001),
+      };
+    }
+  }
+  return points;
+}
+
+/** Default start→end path from a static position (same spot until user edits). */
+export function createDefaultMotionPath(
+  x = 50,
+  y = 50,
+  scale?: number
+): OverlayMotionKeypoint[] {
+  const sx = clampOverlayPos(x, 50);
+  const sy = clampOverlayPos(y, 50);
+  const start: OverlayMotionKeypoint = { id: uuidv4(), t: 0, x: sx, y: sy };
+  const end: OverlayMotionKeypoint = { id: uuidv4(), t: 1, x: sx, y: sy };
+  if (scale != null && Number.isFinite(scale)) {
+    const s = clampOverlayScale(scale, 1);
+    start.scale = s;
+    end.scale = s;
+  }
+  return [start, end];
+}
+
+export type OverlaySampledTransform = {
+  x: number;
+  y: number;
+  scale: number;
+  /** True when a multi-point path is driving position. */
+  animated: boolean;
+};
+
+/**
+ * Sample overlay position/scale at a wall-clock time within its visible window.
+ * `localTime` is seconds since the overlay appeared (0 … duration).
+ */
+export function sampleOverlayTransform(
+  placement: Pick<OverlayPlacement, "x" | "y" | "scale" | "duration" | "motionPath">,
+  localTime: number
+): OverlaySampledTransform {
+  const baseScale = clampOverlayScale(placement.scale ?? 1, 1);
+  const baseX = clampOverlayPos(placement.x ?? 50, 50);
+  const baseY = clampOverlayPos(placement.y ?? 50, 50);
+  const path = normalizeMotionPath(placement.motionPath);
+  if (path.length < 2) {
+    if (path.length === 1) {
+      return {
+        x: path[0].x,
+        y: path[0].y,
+        scale: path[0].scale ?? baseScale,
+        animated: false,
+      };
+    }
+    return { x: baseX, y: baseY, scale: baseScale, animated: false };
+  }
+
+  const dur = Math.max(0.2, placement.duration || 3);
+  const progress = Math.max(0, Math.min(1, localTime / dur));
+
+  if (progress <= path[0].t) {
+    const p = path[0];
+    return { x: p.x, y: p.y, scale: p.scale ?? baseScale, animated: true };
+  }
+  const last = path[path.length - 1];
+  if (progress >= last.t) {
+    return { x: last.x, y: last.y, scale: last.scale ?? baseScale, animated: true };
+  }
+
+  let i = 0;
+  while (i < path.length - 1 && path[i + 1].t < progress) i++;
+  const a = path[i];
+  const b = path[i + 1];
+  const span = Math.max(1e-6, b.t - a.t);
+  const u = Math.max(0, Math.min(1, (progress - a.t) / span));
+  const scaleA = a.scale ?? baseScale;
+  const scaleB = b.scale ?? baseScale;
+  return {
+    x: a.x + (b.x - a.x) * u,
+    y: a.y + (b.y - a.y) * u,
+    scale: scaleA + (scaleB - scaleA) * u,
+    animated: true,
+  };
+}
+
+/**
+ * Build a piecewise-linear ffmpeg expression for one axis (0–1 normalized).
+ * `t` in the expression is absolute timeline seconds.
+ */
+export function buildOverlayAxisExpr(
+  path: OverlayMotionKeypoint[],
+  overlayStart: number,
+  duration: number,
+  axis: "x" | "y",
+  fallback01: number
+): string {
+  const pts = normalizeMotionPath(path);
+  const dur = Math.max(0.2, duration);
+  const fb = Math.max(0, Math.min(1, fallback01));
+  if (pts.length === 0) return fb.toFixed(6);
+  if (pts.length === 1) {
+    const v = (axis === "x" ? pts[0].x : pts[0].y) / 100;
+    return Math.max(0, Math.min(1, v)).toFixed(6);
+  }
+
+  // Nested if(lt(t, nextAbs), lerp, …)
+  function lerpExpr(
+    t0: number,
+    v0: number,
+    t1: number,
+    v1: number
+  ): string {
+    const span = Math.max(1e-6, t1 - t0);
+    // v0 + (v1-v0) * (t - t0) / span
+    return `${v0.toFixed(6)}+(${(v1 - v0).toFixed(6)})*(t-${t0.toFixed(3)})/${span.toFixed(6)}`;
+  }
+
+  let expr = ((axis === "x" ? pts[pts.length - 1].x : pts[pts.length - 1].y) / 100).toFixed(6);
+  for (let i = pts.length - 2; i >= 0; i--) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const t0 = overlayStart + a.t * dur;
+    const t1 = overlayStart + b.t * dur;
+    const v0 = (axis === "x" ? a.x : a.y) / 100;
+    const v1 = (axis === "x" ? b.x : b.y) / 100;
+    const segment = lerpExpr(t0, v0, t1, v1);
+    // Before this segment's end, use lerp (or hold v0 if before t0 — handled by earlier points)
+    expr = `if(lt(t\\,${t1.toFixed(3)})\\,${segment}\\,${expr})`;
+  }
+  // Hold first point before its time
+  const first = pts[0];
+  const tFirst = overlayStart + first.t * dur;
+  const vFirst = ((axis === "x" ? first.x : first.y) / 100).toFixed(6);
+  expr = `if(lt(t\\,${tFirst.toFixed(3)})\\,${vFirst}\\,${expr})`;
+  return expr;
+}
+
+/** Insert a keypoint, keeping path sorted/normalized. */
+export function upsertMotionKeypoint(
+  path: OverlayMotionKeypoint[] | null | undefined,
+  point: Partial<OverlayMotionKeypoint> & { t: number; x: number; y: number }
+): OverlayMotionKeypoint[] {
+  const next = normalizeMotionPath(path);
+  const id = point.id || uuidv4();
+  const existing = next.findIndex((p) => p.id === id);
+  const kp: OverlayMotionKeypoint = {
+    id,
+    t: Math.max(0, Math.min(1, point.t)),
+    x: clampOverlayPos(point.x, 50),
+    y: clampOverlayPos(point.y, 50),
+  };
+  if (point.scale != null) kp.scale = clampOverlayScale(point.scale, 1);
+  if (existing >= 0) next[existing] = kp;
+  else next.push(kp);
+  return normalizeMotionPath(next);
+}
+
 export function createOverlayPlacement(
   patch?: Partial<OverlayPlacement>
 ): OverlayPlacement {
   const kind = patch?.kind === "media" ? "media" : "text";
+  const x = clampOverlayPos(Number(patch?.x), 50);
+  const y = clampOverlayPos(Number(patch?.y), 50);
+  const scale = clampOverlayScale(Number(patch?.scale), 1);
+  const motionPath =
+    kind === "media" ? normalizeMotionPath(patch?.motionPath) : [];
+  // Keep static x/y aligned with the first keypoint when a path exists
+  const syncX = motionPath.length > 0 ? motionPath[0].x : x;
+  const syncY = motionPath.length > 0 ? motionPath[0].y : y;
   return {
     id: patch?.id || uuidv4(),
     kind,
@@ -808,9 +1011,10 @@ export function createOverlayPlacement(
       0.3,
       Math.min(30, Number.isFinite(patch?.duration) ? Number(patch?.duration) : 3)
     ),
-    x: Math.max(0, Math.min(100, Number.isFinite(patch?.x) ? Number(patch?.x) : 50)),
-    y: Math.max(0, Math.min(100, Number.isFinite(patch?.y) ? Number(patch?.y) : 50)),
-    scale: Math.max(0.35, Math.min(3, Number.isFinite(patch?.scale) ? Number(patch?.scale) : 1)),
+    x: syncX,
+    y: syncY,
+    scale,
+    motionPath: motionPath.length > 0 ? motionPath : undefined,
     text: typeof patch?.text === "string" ? patch.text : kind === "text" ? "Type here 😂" : "",
     textStyle: normalizeSnapTextStyle(patch?.textStyle),
     color: typeof patch?.color === "string" && patch.color.trim() ? patch.color : "#FFFFFF",
