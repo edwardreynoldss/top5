@@ -410,20 +410,22 @@ export function ClipCard({ clip }: { clip: RankClip }) {
               <div className="clip-ready">
                 <div className="thumb" aria-hidden>
                   <div className="crop-content-window" style={thumbLayout.windowStyle}>
-                    <video
-                      key={clip.mediaUrl || clip.id}
-                      src={`${clip.mediaUrl!}#t=${segs[0]?.start || 0}`}
-                      muted
-                      playsInline
-                      preload="metadata"
-                      style={thumbLayout.videoStyle}
-                      onLoadedMetadata={(e) => {
-                        const v = e.currentTarget;
-                        if (v.videoWidth > 0 && v.videoHeight > 0) {
-                          setThumbAspect(v.videoWidth / v.videoHeight);
-                        }
-                      }}
-                    />
+                    <div className="crop-pad-content" style={thumbLayout.contentStyle}>
+                      <video
+                        key={clip.mediaUrl || clip.id}
+                        src={`${clip.mediaUrl!}#t=${segs[0]?.start || 0}`}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        style={thumbLayout.videoStyle}
+                        onLoadedMetadata={(e) => {
+                          const v = e.currentTarget;
+                          if (v.videoWidth > 0 && v.videoHeight > 0) {
+                            setThumbAspect(v.videoWidth / v.videoHeight);
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="clip-meta">

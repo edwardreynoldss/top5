@@ -1104,24 +1104,26 @@ export function PreviewPhone({
                 className={fitFill ? "crop-content-window preview-fg fill" : "crop-content-window preview-fg"}
                 style={cropLayout.windowStyle}
               >
-                <video
-                  ref={videoRef}
-                  playsInline
-                  preload="auto"
-                  style={cropLayout.videoStyle}
-                  onLoadedData={(e) => {
-                    const v = e.currentTarget;
-                    if (activeClip) {
-                      v.volume = Math.min(
-                        1,
-                        effectiveClipVolume(activeClip, settings.clipVolume)
-                      );
-                    }
-                    if (v.videoWidth > 0 && v.videoHeight > 0) {
-                      setVideoAspect(v.videoWidth / v.videoHeight);
-                    }
-                  }}
-                />
+                <div className="crop-pad-content" style={cropLayout.contentStyle}>
+                  <video
+                    ref={videoRef}
+                    playsInline
+                    preload="auto"
+                    style={cropLayout.videoStyle}
+                    onLoadedData={(e) => {
+                      const v = e.currentTarget;
+                      if (activeClip) {
+                        v.volume = Math.min(
+                          1,
+                          effectiveClipVolume(activeClip, settings.clipVolume)
+                        );
+                      }
+                      if (v.videoWidth > 0 && v.videoHeight > 0) {
+                        setVideoAspect(v.videoWidth / v.videoHeight);
+                      }
+                    }}
+                  />
+                </div>
               </div>
               {(inGap || inHookGap) && <div className="preview-black-gap" aria-hidden />}
               {!mediaReady && !inGap && !inHookGap && (

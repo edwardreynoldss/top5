@@ -813,45 +813,50 @@ export function TrimModal({
           </button>
         </div>
 
-        <div className="modal-scroll">
-          <div
-            ref={stageRef}
-            className={`trim-video-wrap crop-stage ${dragging ? "dragging" : ""}`}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-          >
-            <div className="crop-content-window" style={cropLayout.windowStyle}>
-              <video
-                key={src}
-                ref={videoRef}
-                src={src}
-                playsInline
-                preload="auto"
-                muted
-                controls={false}
-                draggable={false}
-                className="trim-video"
-                style={cropLayout.videoStyle}
-              />
-            </div>
-            {/* Transparent hit target so drag always works over the video */}
-            <div className="crop-drag-layer" aria-hidden />
-            <div className="crop-guide" />
-            {!ready && !loadError && <div className="trim-loading">Loading preview…</div>}
-            {loadError && (
-              <div className="trim-loading">
-                <p className="error-text">{loadError}</p>
-                <p className="muted">You can still set trim times and click Use clip.</p>
+        <div className="trim-modal-body">
+          <div className="trim-preview-col">
+            <div
+              ref={stageRef}
+              className={`trim-video-wrap crop-stage ${dragging ? "dragging" : ""}`}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+            >
+              <div className="crop-content-window" style={cropLayout.windowStyle}>
+                <div className="crop-pad-content" style={cropLayout.contentStyle}>
+                  <video
+                    key={src}
+                    ref={videoRef}
+                    src={src}
+                    playsInline
+                    preload="auto"
+                    muted
+                    controls={false}
+                    draggable={false}
+                    className="trim-video"
+                    style={cropLayout.videoStyle}
+                  />
+                </div>
               </div>
-            )}
-            <div className="crop-hint">
-              Drag to pan · scroll to zoom · {crop.zoom.toFixed(2)}×
-              {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
+              {/* Transparent hit target so drag always works over the video */}
+              <div className="crop-drag-layer" aria-hidden />
+              <div className="crop-guide" />
+              {!ready && !loadError && <div className="trim-loading">Loading preview…</div>}
+              {loadError && (
+                <div className="trim-loading">
+                  <p className="error-text">{loadError}</p>
+                  <p className="muted">You can still set trim times and click Use clip.</p>
+                </div>
+              )}
+              <div className="crop-hint">
+                Drag to pan · scroll to zoom · {crop.zoom.toFixed(2)}×
+                {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
+              </div>
             </div>
           </div>
 
+          <div className="trim-options-col modal-scroll">
           <div className="segment-tabs">
             {segments.map((seg, i) => {
               const spd = clampClipSpeed(
@@ -1168,6 +1173,7 @@ export function TrimModal({
                 </button>
               </div>
             ) : null}
+          </div>
           </div>
         </div>
 
