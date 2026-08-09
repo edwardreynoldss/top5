@@ -108,7 +108,7 @@ export function TrimModal({
   const [current, setCurrent] = useState(0);
   const [dur, setDur] = useState(duration > 0 ? duration : 0);
   const [portrait, setPortrait] = useState(false);
-  const [videoAspect, setVideoAspect] = useState(16 / 9);
+  const [videoAspect, setVideoAspect] = useState(9 / 16);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
