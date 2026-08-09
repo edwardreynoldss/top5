@@ -2598,21 +2598,28 @@ a {
 }
 .motion-waypoint {
   position: absolute;
-  z-index: 1;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
+  z-index: 3;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
   border-radius: 50%;
   background: rgba(110, 200, 255, 0.95);
   border: 1.5px solid rgba(255, 255, 255, 0.9);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 0;
 }
 .motion-waypoint.start {
   background: #8dff6e;
 }
 .motion-waypoint.end {
   background: #ff8d6e;
+}
+.motion-waypoint.selected,
+.motion-waypoint:hover {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 0 4px rgba(110, 200, 255, 0.55);
+  transform: scale(1.15);
 }
 
 .media-overlay {
@@ -2624,6 +2631,9 @@ a {
   cursor: grab;
   user-select: none;
   touch-action: none;
+}
+.media-overlay.motion {
+  will-change: left, top, transform;
 }
 .media-overlay img,
 .media-overlay video {
@@ -2654,6 +2664,33 @@ a {
 .preview-scrub-mark.overlay-scrub-mark.selected::after,
 .preview-scrub-mark.overlay-scrub-mark:hover::after {
   background: #9adcff;
+}
+
+.preview-scrub-mark.motion-keypoint-scrub-mark {
+  top: -14px;
+  width: 12px;
+  height: 28px;
+  margin-left: -6px;
+  cursor: ew-resize;
+  z-index: 3;
+}
+.preview-scrub-mark.motion-keypoint-scrub-mark::after {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6ec8ff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.preview-scrub-mark.motion-keypoint-scrub-mark.start::after {
+  background: #8dff6e;
+}
+.preview-scrub-mark.motion-keypoint-scrub-mark.end::after {
+  background: #ff8d6e;
+}
+.preview-scrub-mark.motion-keypoint-scrub-mark.selected::after,
+.preview-scrub-mark.motion-keypoint-scrub-mark:hover::after {
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(110, 200, 255, 0.9);
 }
 
 .add-overlay-tabs {

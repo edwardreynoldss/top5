@@ -101,6 +101,13 @@ interface EditorContextValue {
   /** Live preview playhead (absolute timeline seconds) — for overlay keyframe capture. */
   previewAbsTime: number;
   setPreviewAbsTime: (t: number) => void;
+  /** Request PreviewPhone to seek to this absolute time (nonce bumps to re-fire). */
+  previewSeekTarget: number | null;
+  previewSeekNonce: number;
+  requestPreviewSeek: (absTime: number) => void;
+  /** Selected motion-path keypoint id (for scrubber ↔ panel sync). */
+  selectedMotionKeypointId: string | null;
+  setSelectedMotionKeypointId: (id: string | null) => void;
   resetProject: () => void;
   /**
    * Open a previously saved film archive (full clips + settings).
@@ -127,6 +134,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [overlaysTabNonce, setOverlaysTabNonce] = useState(0);
   const [previewAbsTime, setPreviewAbsTime] = useState(0);
+  const [previewSeekTarget, setPreviewSeekTarget] = useState<number | null>(null);
+  const [previewSeekNonce, setPreviewSeekNonce] = useState(0);
+  const [selectedMotionKeypointId, setSelectedMotionKeypointId] = useState<string | null>(
+    null
+  );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const channelStateRef = useRef(channelState);
@@ -140,6 +152,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const requestOverlaysTab = useCallback(() => {
     setOverlaysTabNonce((n) => n + 1);
+  }, []);
+
+  const requestPreviewSeek = useCallback((absTime: number) => {
+    const t = Math.max(0, Number.isFinite(absTime) ? absTime : 0);
+    setPreviewSeekTarget(t);
+    setPreviewSeekNonce((n) => n + 1);
   }, []);
 
   const setChannelState = useCallback((state: ChannelExportState) => {
@@ -794,6 +812,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       overlaysTabNonce,
       previewAbsTime,
       setPreviewAbsTime,
+      previewSeekTarget,
+      previewSeekNonce,
+      requestPreviewSeek,
+      selectedMotionKeypointId,
+      setSelectedMotionKeypointId,
       saveStatus,
       setSelectedClipId,
       setSelectedSfxPlacementId,
@@ -839,9 +862,13 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       selectedOverlayId,
       overlaysTabNonce,
       previewAbsTime,
+      previewSeekNonce,
+      previewSeekTarget,
+      selectedMotionKeypointId,
       saveStatus,
       requestSfxTab,
       requestOverlaysTab,
+      requestPreviewSeek,
       updateTitle,
       updateRanksLayout,
       setTitleLines,

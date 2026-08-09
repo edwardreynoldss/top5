@@ -949,10 +949,179 @@ export type OverlaySampledTransform = {
   animated: boolean;
 };
 
+/** Hermite smoothstep — eases in/out within a segment (no hard corners in time). */
+export function easeSmoothstep(u: number) {
+  const t = Math.max(0, Math.min(1, u));
+  return t * t * (3 - 2 * t);
+}
+
+/** Centripetal-ish Catmull-Rom (uniform) for one scalar channel. */
+export function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number) {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return (
+    0.5 *
+    (2 * p1 +
+      (-p0 + p2) * t +
+      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+      (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+  );
+}
+
+function pathPointAt(
+  path: OverlayMotionKeypoint[],
+  index: number,
+  channel: "x" | "y"
+): number {
+  const i = Math.max(0, Math.min(path.length - 1, index));
+  return channel === "x" ? path[i].x : path[i].y;
+}
+
+/**
+ * Sample a smoothed motion path at normalized progress 0–1.
+ * Position uses Catmull-Rom + smoothstep; scale/rotation use eased linear lerp.
+ */
+export function sampleSmoothedMotionPath(
+  pathIn: OverlayMotionKeypoint[],
+  progress: number,
+  baseScale: number,
+  baseRot: number
+): { x: number; y: number; scale: number; rotation: number } {
+  const path = normalizeMotionPath(pathIn);
+  if (path.length === 0) {
+    return { x: 50, y: 50, scale: baseScale, rotation: baseRot };
+  }
+  if (path.length === 1) {
+    return {
+      x: path[0].x,
+      y: path[0].y,
+      scale: path[0].scale ?? baseScale,
+      rotation: path[0].rotation ?? baseRot,
+    };
+  }
+  const p = Math.max(0, Math.min(1, progress));
+  if (p <= path[0].t) {
+    return {
+      x: path[0].x,
+      y: path[0].y,
+      scale: path[0].scale ?? baseScale,
+      rotation: path[0].rotation ?? baseRot,
+    };
+  }
+  const last = path[path.length - 1];
+  if (p >= last.t) {
+    return {
+      x: last.x,
+      y: last.y,
+      scale: last.scale ?? baseScale,
+      rotation: last.rotation ?? baseRot,
+    };
+  }
+
+  let i = 0;
+  while (i < path.length - 1 && path[i + 1].t < p) i++;
+  const a = path[i];
+  const b = path[i + 1];
+  const span = Math.max(1e-6, b.t - a.t);
+  // Linear parameter keeps Catmull-Rom C¹ through waypoints (no sticky ease at each point).
+  const u = Math.max(0, Math.min(1, (p - a.t) / span));
+  // Soft ease only on scale/rotation so those channels don’t pop.
+  const uEase = easeSmoothstep(u);
+
+  const x = catmullRom(
+    pathPointAt(path, i - 1, "x"),
+    pathPointAt(path, i, "x"),
+    pathPointAt(path, i + 1, "x"),
+    pathPointAt(path, i + 2, "x"),
+    u
+  );
+  const y = catmullRom(
+    pathPointAt(path, i - 1, "y"),
+    pathPointAt(path, i, "y"),
+    pathPointAt(path, i + 1, "y"),
+    pathPointAt(path, i + 2, "y"),
+    u
+  );
+
+  const scaleA = a.scale ?? baseScale;
+  const scaleB = b.scale ?? baseScale;
+  const rotA = a.rotation ?? baseRot;
+  const rotB = b.rotation ?? baseRot;
+  return {
+    x: clampOverlayPos(x, a.x),
+    y: clampOverlayPos(y, a.y),
+    scale: scaleA + (scaleB - scaleA) * uEase,
+    rotation: lerpOverlayRotation(rotA, rotB, uEase),
+  };
+}
+
+/**
+ * Clamp a keypoint’s normalized time between its neighbors (for scrubber retiming).
+ */
+export function clampMotionKeypointTime(
+  pathIn: OverlayMotionKeypoint[],
+  id: string,
+  nextT: number
+): number {
+  const path = normalizeMotionPath(pathIn);
+  const idx = path.findIndex((p) => p.id === id);
+  if (idx < 0) return Math.max(0, Math.min(1, nextT));
+  const lo = idx > 0 ? path[idx - 1].t + 0.002 : 0;
+  const hi = idx < path.length - 1 ? path[idx + 1].t - 0.002 : 1;
+  return Math.max(lo, Math.min(hi, nextT));
+}
+
+/**
+ * Dense polyline approximating the smooth path for ffmpeg / SVG preview.
+ * samplesPerSegment ≥ 4 keeps motion looking smooth in export.
+ */
+export function densifySmoothMotionPath(
+  pathIn: OverlayMotionKeypoint[],
+  baseScale = 1,
+  baseRot = 0,
+  samplesPerSegment = 8
+): OverlayMotionKeypoint[] {
+  const path = normalizeMotionPath(pathIn);
+  if (path.length < 2) return path;
+  const n = Math.max(4, Math.min(24, Math.round(samplesPerSegment)));
+  const out: OverlayMotionKeypoint[] = [];
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i];
+    const b = path[i + 1];
+    const steps = i === path.length - 2 ? n : n; // inclusive end only on last seg
+    for (let s = 0; s < steps; s++) {
+      if (i > 0 && s === 0) continue; // avoid duplicate joints
+      const u = s / n;
+      const t = a.t + (b.t - a.t) * u;
+      const sample = sampleSmoothedMotionPath(path, t, baseScale, baseRot);
+      out.push({
+        id: `${a.id}_${s}`,
+        t,
+        x: sample.x,
+        y: sample.y,
+        scale: sample.scale,
+        rotation: sample.rotation,
+      });
+    }
+  }
+  // Ensure exact end point
+  const end = path[path.length - 1];
+  const endSample = sampleSmoothedMotionPath(path, end.t, baseScale, baseRot);
+  out.push({
+    id: end.id,
+    t: end.t,
+    x: endSample.x,
+    y: endSample.y,
+    scale: endSample.scale,
+    rotation: endSample.rotation,
+  });
+  return normalizeMotionPath(out);
+}
+
 /**
  * Sample overlay position/scale/rotation at a wall-clock time within its visible window.
  * `localTime` is seconds since the overlay appeared (0 … duration).
- * Flip is placement-level (constant while tracking); rotation may lerp along keypoints.
+ * Flip is placement-level (constant while tracking); path motion is Catmull-Rom smoothed.
  */
 export function sampleOverlayTransform(
   placement: Pick<
@@ -993,47 +1162,12 @@ export function sampleOverlayTransform(
 
   const dur = Math.max(0.2, placement.duration || 3);
   const progress = Math.max(0, Math.min(1, localTime / dur));
-
-  if (progress <= path[0].t) {
-    const p = path[0];
-    return {
-      x: p.x,
-      y: p.y,
-      scale: p.scale ?? baseScale,
-      rotation: p.rotation ?? baseRot,
-      flipX,
-      flipY,
-      animated: true,
-    };
-  }
-  const last = path[path.length - 1];
-  if (progress >= last.t) {
-    return {
-      x: last.x,
-      y: last.y,
-      scale: last.scale ?? baseScale,
-      rotation: last.rotation ?? baseRot,
-      flipX,
-      flipY,
-      animated: true,
-    };
-  }
-
-  let i = 0;
-  while (i < path.length - 1 && path[i + 1].t < progress) i++;
-  const a = path[i];
-  const b = path[i + 1];
-  const span = Math.max(1e-6, b.t - a.t);
-  const u = Math.max(0, Math.min(1, (progress - a.t) / span));
-  const scaleA = a.scale ?? baseScale;
-  const scaleB = b.scale ?? baseScale;
-  const rotA = a.rotation ?? baseRot;
-  const rotB = b.rotation ?? baseRot;
+  const sample = sampleSmoothedMotionPath(path, progress, baseScale, baseRot);
   return {
-    x: a.x + (b.x - a.x) * u,
-    y: a.y + (b.y - a.y) * u,
-    scale: scaleA + (scaleB - scaleA) * u,
-    rotation: lerpOverlayRotation(rotA, rotB, u),
+    x: sample.x,
+    y: sample.y,
+    scale: sample.scale,
+    rotation: sample.rotation,
     flipX,
     flipY,
     animated: true,
@@ -1060,7 +1194,8 @@ export function buildOverlayAxisExpr(
   axis: "x" | "y",
   fallback01: number
 ): string {
-  const pts = normalizeMotionPath(path);
+  // Densify Catmull-Rom path so export motion matches the smooth preview
+  const pts = densifySmoothMotionPath(path, 1, 0, 16);
   const dur = Math.max(0.2, duration);
   const fb = Math.max(0, Math.min(1, fallback01));
   if (pts.length === 0) return fb.toFixed(6);
@@ -1111,13 +1246,15 @@ export function buildOverlayRotationExpr(
   duration: number,
   baseRotationDeg: number
 ): { expr: string; animated: boolean } {
-  const pts = normalizeMotionPath(path);
   const base = clampOverlayRotation(baseRotationDeg, 0);
   const dur = Math.max(0.2, duration);
-  const hasKeyed = pts.some((p) => p.rotation != null && Number.isFinite(p.rotation));
-  if (!hasKeyed || pts.length < 2) {
+  const raw = normalizeMotionPath(path);
+  const hasKeyed = raw.some((p) => p.rotation != null && Number.isFinite(p.rotation));
+  if (!hasKeyed || raw.length < 2) {
     return { expr: base.toFixed(6), animated: false };
   }
+  // Dense samples inherit eased rotation from sampleSmoothedMotionPath
+  const pts = densifySmoothMotionPath(raw, 1, base, 16);
 
   const rotAt = (p: OverlayMotionKeypoint) =>
     p.rotation != null ? clampOverlayRotation(p.rotation, base) : base;

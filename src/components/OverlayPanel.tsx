@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect } from "react";
 import { Type, Shapes, Trash2, Plus, Route, Crosshair, FlipHorizontal2, FlipVertical2, RotateCcw } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import {
+  clampMotionKeypointTime,
   clipTimelineOffsets,
   createDefaultMotionPath,
   clampOverlayRotation,
@@ -323,10 +324,31 @@ function MotionPathEditor({
   previewAbsTime: number;
   onChange: (patch: Partial<OverlayPlacement>) => void;
 }) {
+  const {
+    requestPreviewSeek,
+    selectedMotionKeypointId,
+    setSelectedMotionKeypointId,
+  } = useEditor();
   const path = normalizeMotionPath(placement.motionPath);
   const enabled = path.length >= 2;
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedId = selectedMotionKeypointId;
   const duration = Math.max(0.3, placement.duration || 3);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (!selectedId || !path.some((kp) => kp.id === selectedId)) {
+      setSelectedMotionKeypointId(path[0]?.id ?? null);
+    }
+  }, [enabled, path, selectedId, setSelectedMotionKeypointId]);
+
+  function seekToKeypoint(kp: OverlayMotionKeypoint) {
+    requestPreviewSeek(overlayStart + kp.t * duration);
+  }
+
+  function selectKeypoint(kp: OverlayMotionKeypoint, seek = true) {
+    setSelectedMotionKeypointId(kp.id);
+    if (seek) seekToKeypoint(kp);
+  }
 
   function enablePath() {
     const next = createDefaultMotionPath(placement.x, placement.y, placement.scale);
@@ -345,7 +367,7 @@ function MotionPathEditor({
       rotation: rot,
     };
     onChange({ motionPath: next, x: next[0].x, y: next[0].y });
-    setSelectedId(next[0].id);
+    selectKeypoint(next[0]);
   }
 
   function clearPath() {
@@ -354,21 +376,28 @@ function MotionPathEditor({
       Math.max(0, previewAbsTime - overlayStart)
     );
     onChange({ motionPath: [], x: live.x, y: live.y });
-    setSelectedId(null);
+    setSelectedMotionKeypointId(null);
   }
 
   function patchPoint(id: string, partial: Partial<OverlayMotionKeypoint>) {
     const cur = path.find((p) => p.id === id);
     if (!cur) return;
+    const next = { ...cur, ...partial, id };
+    if (partial.t != null) {
+      next.t = clampMotionKeypointTime(path, id, partial.t);
+    }
     onChange({
-      motionPath: upsertMotionKeypoint(path, { ...cur, ...partial, id }),
+      motionPath: upsertMotionKeypoint(path, next),
     });
+    if (partial.t != null) {
+      requestPreviewSeek(overlayStart + next.t * duration);
+    }
   }
 
   function removePoint(id: string) {
     if (path.length <= 2) return;
     onChange({ motionPath: path.filter((p) => p.id !== id) });
-    if (selectedId === id) setSelectedId(null);
+    if (selectedId === id) setSelectedMotionKeypointId(null);
   }
 
   function addPointAtPlayhead() {
@@ -384,7 +413,7 @@ function MotionPathEditor({
     });
     onChange({ motionPath: kp });
     const added = kp.find((p) => Math.abs(p.t - t) < 0.002 && Math.abs(p.x - sample.x) < 0.5);
-    if (added) setSelectedId(added.id);
+    if (added) selectKeypoint(added);
   }
 
   function addMidPoint() {
@@ -412,7 +441,7 @@ function MotionPathEditor({
     const hit = next.find(
       (p) => Math.abs(p.t - t) < 0.002 && Math.abs(p.x - x) < 0.5 && Math.abs(p.y - y) < 0.5
     );
-    if (hit) setSelectedId(hit.id);
+    if (hit) selectKeypoint(hit);
   }
 
   if (!enabled) {
@@ -443,8 +472,8 @@ function MotionPathEditor({
         </button>
       </div>
       <p className="muted edge-crop-hint">
-        Scrub the preview, then Add at playhead — or drag the object on the phone
-        preview to move the selected point.
+        Click a point to jump the preview playhead there. Drag marks on the
+        preview scrubber to retime them — or scrub, then Add at playhead.
       </p>
       <div className="motion-path-actions">
         <button type="button" className="btn ghost small" onClick={addPointAtPlayhead}>
@@ -468,7 +497,7 @@ function MotionPathEditor({
               <button
                 type="button"
                 className="motion-keypoint-main"
-                onClick={() => setSelectedId(kp.id)}
+                onClick={() => selectKeypoint(kp)}
               >
                 <strong>{label}</strong>
                 <span className="muted">

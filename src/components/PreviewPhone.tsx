@@ -24,6 +24,8 @@ import {
   overlayCssTransform,
   normalizeMotionPath,
   upsertMotionKeypoint,
+  densifySmoothMotionPath,
+  clampMotionKeypointTime,
   clipLocalPlayProgress,
   sourceSeekFromLocalPlay,
   absoluteTimeForClipPlayhead,
@@ -65,6 +67,11 @@ export function PreviewPhone({
     requestOverlaysTab,
     updateOverlayPlacement,
     setPreviewAbsTime,
+    previewSeekTarget,
+    previewSeekNonce,
+    requestPreviewSeek,
+    selectedMotionKeypointId,
+    setSelectedMotionKeypointId,
   } = useEditor();
   const { settings } = project;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -269,6 +276,15 @@ export function PreviewPhone({
       updateOverlayPlacement(id, { x, y });
       return;
     }
+    const selected = selectedMotionKeypointId
+      ? path.find((p) => p.id === selectedMotionKeypointId)
+      : null;
+    if (selected) {
+      updateOverlayPlacement(id, {
+        motionPath: upsertMotionKeypoint(path, { ...selected, x, y }),
+      });
+      return;
+    }
     let best = path[0];
     let bestDist = Infinity;
     for (const p of path) {
@@ -280,13 +296,15 @@ export function PreviewPhone({
     }
     // Near an existing point → move it; otherwise insert a waypoint at the playhead
     if (bestDist <= 0.08) {
+      setSelectedMotionKeypointId(best.id);
       updateOverlayPlacement(id, {
         motionPath: upsertMotionKeypoint(path, { ...best, x, y }),
       });
     } else {
-      updateOverlayPlacement(id, {
-        motionPath: upsertMotionKeypoint(path, { t, x, y, scale: ov.scale }),
-      });
+      const next = upsertMotionKeypoint(path, { t, x, y, scale: ov.scale });
+      updateOverlayPlacement(id, { motionPath: next });
+      const added = next.find((p) => Math.abs(p.t - t) < 0.002);
+      if (added) setSelectedMotionKeypointId(added.id);
     }
   }
 
@@ -1080,6 +1098,90 @@ export function PreviewPhone({
     }, 80);
   }
 
+  // External seek requests (motion-path point click, etc.)
+  useEffect(() => {
+    if (previewSeekNonce <= 0 || previewSeekTarget == null) return;
+    seekAbsolute(previewSeekTarget);
+    // seekAbsolute is stable enough via closure over current sequence/offsets
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewSeekNonce, previewSeekTarget]);
+
+  const motionKeypointDragRef = useRef<{
+    overlayId: string;
+    keypointId: string;
+    pointerId: number;
+  } | null>(null);
+  const scrubTrackRef = useRef<HTMLDivElement>(null);
+
+  function absTimeFromScrubClientX(clientX: number) {
+    const el = scrubTrackRef.current;
+    if (!el || totalDur <= 0) return 0;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1) return 0;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return ratio * totalDur;
+  }
+
+  function onMotionKeypointMarkPointerDown(
+    e: React.PointerEvent,
+    overlayId: string,
+    keypointId: string
+  ) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const ov = (project.overlayPlacements || []).find((p) => p.id === overlayId);
+    if (!ov) return;
+    const path = normalizeMotionPath(ov.motionPath);
+    const kp = path.find((p) => p.id === keypointId);
+    if (!kp) return;
+    const start = resolveOverlayStartAt(ov, offsets);
+    const dur = Math.max(0.2, ov.duration || 3);
+    setSelectedOverlayId(overlayId);
+    setSelectedSfxPlacementId(null);
+    setSelectedMotionKeypointId(keypointId);
+    requestOverlaysTab();
+    requestPreviewSeek(start + kp.t * dur);
+    motionKeypointDragRef.current = {
+      overlayId,
+      keypointId,
+      pointerId: e.pointerId,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  }
+
+  function onMotionKeypointMarkPointerMove(e: React.PointerEvent) {
+    const drag = motionKeypointDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const ov = (project.overlayPlacements || []).find((p) => p.id === drag.overlayId);
+    if (!ov) return;
+    const path = normalizeMotionPath(ov.motionPath);
+    const kp = path.find((p) => p.id === drag.keypointId);
+    if (!kp) return;
+    const start = resolveOverlayStartAt(ov, offsets);
+    const dur = Math.max(0.2, ov.duration || 3);
+    const abs = absTimeFromScrubClientX(e.clientX);
+    const rawT = (abs - start) / dur;
+    const t = clampMotionKeypointTime(path, drag.keypointId, rawT);
+    updateOverlayPlacement(drag.overlayId, {
+      motionPath: upsertMotionKeypoint(path, { ...kp, t }),
+    });
+    seekAbsolute(start + t * dur);
+  }
+
+  function onMotionKeypointMarkPointerUp(e: React.PointerEvent) {
+    const drag = motionKeypointDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    motionKeypointDragRef.current = null;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }
+
   function dropSfxAtPlayhead() {
     if (!dropAssetId || totalDur <= 0) return;
     onPlayingChange(false);
@@ -1403,28 +1505,45 @@ export function PreviewPhone({
             if (!url) return null;
             const isVideo = /\.(webm|mp4|mov)(\?|$)/i.test(url);
             const path = normalizeMotionPath(ov.motionPath);
+            const curve =
+              path.length >= 2
+                ? densifySmoothMotionPath(path, ov.scale ?? 1, ov.rotation ?? 0, 16)
+                : [];
             return (
               <div key={ov.id} className="media-overlay-layer">
                 {selected && path.length >= 2
                   ? path.map((kp, i) => (
-                      <div
+                      <button
                         key={kp.id}
+                        type="button"
                         className={`motion-waypoint ${
                           i === 0 ? "start" : i === path.length - 1 ? "end" : "mid"
-                        }`}
+                        } ${kp.id === selectedMotionKeypointId ? "selected" : ""}`}
                         style={{ left: `${kp.x}%`, top: `${kp.y}%` }}
-                        title={`${i === 0 ? "Start" : i === path.length - 1 ? "End" : "Point"} · ${(kp.t * Math.max(0.2, ov.duration || 3)).toFixed(2)}s`}
+                        title={`${i === 0 ? "Start" : i === path.length - 1 ? "End" : "Point"} · ${(kp.t * Math.max(0.2, ov.duration || 3)).toFixed(2)}s — click to seek`}
+                        aria-label={`Motion point at ${(kp.t * Math.max(0.2, ov.duration || 3)).toFixed(2)} seconds`}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSelectedOverlayId(ov.id);
+                          setSelectedSfxPlacementId(null);
+                          setSelectedMotionKeypointId(kp.id);
+                          requestOverlaysTab();
+                          requestPreviewSeek(
+                            start + kp.t * Math.max(0.2, ov.duration || 3)
+                          );
+                        }}
                       />
                     ))
                   : null}
-                {selected && path.length >= 2 ? (
+                {selected && curve.length >= 2 ? (
                   <svg className="motion-path-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
                     <polyline
                       fill="none"
                       stroke="rgba(110, 200, 255, 0.85)"
                       strokeWidth="0.6"
                       strokeDasharray="1.5 1.2"
-                      points={path.map((kp) => `${kp.x},${kp.y}`).join(" ")}
+                      points={curve.map((kp) => `${kp.x},${kp.y}`).join(" ")}
                     />
                   </svg>
                 ) : null}
@@ -1492,7 +1611,7 @@ export function PreviewPhone({
           </span>
         </div>
 
-        <div className="preview-scrub">
+        <div className="preview-scrub" ref={scrubTrackRef}>
           <input
             type="range"
             min={0}
@@ -1536,27 +1655,62 @@ export function PreviewPhone({
               const start = resolveOverlayStartAt(p, offsets);
               if (totalDur <= 0) return null;
               const selected = p.id === selectedOverlayId;
+              const path = normalizeMotionPath(p.motionPath);
+              const showKeypoints = selected && p.kind === "media" && path.length >= 2;
+              const dur = Math.max(0.2, p.duration || 3);
               return (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`preview-scrub-mark overlay-scrub-mark ${selected ? "selected" : ""}`}
-                  style={{ left: `${Math.min(100, (start / totalDur) * 100)}%` }}
-                  title={`${p.kind === "text" ? "Text" : "Object"} @ ${start.toFixed(2)}s`}
-                  aria-label={`Overlay at ${start.toFixed(2)} seconds`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setSelectedOverlayId(p.id);
-                    setSelectedSfxPlacementId(null);
-                    requestOverlaysTab();
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    removeOverlayPlacement(p.id);
-                  }}
-                />
+                <span key={p.id}>
+                  <button
+                    type="button"
+                    className={`preview-scrub-mark overlay-scrub-mark ${selected ? "selected" : ""}`}
+                    style={{ left: `${Math.min(100, (start / totalDur) * 100)}%` }}
+                    title={`${p.kind === "text" ? "Text" : "Object"} @ ${start.toFixed(2)}s`}
+                    aria-label={`Overlay at ${start.toFixed(2)} seconds`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setSelectedOverlayId(p.id);
+                      setSelectedSfxPlacementId(null);
+                      requestOverlaysTab();
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      removeOverlayPlacement(p.id);
+                    }}
+                  />
+                  {showKeypoints
+                    ? path.map((kp, i) => {
+                        const abs = start + kp.t * dur;
+                        const left = Math.min(100, Math.max(0, (abs / totalDur) * 100));
+                        const label =
+                          i === 0
+                            ? "Start"
+                            : i === path.length - 1
+                              ? "End"
+                              : `Point ${i + 1}`;
+                        const active = kp.id === selectedMotionKeypointId;
+                        return (
+                          <button
+                            key={`${p.id}-${kp.id}`}
+                            type="button"
+                            className={`preview-scrub-mark motion-keypoint-scrub-mark ${
+                              i === 0 ? "start" : i === path.length - 1 ? "end" : "mid"
+                            } ${active ? "selected" : ""}`}
+                            style={{ left: `${left}%` }}
+                            title={`${label} · ${abs.toFixed(2)}s — drag to retime`}
+                            aria-label={`${label} keypoint at ${abs.toFixed(2)} seconds`}
+                            onPointerDown={(e) =>
+                              onMotionKeypointMarkPointerDown(e, p.id, kp.id)
+                            }
+                            onPointerMove={onMotionKeypointMarkPointerMove}
+                            onPointerUp={onMotionKeypointMarkPointerUp}
+                            onPointerCancel={onMotionKeypointMarkPointerUp}
+                          />
+                        );
+                      })
+                    : null}
+                </span>
               );
             })}
           </div>
