@@ -1296,6 +1296,7 @@ export function PreviewPhone({
                 <video
                   ref={bgRef}
                   className="preview-bg"
+                  src={activeClip.mediaUrl || undefined}
                   muted
                   playsInline
                   preload="auto"
@@ -1308,60 +1309,27 @@ export function PreviewPhone({
                 className={fitFill ? "crop-content-window preview-fg fill" : "crop-content-window preview-fg"}
                 style={cropLayout.windowStyle}
               >
-                <video
-                  ref={videoRef}
-                  playsInline
-                  preload="auto"
-                  style={cropLayout.videoStyle}
-                  onLoadedData={(e) => {
-                    const v = e.currentTarget;
-                    if (activeClip) {
-                      v.volume = Math.min(
-                        1,
-                        effectiveClipVolume(activeClip, settings.clipVolume)
-                      );
-                    }
-                    if (v.videoWidth > 0 && v.videoHeight > 0) {
-                      setVideoAspect(v.videoWidth / v.videoHeight);
-                    }
-                  }}
-                />
-                {cropLayout.shades.left > 0.05 ? (
-                  <div
-                    className="crop-edge-shade crop-edge-shade-left"
-                    style={{ width: `${cropLayout.shades.left}%` }}
-                    aria-hidden
-                  />
-                ) : null}
-                {cropLayout.shades.right > 0.05 ? (
-                  <div
-                    className="crop-edge-shade crop-edge-shade-right"
-                    style={{ width: `${cropLayout.shades.right}%` }}
-                    aria-hidden
-                  />
-                ) : null}
-                {cropLayout.shades.top > 0.05 ? (
-                  <div
-                    className="crop-edge-shade crop-edge-shade-top"
-                    style={{
-                      height: `${cropLayout.shades.top}%`,
-                      left: `${cropLayout.shades.left}%`,
-                      right: `${cropLayout.shades.right}%`,
+                <div className="crop-pad-content" style={cropLayout.contentStyle}>
+                  <video
+                    ref={videoRef}
+                    src={activeClip.mediaUrl || undefined}
+                    playsInline
+                    preload="auto"
+                    style={cropLayout.videoStyle}
+                    onLoadedData={(e) => {
+                      const v = e.currentTarget;
+                      if (activeClip) {
+                        v.volume = Math.min(
+                          1,
+                          effectiveClipVolume(activeClip, settings.clipVolume)
+                        );
+                      }
+                      if (v.videoWidth > 0 && v.videoHeight > 0) {
+                        setVideoAspect(v.videoWidth / v.videoHeight);
+                      }
                     }}
-                    aria-hidden
                   />
-                ) : null}
-                {cropLayout.shades.bottom > 0.05 ? (
-                  <div
-                    className="crop-edge-shade crop-edge-shade-bottom"
-                    style={{
-                      height: `${cropLayout.shades.bottom}%`,
-                      left: `${cropLayout.shades.left}%`,
-                      right: `${cropLayout.shades.right}%`,
-                    }}
-                    aria-hidden
-                  />
-                ) : null}
+                </div>
               </div>
               {(inGap || inHookGap) && <div className="preview-black-gap" aria-hidden />}
               {!mediaReady && !inGap && !inHookGap && (

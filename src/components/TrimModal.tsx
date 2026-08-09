@@ -890,18 +890,20 @@ export function TrimModal({
               onPointerCancel={onPointerUp}
             >
               <div className="crop-content-window" style={cropLayout.windowStyle}>
-                <video
-                  key={src}
-                  ref={videoRef}
-                  src={src}
-                  playsInline
-                  preload="auto"
-                  muted
-                  controls={false}
-                  draggable={false}
-                  className="trim-video"
-                  style={cropLayout.videoStyle}
-                />
+                <div className="crop-pad-content" style={cropLayout.contentStyle}>
+                  <video
+                    key={src}
+                    ref={videoRef}
+                    src={src}
+                    playsInline
+                    preload="auto"
+                    muted
+                    controls={false}
+                    draggable={false}
+                    className="trim-video"
+                    style={cropLayout.videoStyle}
+                  />
+                </div>
               </div>
               {/* Transparent hit target so drag always works over the video */}
               <div className="crop-drag-layer" aria-hidden />

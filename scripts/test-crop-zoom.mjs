@@ -28,7 +28,7 @@ function normalizeHorizontalCrop(cropLeft = 0, cropRight = 0) {
   return { left, right };
 }
 
-/** Window + full-bleed video + pad-back shades (no nested % video box). */
+/** Inset pad-back box + video sample (must stay non-zero). */
 function cropBox(crop, frameAspect, videoAspect) {
   const z = clampCropZoom(crop.zoom ?? 1);
   const { top: ct, bottom: cb } = normalizeVerticalCrop(crop.cropTop ?? 0, crop.cropBottom ?? 0);
@@ -36,6 +36,8 @@ function cropBox(crop, frameAspect, videoAspect) {
     crop.cropLeft ?? 0,
     crop.cropRight ?? 0
   );
+  const visibleW = Math.max(0.2, 1 - cl - cr);
+  const visibleH = Math.max(0.2, 1 - ct - cb);
   let baseW;
   let baseH;
   if (videoAspect >= frameAspect) {
@@ -48,33 +50,43 @@ function cropBox(crop, frameAspect, videoAspect) {
   return {
     w: baseW * z,
     h: baseH * z,
-    videoW: 100,
-    videoH: 100,
-    videoLeft: 0,
-    videoTop: 0,
-    shadeTop: ct * 100,
-    shadeBottom: cb * 100,
-    shadeLeft: cl * 100,
-    shadeRight: cr * 100,
+    contentLeft: cl * 100,
+    contentRight: cr * 100,
+    contentTop: ct * 100,
+    contentBottom: cb * 100,
+    // content box size as % of window
+    contentW: visibleW * 100,
+    contentH: visibleH * 100,
+    videoW: 100 / visibleW,
+    videoH: 100 / visibleH,
+    videoLeft: (-cl / visibleW) * 100,
+    videoTop: (-ct / visibleH) * 100,
   };
 }
 
 const frame = 9 / 16;
 const portrait = cropBox({ zoom: 1 }, frame, 9 / 16);
 assert.ok(Math.abs(portrait.w - 100) < 1e-6 && Math.abs(portrait.h - 100) < 1e-6);
-assert.equal(portrait.videoW, 100);
-assert.equal(portrait.videoH, 100);
+assert.ok(Math.abs(portrait.contentW - 100) < 1e-6);
+assert.ok(Math.abs(portrait.contentH - 100) < 1e-6);
+assert.ok(Math.abs(portrait.videoW - 100) < 1e-6);
+assert.ok(Math.abs(portrait.videoH - 100) < 1e-6);
+assert.ok(portrait.contentW > 1 && portrait.contentH > 1, "content must be visible");
 
 const topped = cropBox({ zoom: 1, cropTop: 0.2 }, frame, 9 / 16);
-assert.ok(Math.abs(topped.shadeTop - 20) < 1e-6, "top crop becomes pad shade");
+assert.ok(Math.abs(topped.contentTop - 20) < 1e-6, "top crop becomes pad inset");
+assert.ok(Math.abs(topped.contentH - 80) < 1e-6, "remaining content height");
 assert.ok(Math.abs(topped.w - portrait.w) < 1e-6, "edge crop must NOT reflow window width");
 assert.ok(Math.abs(topped.h - portrait.h) < 1e-6, "edge crop must NOT reflow window height");
-assert.equal(topped.videoW, 100, "video still fills window (visible)");
-assert.equal(topped.videoTop, 0, "video stays pinned — subject does not jump");
+assert.ok(topped.videoH > 100, "video taller than content to sample crop");
+assert.ok(Math.abs(topped.videoTop + 25) < 1e-6, "video shifted up into crop");
 
-// Pan must not change shade/video fill — only window placement elsewhere
+// Nested size relative to window: video covers full window even with crop
+const videoVsWindowH = (topped.videoH / 100) * (topped.contentH / 100) * 100;
+assert.ok(Math.abs(videoVsWindowH - 100) < 1e-6, "video spans full window height");
+
 const panned = cropBox({ zoom: 1.2, panX: 20, panY: 80, cropLeft: 0.1 }, frame, 9 / 16);
-assert.ok(Math.abs(panned.shadeLeft - 10) < 1e-6);
-assert.equal(panned.videoW, 100);
+assert.ok(Math.abs(panned.contentLeft - 10) < 1e-6);
+assert.ok(panned.contentW > 1 && panned.videoW > 100);
 
 console.log("crop box framing tests passed");

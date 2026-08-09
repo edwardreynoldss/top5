@@ -686,8 +686,21 @@ export type CropPreviewLayout = {
     background: string;
   };
   /**
-   * Black pad-back margins (as % of the window). Crop cuts those bands; the
-   * subject under the remaining area keeps its scale (no nested % video box).
+   * Pad-back content box: remaining video sits here; black window bg fills cropped
+   * margins (matches export crop→pad). Uses left/right/top/bottom insets so the box
+   * never collapses when parent height is percentage-based.
+   */
+  contentStyle: {
+    position: "absolute";
+    left: string;
+    right: string;
+    top: string;
+    bottom: string;
+    overflow: "hidden";
+  };
+  /**
+   * Crop edge fractions as % of the window — used by Trim drag handles / overlays.
+   * Not used to cover the video in the phone preview (that caused “blank” frames).
    */
   shades: {
     left: number;
@@ -695,7 +708,7 @@ export type CropPreviewLayout = {
     top: number;
     bottom: number;
   };
-  /** Inner <video>: always fills the window; shades mask the cropped edges. */
+  /** Inner <video>: samples the cropped source region inside contentStyle. */
   videoStyle: {
     position: "absolute";
     width: string;
@@ -705,6 +718,8 @@ export type CropPreviewLayout = {
     objectFit: "fill";
     maxWidth: string;
     maxHeight: string;
+    minWidth: string;
+    minHeight: string;
     background: string;
   };
 };
@@ -712,10 +727,13 @@ export type CropPreviewLayout = {
 /**
  * Crop-then-pan layout for preview.
  *
- * Matches export: edge-crop then pad black back to the original aspect, then
- * contain × zoom × pan. The window uses the FULL source aspect (sticker-safe).
- * Video fills that window; black shades cover the cropped margins so pan/zoom
- * never collapse the video element (nested % boxes were blanking the preview).
+ * Matches export: edge-crop source pixels, pad black back to the original aspect,
+ * then contain × zoom × pan. Window size uses the FULL source aspect so framing
+ * never reflows under the subscribe sticker. Edge crop only grows black margins —
+ * it must not rescale the subject (that was the pan-then-crop glitch).
+ *
+ * Content box uses inset edges (not width/height %) so nested percentage height
+ * cannot collapse the video to 0×0.
  */
 export function cropPreviewStyle(
   crop: ClipCrop,
@@ -736,6 +754,8 @@ export function cropPreviewStyle(
     normalized.cropLeft ?? 0,
     normalized.cropRight ?? 0
   );
+  const visibleW = Math.max(0.2, 1 - cl - cr);
+  const visibleH = Math.max(0.2, 1 - ct - cb);
   const z = clampCropZoom(normalized.zoom);
 
   // Layout from FULL source aspect (not cropped) so edge crop doesn't reflow
@@ -769,6 +789,14 @@ export function cropPreviewStyle(
       overflow: "hidden",
       background: "#000",
     },
+    contentStyle: {
+      position: "absolute",
+      left: `${(cl * 100).toFixed(4)}%`,
+      right: `${(cr * 100).toFixed(4)}%`,
+      top: `${(ct * 100).toFixed(4)}%`,
+      bottom: `${(cb * 100).toFixed(4)}%`,
+      overflow: "hidden",
+    },
     shades: {
       left: cl * 100,
       right: cr * 100,
@@ -777,13 +805,16 @@ export function cropPreviewStyle(
     },
     videoStyle: {
       position: "absolute",
-      width: "100%",
-      height: "100%",
-      left: "0%",
-      top: "0%",
+      // Sample cropped region inside the pad-back content box
+      width: `${(100 / visibleW).toFixed(4)}%`,
+      height: `${(100 / visibleH).toFixed(4)}%`,
+      left: `${((-cl / visibleW) * 100).toFixed(4)}%`,
+      top: `${((-ct / visibleH) * 100).toFixed(4)}%`,
       objectFit: "fill",
       maxWidth: "none",
       maxHeight: "none",
+      minWidth: "100%",
+      minHeight: "100%",
       background: "#000",
     },
   };
