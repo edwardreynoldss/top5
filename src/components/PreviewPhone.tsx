@@ -1747,8 +1747,9 @@ export function PreviewPhone({
           </button>
         </div>
         <p className="muted preview-sfx-hint">
-          Right-click the preview → Add text / object / SFX at the playhead. Marks sit on
-          the middle scrubber — Delete removes the selection.
+          Right-click the preview → Add text / object / SFX. With a motion path
+          selected, click waypoints or scrubber marks to seek — drag marks to
+          retime. Delete removes the selection.
         </p>
       </div>
 
