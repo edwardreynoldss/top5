@@ -9,8 +9,8 @@ import { ensurePillow, whichTools } from "@/lib/bins";
 import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
 import { resolveMusicDropFile, isMusicDropMediaId } from "@/lib/musicFolder";
 import { resolveOverlayFile, isOverlayMediaId } from "@/lib/overlayFolder";
-import { ffmpegAtempoChain } from "@/lib/defaults";
-import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
+import { ffmpegAtempoChain, buildOverlayAxisExpr, buildOverlayRotationExpr } from "@/lib/defaults";
+import type { AspectMode, OverlayMotionKeypoint, PlayOrder, TransitionType } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
@@ -111,9 +111,20 @@ interface ExportBody {
     x?: number;
     y?: number;
     scale?: number;
+    rotation?: number;
+    flipX?: boolean;
+    flipY?: boolean;
     mediaId?: string | null;
     /** Full-frame transparent PNG (base64, no data: prefix) for text captions */
     pngBase64?: string | null;
+    /** Optional motion path (normalized t 0–1 within duration) */
+    motionPath?: {
+      t: number;
+      x: number;
+      y: number;
+      scale?: number;
+      rotation?: number;
+    }[];
   }[];
 }
 
@@ -176,6 +187,7 @@ function resolveMedia(mediaId: string) {
 
 /**
  * Burn timed overlays (Snapchat captions / GIF objects) onto a concatenated video.
+ * Media objects use center-anchored x/y (matching preview) and optional motion paths.
  */
 async function burnOverlays(opts: {
   input: string;
@@ -196,6 +208,12 @@ async function burnOverlays(opts: {
     xPct: number;
     yPct: number;
     targetW: number;
+    xExpr?: string;
+    yExpr?: string;
+    flipX: boolean;
+    flipY: boolean;
+    /** Degrees expression (may be constant or piecewise in t) */
+    rotExpr: string;
   };
 
   const prepared: Prepared[] = [];
@@ -216,6 +234,9 @@ async function burnOverlays(opts: {
         xPct: 0.5,
         yPct: 0.5,
         targetW: width,
+        flipX: false,
+        flipY: false,
+        rotExpr: "0",
       });
       continue;
     }
@@ -228,14 +249,29 @@ async function burnOverlays(opts: {
         continue;
       }
       const scale = Math.max(0.15, Math.min(3, ov.scale ?? 1));
+      const xPct = Math.max(0, Math.min(100, ov.x ?? 50)) / 100;
+      const yPct = Math.max(0, Math.min(100, ov.y ?? 50)) / 100;
+      const motionPath = (ov.motionPath || []) as OverlayMotionKeypoint[];
+      const hasMotion = Array.isArray(motionPath) && motionPath.length >= 2;
+      const baseRot = Number.isFinite(ov.rotation) ? Number(ov.rotation) : 0;
+      const rot = buildOverlayRotationExpr(motionPath, start, dur, baseRot);
       prepared.push({
         path: mediaPath,
         start,
         end,
         mode: "anchored",
-        xPct: Math.max(0, Math.min(100, ov.x ?? 50)) / 100,
-        yPct: Math.max(0, Math.min(100, ov.y ?? 50)) / 100,
+        xPct,
+        yPct,
         targetW: Math.max(2, Math.round((width * 0.42 * scale) / 2) * 2),
+        xExpr: hasMotion
+          ? buildOverlayAxisExpr(motionPath, start, dur, "x", xPct)
+          : undefined,
+        yExpr: hasMotion
+          ? buildOverlayAxisExpr(motionPath, start, dur, "y", yPct)
+          : undefined,
+        flipX: Boolean(ov.flipX),
+        flipY: Boolean(ov.flipY),
+        rotExpr: rot.expr,
       });
     }
   }
@@ -266,12 +302,23 @@ async function burnOverlays(opts: {
       filterParts.push(`${last}${scaled}overlay=0:0:enable='${enable}'${next}`);
       last = next;
     } else {
+      const flip =
+        (p.flipX ? ",hflip" : "") + (p.flipY ? ",vflip" : "");
+      // Rotate after flip; expand canvas so corners aren't clipped; transparent fill
+      const rotate = `,rotate=a='(${p.rotExpr})*PI/180':ow=rotw(iw):oh=roth(ih):c=black@0`;
       filterParts.push(
-        `[${idx}:v]fps=${fps},scale=${p.targetW}:-1:flags=lanczos,format=rgba${scaled}`
+        `[${idx}:v]fps=${fps},scale=${p.targetW}:-1:flags=lanczos,format=rgba${flip}${rotate}${scaled}`
       );
       const next = i === prepared.length - 1 ? "[vout]" : `[ov${i}]`;
+      // Center-anchored: matches preview translate(-50%, -50%) at (x%, y%)
+      const xPos = p.xExpr
+        ? `W*(${p.xExpr})-w/2`
+        : `W*${p.xPct.toFixed(6)}-w/2`;
+      const yPos = p.yExpr
+        ? `H*(${p.yExpr})-h/2`
+        : `H*${p.yPct.toFixed(6)}-h/2`;
       filterParts.push(
-        `${last}${scaled}overlay=x='(W-w)*${p.xPct}':y='(H-h)*${p.yPct}':enable='${enable}'${next}`
+        `${last}${scaled}overlay=x='${xPos}':y='${yPos}':enable='${enable}'${next}`
       );
       last = next;
     }
