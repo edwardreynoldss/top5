@@ -876,11 +876,6 @@ a {
   background: #000;
 }
 
-.crop-pad-content {
-  position: absolute;
-  overflow: hidden;
-}
-
 .crop-content-window video {
   display: block;
   border: 0;
@@ -1854,9 +1849,15 @@ a {
 
 .crop-edge-shade {
   position: absolute;
+  z-index: 3;
   pointer-events: none;
-  background: rgba(0, 0, 0, 0.45);
-  box-shadow: inset 0 0 0 1px rgba(200, 245, 66, 0.15);
+  /* Solid black = export pad-back; keeps subject scale while cutting edges */
+  background: #000;
+}
+.crop-edge-layer .crop-edge-shade {
+  /* Slight see-through while dragging handles in Trim */
+  background: rgba(0, 0, 0, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(200, 245, 66, 0.2);
 }
 .crop-edge-shade-left {
   top: 0;

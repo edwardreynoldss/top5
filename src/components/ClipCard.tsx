@@ -410,22 +410,56 @@ export function ClipCard({ clip }: { clip: RankClip }) {
               <div className="clip-ready">
                 <div className="thumb" aria-hidden>
                   <div className="crop-content-window" style={thumbLayout.windowStyle}>
-                    <div className="crop-pad-content" style={thumbLayout.contentStyle}>
-                      <video
-                        key={clip.mediaUrl || clip.id}
-                        src={`${clip.mediaUrl!}#t=${segs[0]?.start || 0}`}
-                        muted
-                        playsInline
-                        preload="metadata"
-                        style={thumbLayout.videoStyle}
-                        onLoadedMetadata={(e) => {
-                          const v = e.currentTarget;
-                          if (v.videoWidth > 0 && v.videoHeight > 0) {
-                            setThumbAspect(v.videoWidth / v.videoHeight);
-                          }
-                        }}
+                    <video
+                      key={clip.mediaUrl || clip.id}
+                      src={`${clip.mediaUrl!}#t=${segs[0]?.start || 0}`}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      style={thumbLayout.videoStyle}
+                      onLoadedMetadata={(e) => {
+                        const v = e.currentTarget;
+                        if (v.videoWidth > 0 && v.videoHeight > 0) {
+                          setThumbAspect(v.videoWidth / v.videoHeight);
+                        }
+                      }}
+                    />
+                    {thumbLayout.shades.left > 0.05 ? (
+                      <div
+                        className="crop-edge-shade crop-edge-shade-left"
+                        style={{ width: `${thumbLayout.shades.left}%` }}
+                        aria-hidden
                       />
-                    </div>
+                    ) : null}
+                    {thumbLayout.shades.right > 0.05 ? (
+                      <div
+                        className="crop-edge-shade crop-edge-shade-right"
+                        style={{ width: `${thumbLayout.shades.right}%` }}
+                        aria-hidden
+                      />
+                    ) : null}
+                    {thumbLayout.shades.top > 0.05 ? (
+                      <div
+                        className="crop-edge-shade crop-edge-shade-top"
+                        style={{
+                          height: `${thumbLayout.shades.top}%`,
+                          left: `${thumbLayout.shades.left}%`,
+                          right: `${thumbLayout.shades.right}%`,
+                        }}
+                        aria-hidden
+                      />
+                    ) : null}
+                    {thumbLayout.shades.bottom > 0.05 ? (
+                      <div
+                        className="crop-edge-shade crop-edge-shade-bottom"
+                        style={{
+                          height: `${thumbLayout.shades.bottom}%`,
+                          left: `${thumbLayout.shades.left}%`,
+                          right: `${thumbLayout.shades.right}%`,
+                        }}
+                        aria-hidden
+                      />
+                    ) : null}
                   </div>
                 </div>
                 <div className="clip-meta">

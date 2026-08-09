@@ -890,20 +890,18 @@ export function TrimModal({
               onPointerCancel={onPointerUp}
             >
               <div className="crop-content-window" style={cropLayout.windowStyle}>
-                <div className="crop-pad-content" style={cropLayout.contentStyle}>
-                  <video
-                    key={src}
-                    ref={videoRef}
-                    src={src}
-                    playsInline
-                    preload="auto"
-                    muted
-                    controls={false}
-                    draggable={false}
-                    className="trim-video"
-                    style={cropLayout.videoStyle}
-                  />
-                </div>
+                <video
+                  key={src}
+                  ref={videoRef}
+                  src={src}
+                  playsInline
+                  preload="auto"
+                  muted
+                  controls={false}
+                  draggable={false}
+                  className="trim-video"
+                  style={cropLayout.videoStyle}
+                />
               </div>
               {/* Transparent hit target so drag always works over the video */}
               <div className="crop-drag-layer" aria-hidden />
@@ -918,30 +916,38 @@ export function TrimModal({
                   pointerEvents: "none",
                 }}
               >
-                <div
-                  className="crop-edge-shade crop-edge-shade-left"
-                  style={{ width: `${(edges.left * 100).toFixed(4)}%` }}
-                />
-                <div
-                  className="crop-edge-shade crop-edge-shade-right"
-                  style={{ width: `${(edges.right * 100).toFixed(4)}%` }}
-                />
-                <div
-                  className="crop-edge-shade crop-edge-shade-top"
-                  style={{
-                    height: `${(edges.top * 100).toFixed(4)}%`,
-                    left: `${(edges.left * 100).toFixed(4)}%`,
-                    right: `${(edges.right * 100).toFixed(4)}%`,
-                  }}
-                />
-                <div
-                  className="crop-edge-shade crop-edge-shade-bottom"
-                  style={{
-                    height: `${(edges.bottom * 100).toFixed(4)}%`,
-                    left: `${(edges.left * 100).toFixed(4)}%`,
-                    right: `${(edges.right * 100).toFixed(4)}%`,
-                  }}
-                />
+                {cropLayout.shades.left > 0.05 ? (
+                  <div
+                    className="crop-edge-shade crop-edge-shade-left"
+                    style={{ width: `${cropLayout.shades.left}%` }}
+                  />
+                ) : null}
+                {cropLayout.shades.right > 0.05 ? (
+                  <div
+                    className="crop-edge-shade crop-edge-shade-right"
+                    style={{ width: `${cropLayout.shades.right}%` }}
+                  />
+                ) : null}
+                {cropLayout.shades.top > 0.05 ? (
+                  <div
+                    className="crop-edge-shade crop-edge-shade-top"
+                    style={{
+                      height: `${cropLayout.shades.top}%`,
+                      left: `${cropLayout.shades.left}%`,
+                      right: `${cropLayout.shades.right}%`,
+                    }}
+                  />
+                ) : null}
+                {cropLayout.shades.bottom > 0.05 ? (
+                  <div
+                    className="crop-edge-shade crop-edge-shade-bottom"
+                    style={{
+                      height: `${cropLayout.shades.bottom}%`,
+                      left: `${cropLayout.shades.left}%`,
+                      right: `${cropLayout.shades.right}%`,
+                    }}
+                  />
+                ) : null}
                 <button
                   type="button"
                   className={`crop-edge-handle crop-edge-handle-left ${

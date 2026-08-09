@@ -686,18 +686,16 @@ export type CropPreviewLayout = {
     background: string;
   };
   /**
-   * Pad-back content box: remaining video sits here; black window bg fills cropped
-   * margins (matches export crop→pad). Keeps subject scale stable when edge-cropping.
+   * Black pad-back margins (as % of the window). Crop cuts those bands; the
+   * subject under the remaining area keeps its scale (no nested % video box).
    */
-  contentStyle: {
-    position: "absolute";
-    left: string;
-    top: string;
-    width: string;
-    height: string;
-    overflow: "hidden";
+  shades: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
   };
-  /** Inner <video>: samples the cropped source region inside contentStyle. */
+  /** Inner <video>: always fills the window; shades mask the cropped edges. */
   videoStyle: {
     position: "absolute";
     width: string;
@@ -714,10 +712,10 @@ export type CropPreviewLayout = {
 /**
  * Crop-then-pan layout for preview.
  *
- * Matches export: edge-crop source pixels, pad black back to the original aspect,
- * then contain × zoom × pan. Window size uses the FULL source aspect so framing
- * never reflows under the subscribe sticker. Edge crop only grows black margins —
- * it must not rescale the subject (that was the pan-then-crop glitch).
+ * Matches export: edge-crop then pad black back to the original aspect, then
+ * contain × zoom × pan. The window uses the FULL source aspect (sticker-safe).
+ * Video fills that window; black shades cover the cropped margins so pan/zoom
+ * never collapse the video element (nested % boxes were blanking the preview).
  */
 export function cropPreviewStyle(
   crop: ClipCrop,
@@ -738,8 +736,6 @@ export function cropPreviewStyle(
     normalized.cropLeft ?? 0,
     normalized.cropRight ?? 0
   );
-  const visibleW = Math.max(0.2, 1 - cl - cr);
-  const visibleH = Math.max(0.2, 1 - ct - cb);
   const z = clampCropZoom(normalized.zoom);
 
   // Layout from FULL source aspect (not cropped) so edge crop doesn't reflow
@@ -773,21 +769,18 @@ export function cropPreviewStyle(
       overflow: "hidden",
       background: "#000",
     },
-    contentStyle: {
-      position: "absolute",
-      left: `${(cl * 100).toFixed(4)}%`,
-      top: `${(ct * 100).toFixed(4)}%`,
-      width: `${(visibleW * 100).toFixed(4)}%`,
-      height: `${(visibleH * 100).toFixed(4)}%`,
-      overflow: "hidden",
+    shades: {
+      left: cl * 100,
+      right: cr * 100,
+      top: ct * 100,
+      bottom: cb * 100,
     },
     videoStyle: {
       position: "absolute",
-      // Sample cropped region inside the pad-back content box
-      width: `${(100 / visibleW).toFixed(4)}%`,
-      height: `${(100 / visibleH).toFixed(4)}%`,
-      left: `${((-cl / visibleW) * 100).toFixed(4)}%`,
-      top: `${((-ct / visibleH) * 100).toFixed(4)}%`,
+      width: "100%",
+      height: "100%",
+      left: "0%",
+      top: "0%",
       objectFit: "fill",
       maxWidth: "none",
       maxHeight: "none",
