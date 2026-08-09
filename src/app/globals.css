@@ -1693,7 +1693,7 @@ a {
   max-height: calc(100dvh - 2rem);
   padding: 0;
   overflow: hidden;
-  width: min(920px, 100%);
+  width: min(1080px, 100%);
 }
 
 .modal-card.trim-modal .modal-header {
@@ -1713,19 +1713,19 @@ a {
 .trim-preview-col {
   /* Definite column width — percentage width on the video wrap collapses inside
      a shrink-to-fit flex item (min(100%, 240px) → 0), hiding the whole preview. */
-  flex: 0 0 260px;
-  width: 260px;
-  min-width: 200px;
-  max-width: 42%;
+  flex: 0 0 360px;
+  width: 360px;
+  min-width: 280px;
+  max-width: 46%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   gap: 0.5rem;
-  padding: 0.85rem 0.75rem 0.85rem 1rem;
+  padding: 0.85rem 0.85rem 0.85rem 1rem;
   border-right: 1px solid var(--border);
   background: var(--bg-panel);
-  overflow: hidden;
+  overflow: auto;
 }
 
 .trim-options-col.modal-scroll {
@@ -1775,7 +1775,7 @@ a {
   }
 
   .trim-preview-col .trim-video-wrap {
-    width: 160px;
+    width: 200px;
   }
 
   .trim-options-col.modal-scroll {
@@ -1814,7 +1814,7 @@ a {
   /* Always match the final Short frame so non-9:16 sources preview correctly */
   aspect-ratio: 9 / 16;
   /* Definite px width — avoid min(100%, …) inside shrink-wrapped flex parents */
-  width: 220px;
+  width: 320px;
   height: auto;
   flex-shrink: 0;
   margin: 0 auto;
@@ -1826,7 +1826,7 @@ a {
 .trim-video-wrap.landscape {
   /* Legacy class hooks — keep identical 9:16 framing */
   aspect-ratio: 9 / 16;
-  width: 220px;
+  width: 320px;
   height: auto;
   margin: 0 auto;
 }
