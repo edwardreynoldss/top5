@@ -237,7 +237,7 @@ export function TrimModal({
     setCurrent(0);
     setDur(duration > 0 ? duration : 0);
     setPortrait(false);
-    setVideoAspect(16 / 9);
+    setVideoAspect(9 / 16);
     setLoadError(null);
     setReady(false);
     playingRef.current = false;
