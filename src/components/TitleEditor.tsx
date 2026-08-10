@@ -263,7 +263,7 @@ export function TitleEditor({
 
       <CollapsibleSection
         title="Rank numbers"
-        subtitle="Position, size, colors 1–5"
+        subtitle="Position, number & label size, colors 1–5"
         open={!!sectionOpen.ranks}
         onToggle={() => toggle("ranks")}
       >
@@ -300,6 +300,19 @@ export function TitleEditor({
               value={ranksLayout.fontSize}
               onChange={(e) =>
                 updateRanksLayout({ fontSize: parseInt(e.target.value, 10) })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Label size ({ranksLayout.labelSize}px)</span>
+            <input
+              type="range"
+              min={16}
+              max={80}
+              step={2}
+              value={ranksLayout.labelSize}
+              onChange={(e) =>
+                updateRanksLayout({ labelSize: parseInt(e.target.value, 10) })
               }
             />
           </label>
