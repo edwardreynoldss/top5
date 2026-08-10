@@ -229,7 +229,8 @@ export function ClipCard({ clip }: { clip: RankClip }) {
     segments: TrimSegment[],
     crop: ClipCrop,
     bedMusic?: ClipBedMusic,
-    hook?: ClipHook
+    hook?: ClipHook,
+    muteLookMusic?: boolean
   ) {
     if (!pendingMeta && !clip.mediaUrl) return;
     const meta = pendingMeta;
@@ -250,6 +251,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       segments,
       crop: normalizeCrop(crop),
       bedMusic: normalizeBedMusic(bedMusic),
+      muteLookMusic: muteLookMusic === true,
       hook: normalizeHook(hook, sourceDur || Infinity),
       trimStart: first?.start ?? 0,
       trimEnd: last?.end ?? DEFAULT_CLIP_DURATION,
@@ -278,6 +280,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
       volume: 1,
       speed: 1,
       bedMusic: undefined,
+      muteLookMusic: false,
       hook: undefined,
       gapAfter: 0,
       hookGapAfter: 0,
@@ -451,6 +454,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                       ? ` · edge cropped`
                       : ""}
                     {clipBed?.fileName ? ` · bed ${clipBed.fileName}` : ""}
+                    {clip.muteLookMusic ? ` · look BGM off` : ""}
                     {" · drop a new video to replace"}
                   </p>
                 </div>
@@ -502,6 +506,19 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                       })
                     }
                   />
+                </label>
+                <label
+                  className="field check clip-mute-look"
+                  title="Silence Look background music while this clip plays (resumes after)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={clip.muteLookMusic === true}
+                    onChange={(e) =>
+                      updateClip(clip.id, { muteLookMusic: e.target.checked })
+                    }
+                  />
+                  <span>Skip look BGM</span>
                 </label>
               </div>
             </div>
@@ -577,6 +594,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
         initialCrop={trimCrop}
         initialBedMusic={trimBedMusic}
         initialHook={trimHook}
+        initialMuteLookMusic={clip.muteLookMusic === true}
         initialSpeed={getClipSpeed(clip)}
         duration={trimDuration}
         onClose={() => {

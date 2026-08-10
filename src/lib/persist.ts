@@ -149,6 +149,7 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
       typeof clip.speed === "number" && Number.isFinite(clip.speed) ? clip.speed : 1
     ),
     bedMusic: normalizeBedMusic(clip.bedMusic),
+    muteLookMusic: clip.muteLookMusic === true,
     hook: normalizeHook(
       clip.hook,
       typeof clip.duration === "number" && clip.duration > 0 ? clip.duration : Infinity

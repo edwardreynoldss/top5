@@ -420,7 +420,9 @@ export function SettingsPanel() {
         </div>
         <p className="muted">
           Optional full-timeline bed from <code>music/</code> (loops under the whole video).
-          For music on a single clip, set it in <strong>Trim &amp; crop</strong> instead.
+          For music on a single clip, set it in <strong>Trim &amp; crop</strong>. To skip this
+          bed on a clip that already has music, check <strong>Skip look BGM</strong> on that
+          clip card.
         </p>
 
         <div className="music-folder-head">

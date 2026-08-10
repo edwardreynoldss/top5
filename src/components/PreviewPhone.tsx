@@ -36,6 +36,7 @@ import {
   getSegmentSpeed,
   segmentPlayDuration,
   getClipBedMusic,
+  clipMutesLookMusic,
   defaultSticker,
   stickerPlayDuration,
 } from "@/lib/defaults";
@@ -937,7 +938,13 @@ export function PreviewPhone({
       audio.setAttribute("data-src", url);
       musicRef.current = audio;
     }
-    audio.volume = Math.min(1, Math.max(0, settings.musicVolume ?? 0.35));
+    // Opt-out clips silence Look BGM for their play window; resume after the clip
+    // (including during the post-clip black gap). Keep the element playing so the
+    // loop position continues under the mute.
+    const mutedForClip =
+      Boolean(activeClip) && clipMutesLookMusic(activeClip) && !inGap;
+    const baseVol = Math.min(1, Math.max(0, settings.musicVolume ?? 0.35));
+    audio.volume = mutedForClip ? 0 : baseVol;
     if (isPlaying && totalDur > 0) {
       void audio.play().catch(() => undefined);
     } else {
@@ -946,7 +953,15 @@ export function PreviewPhone({
     return () => {
       // keep instance across play/pause; cleared when url changes / unmount
     };
-  }, [settings.musicUrl, settings.musicVolume, isPlaying, totalDur]);
+  }, [
+    settings.musicUrl,
+    settings.musicVolume,
+    isPlaying,
+    totalDur,
+    activeClip,
+    activeClip?.muteLookMusic,
+    inGap,
+  ]);
 
   // Optional per-clip bed from music/ — only under the active clip, capped to clip length
   useEffect(() => {

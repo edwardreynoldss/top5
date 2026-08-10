@@ -47,6 +47,7 @@ interface TrimModalProps {
   initialCrop?: ClipCrop;
   initialBedMusic?: ClipBedMusic | null;
   initialHook?: ClipHook | null;
+  initialMuteLookMusic?: boolean;
   /** Clip-level default speed used when a part has no override */
   initialSpeed?: number;
   duration: number;
@@ -55,7 +56,8 @@ interface TrimModalProps {
     segments: TrimSegment[],
     crop: ClipCrop,
     bedMusic?: ClipBedMusic,
-    hook?: ClipHook
+    hook?: ClipHook,
+    muteLookMusic?: boolean
   ) => void;
 }
 
@@ -77,6 +79,7 @@ export function TrimModal({
   initialCrop,
   initialBedMusic,
   initialHook,
+  initialMuteLookMusic = false,
   initialSpeed = 1,
   duration,
   onClose,
@@ -96,6 +99,7 @@ export function TrimModal({
   const [bedMusic, setBedMusic] = useState<ClipBedMusic | undefined>(() =>
     normalizeBedMusic(initialBedMusic)
   );
+  const [muteLookMusic, setMuteLookMusic] = useState(initialMuteLookMusic === true);
   const [hook, setHook] = useState<ClipHook | undefined>(() =>
     normalizeHook(initialHook, duration || Infinity)
   );
@@ -228,6 +232,7 @@ export function TrimModal({
     setSegments(segs);
     setCrop(normalizeCrop(initialCrop));
     setBedMusic(normalizeBedMusic(initialBedMusic));
+    setMuteLookMusic(initialMuteLookMusic === true);
     setHook(nextHook);
     setActiveIdx(0);
     setPlaying(false);
@@ -246,7 +251,7 @@ export function TrimModal({
     queueIdxRef.current = 0;
     hookRef.current = nextHook;
     playQueueRef.current = buildPreviewQueue(nextHook, segs, defaultSpeed);
-  }, [open, src, duration, initialSegments, initialCrop, initialBedMusic, initialHook, defaultSpeed]);
+  }, [open, src, duration, initialSegments, initialCrop, initialBedMusic, initialHook, initialMuteLookMusic, defaultSpeed]);
 
   async function refreshMusicFolder() {
     setMusicBusy(true);
@@ -1227,6 +1232,23 @@ export function TrimModal({
               Pick a track from <code>music/</code> for this clip only. Choose where the song
               starts — it stops when the clip ends (never runs past the clip).
             </p>
+            <label
+              className="field check"
+              title="Silence Look background music while this clip plays — it continues after"
+            >
+              <input
+                type="checkbox"
+                checked={muteLookMusic}
+                onChange={(e) => {
+                  setMuteLookMusic(e.target.checked);
+                  // Convenient default: opting out when adding a clip bed
+                  if (e.target.checked && !bedMusic?.mediaId) {
+                    /* leave bed unset — user may only want to mute look BGM */
+                  }
+                }}
+              />
+              <span>Skip Look background music on this clip</span>
+            </label>
             <div className="music-folder-head">
               <strong>Folder (music/)</strong>
               <button
@@ -1248,7 +1270,7 @@ export function TrimModal({
                       <button
                         type="button"
                         className={`music-folder-item ${activeBed ? "active" : ""}`}
-                        onClick={() =>
+                        onClick={() => {
                           setBedMusic(
                             normalizeBedMusic({
                               mediaId: item.mediaId,
@@ -1257,8 +1279,10 @@ export function TrimModal({
                               startAt: bedMusic?.mediaId === item.mediaId ? bedMusic.startAt : 0,
                               volume: bedMusic?.volume ?? 0.35,
                             })
-                          )
-                        }
+                          );
+                          // Clip already has its own bed — mute look BGM by default
+                          setMuteLookMusic(true);
+                        }}
                       >
                         <span className="truncate">{item.fileName}</span>
                         <span className="muted">
@@ -1365,7 +1389,8 @@ export function TrimModal({
                 normalizeSegments(segments, defaultSpeed),
                 normalizeCrop(crop),
                 normalizeBedMusic(bedMusic),
-                normalizeHook(hook, dur || duration || Infinity)
+                normalizeHook(hook, dur || duration || Infinity),
+                muteLookMusic
               )
             }
           >

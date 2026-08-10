@@ -1517,6 +1517,16 @@ a {
   accent-color: var(--accent, #c8f542);
 }
 
+.clip-mute-look {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  gap: 0.35rem;
+}
+.clip-mute-look input {
+  accent-color: var(--accent, #c8f542);
+}
+
 .thumb {
   position: relative;
   width: 54px;

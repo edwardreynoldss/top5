@@ -100,6 +100,12 @@ export interface RankClip {
    * Plays under the clip and is hard-capped to the clip's wall-clock duration.
    */
   bedMusic?: ClipBedMusic;
+  /**
+   * When true, Look background music is silent for this clip’s play window
+   * (hook + main). Music continues again after the clip finishes (incl. during
+   * the black gap after). Use when the clip already has its own bed/audio.
+   */
+  muteLookMusic?: boolean;
   /** Optional short teaser played before the main segments (same source). */
   hook?: ClipHook;
   /**

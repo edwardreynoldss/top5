@@ -270,6 +270,7 @@ export function TopBar({
                     }
                   : null;
               })(),
+              muteLookMusic: c.muteLookMusic === true,
               gapAfter: getClipGapAfter(c),
               hookGapAfter: getHookGapAfter(c),
             };

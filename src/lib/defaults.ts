@@ -308,6 +308,50 @@ export function getClipBedMusic(clip: RankClip): ClipBedMusic | undefined {
   return normalizeBedMusic(clip.bedMusic);
 }
 
+/** True when Look background music should be silent during this clip. */
+export function clipMutesLookMusic(clip: Pick<RankClip, "muteLookMusic"> | null | undefined) {
+  return clip?.muteLookMusic === true;
+}
+
+/**
+ * Absolute timeline windows where Look BGM should be muted.
+ * Covers each opted-out clip’s play duration (hook + main + hook gap), not the
+ * black gap after the clip — music resumes when the clip finishes.
+ */
+export function lookMusicMuteWindows(
+  clips: RankClip[],
+  playOrder: "countdown" | "ascending"
+): { start: number; end: number }[] {
+  const offsets = clipTimelineOffsets(clips, playOrder);
+  const out: { start: number; end: number }[] = [];
+  for (const row of offsets) {
+    const clip = clips.find((c) => c.id === row.clipId);
+    if (!clip || !clipMutesLookMusic(clip)) continue;
+    const start = Math.max(0, row.start);
+    const end = Math.max(start + 0.05, start + row.duration);
+    out.push({ start, end });
+  }
+  return out;
+}
+
+/**
+ * ffmpeg `volume=0:enable='…'` expression for mute windows.
+ * Returns null when there is nothing to mute.
+ * Commas are escaped for filter_complex.
+ */
+export function lookMusicMuteEnableExpr(
+  windows: { start: number; end: number }[]
+): string | null {
+  const parts = windows
+    .filter((w) => w.end > w.start + 0.02)
+    .map(
+      (w) =>
+        `between(t\\,${w.start.toFixed(3)}\\,${w.end.toFixed(3)})`
+    );
+  if (parts.length === 0) return null;
+  return parts.join("+");
+}
+
 export function createEmptyClip(rank: number): RankClip {
   const seg = createSegment(0, DEFAULT_CLIP_DURATION);
   return {

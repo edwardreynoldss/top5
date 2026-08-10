@@ -53,6 +53,8 @@ interface ExportClip {
     startAt?: number;
     volume?: number;
   } | null;
+  /** Silence Look background music during this clip’s play window */
+  muteLookMusic?: boolean;
   /** Black hold (seconds) after this clip before the next — overlays stay */
   gapAfter?: number;
   /** Black hold after the hook teaser, before main trim parts */
@@ -909,9 +911,13 @@ export async function POST(req: NextRequest) {
 
     const segmentPaths: string[] = [];
     let timelineCursor = 0;
+    /** Absolute windows where Look BGM is silenced (per-clip opt-out). */
+    const lookMuteWindows: { start: number; end: number }[] = [];
 
     for (let i = 0; i < ordered.length; i++) {
       const clip = ordered[i];
+      const clipLookMute = clip.muteLookMusic === true;
+      const clipTimelineStart = timelineCursor;
       const ranges =
         clip.segments && clip.segments.length > 0
           ? clip.segments
@@ -1141,6 +1147,12 @@ export async function POST(req: NextRequest) {
       }
 
       // Black hold between clips (overlays from this clip's progressive ranks stay on)
+      if (clipLookMute) {
+        lookMuteWindows.push({
+          start: clipTimelineStart,
+          end: Math.max(clipTimelineStart + 0.05, timelineCursor),
+        });
+      }
       const gapAfter = Math.max(
         0,
         Math.min(10, Number.isFinite(clip.gapAfter) ? Number(clip.gapAfter) : 0)
@@ -1263,9 +1275,22 @@ export async function POST(req: NextRequest) {
         const music = resolveMedia(body.musicMediaId);
         const vol = body.musicVolume ?? 0.35;
         args.push("-stream_loop", "-1", "-i", music);
-        filterParts.push(
-          `[${inputIdx}:a]volume=${vol},aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[am]`
-        );
+        const muteEnable = lookMuteWindows
+          .filter((w) => w.end > w.start + 0.02)
+          .map(
+            (w) =>
+              `between(t\\,${w.start.toFixed(3)}\\,${w.end.toFixed(3)})`
+          )
+          .join("+");
+        if (muteEnable) {
+          filterParts.push(
+            `[${inputIdx}:a]volume=${vol},aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[ampre];[ampre]volume=0:enable='${muteEnable}'[am]`
+          );
+        } else {
+          filterParts.push(
+            `[${inputIdx}:a]volume=${vol},aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[am]`
+          );
+        }
         mixInputs.push("[am]");
         inputIdx += 1;
       }
@@ -1324,9 +1349,22 @@ export async function POST(req: NextRequest) {
         const mixes = ["[a0]"];
         if (hasMusic && body.musicMediaId) {
           silentArgs.push("-stream_loop", "-1", "-i", resolveMedia(body.musicMediaId));
-          parts.push(
-            `[${idx}:a]volume=${body.musicVolume ?? 0.35},aresample=44100[am]`
-          );
+          const muteEnable = lookMuteWindows
+            .filter((w) => w.end > w.start + 0.02)
+            .map(
+              (w) =>
+                `between(t\\,${w.start.toFixed(3)}\\,${w.end.toFixed(3)})`
+            )
+            .join("+");
+          if (muteEnable) {
+            parts.push(
+              `[${idx}:a]volume=${body.musicVolume ?? 0.35},aresample=44100[ampre];[ampre]volume=0:enable='${muteEnable}'[am]`
+            );
+          } else {
+            parts.push(
+              `[${idx}:a]volume=${body.musicVolume ?? 0.35},aresample=44100[am]`
+            );
+          }
           mixes.push("[am]");
           idx += 1;
         }
