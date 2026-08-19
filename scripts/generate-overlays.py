@@ -195,6 +195,17 @@ def make_ranks_overlay(cfg: dict, out: Path) -> None:
     gap = int(layout.get("gap") or 120)
     x_pct = float(layout.get("x", 3.5))
     y_pct = float(layout.get("y", 11))
+    dim_enabled = layout.get("labelDimEnabled") is not False
+    try:
+        dim_opacity = float(layout.get("labelDimOpacity", 0.35))
+    except (TypeError, ValueError):
+        dim_opacity = 0.35
+    try:
+        active_opacity = float(layout.get("labelActiveOpacity", 1.0))
+    except (TypeError, ValueError):
+        active_opacity = 1.0
+    dim_opacity = max(0.0, min(1.0, dim_opacity))
+    active_opacity = max(0.0, min(1.0, active_opacity))
 
     font = load_font(font_id, font_size)
     label_font = load_font("inter", label_size)
@@ -205,18 +216,27 @@ def make_ranks_overlay(cfg: dict, out: Path) -> None:
     for i, item in enumerate(ranks):
         rank = int(item.get("rank", i + 1))
         label = item.get("label") or ""
-        color = hex_to_rgba(colors.get(str(rank)) or colors.get(rank) or "#FFFFFF")
+        # Numbers always fully opaque
+        color = hex_to_rgba(colors.get(str(rank)) or colors.get(rank) or "#FFFFFF", 255)
         text = f"{rank}."
         y = start_y + i * gap
         draw_text_outline(draw, (start_x, y), text, font, color, width=max(4, font_size // 12))
         if label:
+            if not dim_enabled:
+                label_a = 255
+            elif rank == active:
+                label_a = int(round(255 * active_opacity))
+            else:
+                label_a = int(round(255 * dim_opacity))
+            label_a = max(0, min(255, label_a))
             tw, _ = measure(draw, text, font)
             draw_text_outline(
                 draw,
                 (start_x + tw + 18, y + font_size * 0.28),
                 label.upper(),
                 label_font,
-                (255, 255, 255, 255),
+                (255, 255, 255, label_a),
+                outline=(0, 0, 0, label_a),
                 width=4,
             )
     img.save(out)

@@ -8,6 +8,7 @@ import type {
   OverlayPlacement,
   ProjectSettings,
   RankClip,
+  RankLayout,
   SnapTextStyle,
   StickerOverlay,
   TitleLine,
@@ -424,6 +425,9 @@ export function builtInDefaultSettings(): ProjectSettings {
       gap: 120,
       fontId: "display",
       labelSize: 42,
+      labelDimEnabled: true,
+      labelDimOpacity: 0.35,
+      labelActiveOpacity: 1,
     },
     sticker: defaultSticker(),
     playOrder: "countdown",
@@ -454,6 +458,49 @@ export function builtInDefaultSettings(): ProjectSettings {
 
 export function cloneSettings(settings: ProjectSettings): ProjectSettings {
   return JSON.parse(JSON.stringify(settings)) as ProjectSettings;
+}
+
+export function clampUnitOpacity(n: number, fallback = 1) {
+  return Math.max(0, Math.min(1, Number.isFinite(n) ? n : fallback));
+}
+
+/** Merge partial/legacy ranks layout with defaults (incl. label dim fields). */
+export function normalizeRanksLayout(
+  layout?: Partial<RankLayout> | null
+): RankLayout {
+  const d = builtInDefaultSettings().ranksLayout;
+  return {
+    x:
+      typeof layout?.x === "number" && Number.isFinite(layout.x)
+        ? Math.max(0, Math.min(100, layout.x))
+        : d.x,
+    y:
+      typeof layout?.y === "number" && Number.isFinite(layout.y)
+        ? Math.max(0, Math.min(100, layout.y))
+        : d.y,
+    fontSize:
+      typeof layout?.fontSize === "number" && Number.isFinite(layout.fontSize)
+        ? Math.max(24, Math.min(200, Math.round(layout.fontSize)))
+        : d.fontSize,
+    gap:
+      typeof layout?.gap === "number" && Number.isFinite(layout.gap)
+        ? Math.max(40, Math.min(240, Math.round(layout.gap)))
+        : d.gap,
+    fontId: layout?.fontId || d.fontId,
+    labelSize:
+      typeof layout?.labelSize === "number" && Number.isFinite(layout.labelSize)
+        ? Math.max(12, Math.min(120, Math.round(layout.labelSize)))
+        : d.labelSize,
+    labelDimEnabled: layout?.labelDimEnabled !== false,
+    labelDimOpacity: clampUnitOpacity(
+      layout?.labelDimOpacity as number,
+      d.labelDimOpacity
+    ),
+    labelActiveOpacity: clampUnitOpacity(
+      layout?.labelActiveOpacity as number,
+      d.labelActiveOpacity
+    ),
+  };
 }
 
 /**

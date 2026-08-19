@@ -164,6 +164,16 @@ export interface RankLayout {
   gap: number;
   fontId: TitleFontId;
   labelSize: number;
+  /**
+   * When true, revealed labels for non-active ranks fade to
+   * {@link labelDimOpacity}; the current clip’s label stays at
+   * {@link labelActiveOpacity}. Rank numbers never fade.
+   */
+  labelDimEnabled: boolean;
+  /** 0–1 opacity for revealed-but-not-active labels. */
+  labelDimOpacity: number;
+  /** 0–1 opacity for the currently playing clip’s label. */
+  labelActiveOpacity: number;
 }
 
 /**

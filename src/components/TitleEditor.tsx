@@ -22,6 +22,7 @@ export function TitleEditor({
     removeTitleWord,
     setTitleLines,
     updateSettings,
+    updateClip,
   } = useEditor();
   const { title, ranksLayout, rankColors } = project.settings;
 
@@ -263,10 +264,32 @@ export function TitleEditor({
 
       <CollapsibleSection
         title="Rank numbers"
-        subtitle="Position, number & label size, colors 1–5"
+        subtitle="Titles, position, size, label fade, colors 1–5"
         open={!!sectionOpen.ranks}
         onToggle={() => toggle("ranks")}
       >
+        <p className="field-label">Titles under each number</p>
+        <div className="rank-title-list">
+          {[1, 2, 3, 4, 5].map((r) => {
+            const clip = project.clips.find((c) => c.rank === r);
+            return (
+              <label key={r} className="field rank-title-field">
+                <span>#{r}</span>
+                <input
+                  className="input"
+                  placeholder={clip ? "Label (e.g. WEEE)" : "No clip"}
+                  value={clip?.label || ""}
+                  disabled={!clip}
+                  onChange={(e) => {
+                    if (!clip) return;
+                    updateClip(clip.id, { label: e.target.value });
+                  }}
+                />
+              </label>
+            );
+          })}
+        </div>
+
         <div className="field-grid">
           <label className="field">
             <span>Ranks X ({ranksLayout.x.toFixed(1)}%)</span>
@@ -344,6 +367,61 @@ export function TitleEditor({
             </select>
           </label>
         </div>
+
+        <label className="field check">
+          <input
+            type="checkbox"
+            checked={ranksLayout.labelDimEnabled !== false}
+            onChange={(e) =>
+              updateRanksLayout({ labelDimEnabled: e.target.checked })
+            }
+          />
+          <span>Fade past labels (numbers stay solid)</span>
+        </label>
+        {ranksLayout.labelDimEnabled !== false ? (
+          <div className="field-grid">
+            <label className="field">
+              <span>
+                Past label opacity (
+                {Math.round((ranksLayout.labelDimOpacity ?? 0.35) * 100)}%)
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={ranksLayout.labelDimOpacity ?? 0.35}
+                onChange={(e) =>
+                  updateRanksLayout({
+                    labelDimOpacity: parseFloat(e.target.value),
+                  })
+                }
+              />
+            </label>
+            <label className="field">
+              <span>
+                Active label opacity (
+                {Math.round((ranksLayout.labelActiveOpacity ?? 1) * 100)}%)
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={ranksLayout.labelActiveOpacity ?? 1}
+                onChange={(e) =>
+                  updateRanksLayout({
+                    labelActiveOpacity: parseFloat(e.target.value),
+                  })
+                }
+              />
+            </label>
+          </div>
+        ) : null}
+        <p className="muted edge-crop-hint">
+          When a new rank plays, earlier titles fade and the current title stays
+          bright. The # numbers never change transparency.
+        </p>
 
         <p className="field-label">Rank colors</p>
         <div className="rank-color-row">

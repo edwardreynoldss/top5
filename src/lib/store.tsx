@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createDefaultProject, createWord, normalizeSticker, createOverlayPlacement } from "./defaults";
+import { createDefaultProject, createWord, normalizeSticker, createOverlayPlacement, normalizeRanksLayout } from "./defaults";
 import {
   clearSavedProject,
   loadLayoutDefault,
@@ -303,7 +303,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       ...prev,
       settings: {
         ...prev.settings,
-        ranksLayout: { ...prev.settings.ranksLayout, ...patch },
+        ranksLayout: normalizeRanksLayout({
+          ...prev.settings.ranksLayout,
+          ...patch,
+        }),
       },
     }));
   }, []);

@@ -1057,16 +1057,34 @@ a {
   margin-top: 0.5rem;
 }
 
+.rank-title-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0 0 0.85rem;
+}
+
+.rank-title-field {
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.rank-title-field > span {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 .rank-row {
   display: flex;
   align-items: baseline;
   gap: 0.45rem;
-  opacity: 0.78;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  /* Numbers stay fully opaque; label opacity is set inline per active/dim state */
+  transition: transform 0.2s ease;
 }
 
 .rank-row.active {
-  opacity: 1;
   transform: translateX(2px);
 }
 
@@ -1076,12 +1094,15 @@ a {
   -webkit-text-stroke: 3px #000;
   paint-order: stroke fill;
   text-shadow: 0 3px 0 #000;
+  opacity: 1;
 }
 
 .rank-label {
   font-weight: 800;
   letter-spacing: 0.04em;
   text-shadow: 0 2px 0 #000;
+  color: #fff;
+  transition: opacity 0.2s ease;
 }
 
 .preview-meta {

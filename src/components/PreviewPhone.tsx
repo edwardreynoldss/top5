@@ -1418,6 +1418,14 @@ export function PreviewPhone({
                   Boolean(c.label) &&
                   seqIdx >= 0 &&
                   seqIdx <= activeIndex;
+                const dimOn = ranksLayout.labelDimEnabled !== false;
+                const labelOpacity = !revealed
+                  ? 0
+                  : !dimOn
+                    ? 1
+                    : isActive
+                      ? ranksLayout.labelActiveOpacity ?? 1
+                      : ranksLayout.labelDimOpacity ?? 0.35;
                 return (
                   <div
                     key={c.id}
@@ -1434,7 +1442,13 @@ export function PreviewPhone({
                       {c.rank}.
                     </span>
                     {revealed ? (
-                      <span className="rank-label" style={{ fontSize: `${labelFontPx}px` }}>
+                      <span
+                        className="rank-label"
+                        style={{
+                          fontSize: `${labelFontPx}px`,
+                          opacity: labelOpacity,
+                        }}
+                      >
                         {c.label.toUpperCase()}
                       </span>
                     ) : null}

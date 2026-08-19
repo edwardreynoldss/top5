@@ -4,6 +4,7 @@ import {
   normalizeCrop,
   normalizeBedMusic,
   normalizeHook,
+  normalizeRanksLayout,
   normalizeSegments,
   createSegment,
   clampClipSpeed,
@@ -73,10 +74,10 @@ export function loadLayoutDefault(): ProjectSettings | null {
         enabled: parsed.title?.enabled !== false,
         lines: parsed.title?.lines?.length ? parsed.title.lines : base.title.lines,
       },
-      ranksLayout: {
+      ranksLayout: normalizeRanksLayout({
         ...base.ranksLayout,
         ...(parsed.ranksLayout || {}),
-      },
+      }),
       sticker: {
         ...base.sticker,
         ...(parsed.sticker || {}),
@@ -235,10 +236,10 @@ export function normalizeProject(
             ? parsed.settings.title.lines
             : fallback.settings.title.lines,
       },
-      ranksLayout: {
+      ranksLayout: normalizeRanksLayout({
         ...fallback.settings.ranksLayout,
         ...(parsed.settings?.ranksLayout || {}),
-      },
+      }),
       sticker: {
         ...fallback.settings.sticker,
         ...(parsed.settings?.sticker || {}),
