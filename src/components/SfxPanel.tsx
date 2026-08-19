@@ -21,6 +21,7 @@ import {
   resolveSfxStartAt,
   getPlaybackOrder,
   effectiveSfxVolume,
+  sfxUiVolume,
 } from "@/lib/defaults";
 import {
   cacheSfxFile,
@@ -293,7 +294,7 @@ export function SfxPanel() {
     try {
       await playSfxPreview({
         asset,
-        volume: asset.volume ?? 1,
+        volume: effectiveSfxVolume(asset.volume, 1),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not preview");
@@ -486,7 +487,8 @@ export function SfxPanel() {
         <h2>Sound effects</h2>
         <p className="muted">
           Drop files into the project <code>sfx/</code> folder, or upload here. Preview plays
-          hits in the middle viewer.
+          hits in the middle viewer. Volume sliders stay at 100% by default — playback uses the
+          same quieter real gain as clip audio.
         </p>
       </div>
 
@@ -809,8 +811,8 @@ export function SfxPanel() {
               </div>
               <p className="muted">
                 Uses {(Math.max(0, p.trimEnd - p.trimStart)).toFixed(2)}s of sample · plays at{" "}
-                {abs.toFixed(2)}s · effective{" "}
-                {(effectiveSfxVolume(asset?.volume, p.volume) * 100).toFixed(0)}%
+                {abs.toFixed(2)}s · volume{" "}
+                {(sfxUiVolume(asset?.volume, p.volume) * 100).toFixed(0)}%
               </p>
             </div>
           );

@@ -1476,8 +1476,8 @@ export function normalizeOverlayPlacement(
   return createOverlayPlacement(raw);
 }
 
-/** Combined sample gain × hit gain for preview/export */
-export function effectiveSfxVolume(
+/** Combined sample × hit UI volume (what the sliders show as %). */
+export function sfxUiVolume(
   assetVolume: number | undefined,
   placementVolume: number | undefined
 ) {
@@ -1485,6 +1485,26 @@ export function effectiveSfxVolume(
   const p =
     typeof placementVolume === "number" && Number.isFinite(placementVolume) ? placementVolume : 1;
   return Math.max(0, Math.min(3, a * p));
+}
+
+/**
+ * UI volume of 100% maps to this real gain for SFX (same idea as clip audio).
+ * Sliders stay at “100%” while hits sound ~⅕ as loud as before.
+ */
+export const SFX_VOLUME_UI_SCALE = 0.2;
+
+/**
+ * Real SFX gain for preview/export:
+ * sample UI × hit UI × {@link SFX_VOLUME_UI_SCALE}.
+ */
+export function effectiveSfxVolume(
+  assetVolume: number | undefined,
+  placementVolume: number | undefined
+) {
+  return Math.max(
+    0,
+    Math.min(3, sfxUiVolume(assetVolume, placementVolume) * SFX_VOLUME_UI_SCALE)
+  );
 }
 
 /** Cycle Snapchat text styles the way the in-app carousel does. */
