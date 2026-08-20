@@ -115,6 +115,7 @@ export function PreviewPhone({
   const [addOverlayAt, setAddOverlayAt] = useState(0);
   const [addOverlayKind, setAddOverlayKind] = useState<"text" | "media">("text");
   const absTimeRef = useRef(0);
+  const publishedAbsRef = useRef(-1);
   const stageRef = useRef<HTMLDivElement>(null);
   const overlayDragRef = useRef<{
     id: string;
@@ -181,8 +182,15 @@ export function PreviewPhone({
   absTimeRef.current = absTime;
 
   useEffect(() => {
-    setPreviewAbsTime(Number(absTime.toFixed(3)));
-  }, [absTime, setPreviewAbsTime]);
+    // Publishing to the store re-renders every editor panel, so while playing we
+    // only push ~10Hz. The scrubber uses the local `absTime`, so it stays smooth.
+    // When paused we publish exactly, since that's what "add at playhead" uses.
+    const rounded = Number(absTime.toFixed(3));
+    if (isPlaying && Math.abs(rounded - publishedAbsRef.current) < 0.1) return;
+    if (rounded === publishedAbsRef.current) return;
+    publishedAbsRef.current = rounded;
+    setPreviewAbsTime(rounded);
+  }, [absTime, isPlaying, setPreviewAbsTime]);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -523,6 +531,8 @@ export function PreviewPhone({
     const bg = bgRef.current;
     if (!fg || !activeClip?.mediaUrl) {
       setMediaReady(false);
+      // Never strand the advance latch — it gates segment completion.
+      advancingRef.current = false;
       return;
     }
 
@@ -860,15 +870,24 @@ export function PreviewPhone({
       }
     };
 
-    const onTime = () => {
-      if (scrubbingRef.current || advancingRef.current) return;
+    // Display clock: always follow the element, even while a seek/advance is in
+    // flight. `timeupdate` alone fires ~4Hz and stops entirely while buffering,
+    // which froze the playhead while the video kept playing.
+    const syncDisplayTime = () => {
       const t = fg.currentTime;
-      setLocalTime(t);
+      if (!Number.isFinite(t)) return;
+      // ~30Hz worth of state churn keeps the scrubber smooth without
+      // re-rendering the editor on every frame.
+      setLocalTime((prev) => (Math.abs(prev - t) >= 0.03 ? t : prev));
       if (bg && Math.abs(bg.currentTime - t) > 0.15) {
         bg.currentTime = t;
       }
-      if (!isPlayingRef.current) return;
+    };
 
+    const checkSegmentEnd = () => {
+      if (scrubbingRef.current || advancingRef.current) return;
+      if (!isPlayingRef.current) return;
+      const t = fg.currentTime;
       // Only complete after we've actually entered the segment (avoid seek glitches)
       if (t + 0.02 < segStart) return;
 
@@ -880,14 +899,32 @@ export function PreviewPhone({
       }
     };
 
+    const onTime = () => {
+      syncDisplayTime();
+      checkSegmentEnd();
+    };
+
     const onEnded = () => {
       if (!isPlayingRef.current) return;
       completeCurrent();
     };
 
+    // Sample on animation frames so the clock tracks playback closely and the
+    // segment boundary isn't missed by up to a `timeupdate` interval.
+    let raf = 0;
+    const tick = () => {
+      syncDisplayTime();
+      checkSegmentEnd();
+      raf = window.requestAnimationFrame(tick);
+    };
+    if (isPlaying) {
+      raf = window.requestAnimationFrame(tick);
+    }
+
     fg.addEventListener("timeupdate", onTime);
     fg.addEventListener("ended", onEnded);
     return () => {
+      if (raf) window.cancelAnimationFrame(raf);
       fg.removeEventListener("timeupdate", onTime);
       fg.removeEventListener("ended", onEnded);
     };
@@ -901,6 +938,7 @@ export function PreviewPhone({
     settings.transition,
     inGap,
     inHookGap,
+    isPlaying,
   ]);
 
   // Apply per-clip × master volume whenever the active clip or levels change
