@@ -83,6 +83,9 @@ export function PreviewPhone({
   const stickerArmedRef = useRef(false);
   const firedSfxRef = useRef<Set<string>>(new Set());
   const activeSfxRef = useRef<HTMLAudioElement[]>([]);
+  /** Decoded, ready-to-play elements per asset so hits don't wait on a load. */
+  const sfxPoolRef = useRef<Map<string, HTMLAudioElement[]>>(new Map());
+  const sfxStopRef = useRef<Map<HTMLAudioElement, () => void>>(new Map());
   const scrubbingRef = useRef(false);
   const advancingRef = useRef(false);
   const isPlayingRef = useRef(isPlaying);
@@ -436,12 +439,33 @@ export function PreviewPhone({
   function stopAllSfx() {
     for (const a of activeSfxRef.current) {
       try {
+        sfxStopRef.current.get(a)?.();
         a.pause();
       } catch {
         // ignore
       }
     }
     activeSfxRef.current = [];
+  }
+
+  /**
+   * Take a preloaded element for this sample. Hits fire on the frame the
+   * playhead crosses them, so waiting for a fresh `new Audio()` to load is what
+   * made preview lag behind the render.
+   */
+  function acquireSfxAudio(assetId: string, url: string): HTMLAudioElement {
+    const pool = sfxPoolRef.current.get(assetId);
+    const free = pool?.find(
+      (el) => el.getAttribute("data-src") === url && (el.paused || el.ended)
+    );
+    const el = free ?? new Audio(url);
+    if (!free) {
+      el.preload = "auto";
+      el.setAttribute("data-src", url);
+    }
+    // Detach the stop watcher from any previous hit on this element
+    sfxStopRef.current.get(el)?.();
+    return el;
   }
 
   function resetSfxFiring(fromAbs = 0) {
@@ -471,16 +495,22 @@ export function PreviewPhone({
 
     const asset = assets.find((a) => a.id === p.assetId);
     if (!asset?.mediaUrl) return;
+    const url = sfxMediaUrl(asset.mediaId, asset.mediaUrl);
+    if (!url) return;
 
     firedSfxRef.current.add(p.id);
-    const into = Math.max(0, absNow - start);
-    const audio = new Audio(sfxMediaUrl(asset.mediaId, asset.mediaUrl));
-    audio.preload = "auto";
+    const audio = acquireSfxAudio(asset.id, url);
     audio.volume = Math.min(1, Math.max(0, effectiveSfxVolume(asset.volume, p.volume)));
 
+    // Seek to where the render would already be at this instant, measured when
+    // playback actually begins rather than when the hit was queued.
     const startPlayback = () => {
+      const into = Math.max(0, absTimeRef.current - start);
+      const from = Math.min(trimStart + into, trimEnd - 0.02);
       try {
-        audio.currentTime = trimStart + into;
+        if (Math.abs(audio.currentTime - from) > 0.02) {
+          audio.currentTime = from;
+        }
       } catch {
         // ignore seek errors on thin metadata
       }
@@ -491,13 +521,22 @@ export function PreviewPhone({
     const onAudioTime = () => {
       if (audio.currentTime >= stopAt - 0.03) {
         audio.pause();
-        audio.removeEventListener("timeupdate", onAudioTime);
+        detach();
       }
     };
+    const detach = () => {
+      audio.removeEventListener("timeupdate", onAudioTime);
+      audio.removeEventListener("canplay", startPlayback);
+      sfxStopRef.current.delete(audio);
+    };
     audio.addEventListener("timeupdate", onAudioTime);
-    activeSfxRef.current.push(audio);
+    sfxStopRef.current.set(audio, detach);
+    if (!activeSfxRef.current.includes(audio)) {
+      activeSfxRef.current.push(audio);
+    }
 
     if (audio.readyState >= 2) {
+      // Warm element — starts on this frame, matching the exported timing
       startPlayback();
     } else {
       audio.addEventListener("canplay", startPlayback, { once: true });
@@ -513,6 +552,54 @@ export function PreviewPhone({
       }, 40);
     }
   }
+
+  // Preload every placed sample so a hit can start on the frame it's due.
+  // Without this the browser fetches/decodes at fire time and the preview
+  // trails the render by however long that took.
+  useEffect(() => {
+    const pool = sfxPoolRef.current;
+    const wanted = new Map<string, { url: string; copies: number }>();
+    for (const p of placements) {
+      const asset = assets.find((a) => a.id === p.assetId);
+      if (!asset?.mediaUrl) continue;
+      const url = sfxMediaUrl(asset.mediaId, asset.mediaUrl);
+      if (!url) continue;
+      const prev = wanted.get(asset.id);
+      // Extra copies let repeats of the same sample overlap
+      wanted.set(asset.id, {
+        url,
+        copies: Math.min(4, (prev?.copies ?? 0) + 1),
+      });
+    }
+
+    for (const [assetId, { url, copies }] of wanted) {
+      const existing = pool.get(assetId);
+      const stale = existing?.[0]?.getAttribute("data-src") !== url;
+      if (stale) {
+        for (const el of existing || []) el.pause();
+        pool.delete(assetId);
+      }
+      const els = pool.get(assetId) ?? [];
+      while (els.length < copies) {
+        const el = new Audio(url);
+        el.preload = "auto";
+        el.setAttribute("data-src", url);
+        try {
+          el.load();
+        } catch {
+          // ignore — the fire path still has a cold fallback
+        }
+        els.push(el);
+      }
+      pool.set(assetId, els);
+    }
+
+    for (const assetId of Array.from(pool.keys())) {
+      if (wanted.has(assetId)) continue;
+      for (const el of pool.get(assetId) || []) el.pause();
+      pool.delete(assetId);
+    }
+  }, [placements, assets]);
 
   function safePlay(el: HTMLVideoElement | null) {
     if (!el) return;
@@ -1041,6 +1128,8 @@ export function PreviewPhone({
   }, [activeClip, activeClip?.bedMusic, localPlay, isPlaying]);
 
   useEffect(() => {
+    const sfxPool = sfxPoolRef.current;
+    const sfxStops = sfxStopRef.current;
     return () => {
       if (musicRef.current) {
         musicRef.current.pause();
@@ -1050,6 +1139,11 @@ export function PreviewPhone({
         clipBedRef.current.pause();
         clipBedRef.current = null;
       }
+      for (const els of sfxPool.values()) {
+        for (const el of els) el.pause();
+      }
+      sfxPool.clear();
+      sfxStops.clear();
     };
   }, []);
 
