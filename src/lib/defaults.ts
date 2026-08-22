@@ -10,6 +10,7 @@ import type {
   ProjectSettings,
   RankClip,
   RankLayout,
+  RankListOrder,
   SnapTextStyle,
   StickerOverlay,
   TitleLine,
@@ -542,6 +543,7 @@ export function builtInDefaultSettings(): ProjectSettings {
     transitionSound: defaultTransitionSound(),
     playOrder: "countdown",
     customOrder: [],
+    rankListOrder: "auto",
     inDepthRanking: false,
     transition: "flash",
     transitionDuration: 0.25,
@@ -680,6 +682,46 @@ export function sortClipsForPlayback(
   return [...clips].sort((a, b) =>
     playOrder === "countdown" ? b.rank - a.rank : a.rank - b.rank
   );
+}
+
+/**
+ * Order of the rank rows drawn on screen. Always a plain rank sort, so a custom
+ * playback sequence changes only *when* a label appears, not where its number
+ * sits (5 stays on top, 1 stays at the bottom).
+ */
+export type RankListOrderInput =
+  | RankListOrder
+  | (Pick<ProjectSettings, "playOrder"> & { rankListOrder?: RankListOrder });
+
+export function normalizeRankListOrder(value: unknown): RankListOrder {
+  return value === "descending" || value === "ascending" ? value : "auto";
+}
+
+export function rankListDirection(
+  input: RankListOrderInput
+): "descending" | "ascending" {
+  const mode = typeof input === "string" ? input : input.rankListOrder ?? "auto";
+  if (mode === "descending" || mode === "ascending") return mode;
+  const playOrder = typeof input === "string" ? null : input.playOrder;
+  return playOrder === "ascending" ? "ascending" : "descending";
+}
+
+export function sortClipsForRankList(
+  clips: RankClip[],
+  input: RankListOrderInput
+): RankClip[] {
+  const dir = rankListDirection(input);
+  return [...clips].sort((a, b) =>
+    dir === "descending" ? b.rank - a.rank : a.rank - b.rank
+  );
+}
+
+/** Rank numbers top to bottom — what the export sends for its overlay rows. */
+export function rankListRanks(
+  clips: RankClip[],
+  input: RankListOrderInput
+): number[] {
+  return sortClipsForRankList(clips, input).map((c) => c.rank);
 }
 
 export function getPlaybackOrder(clips: RankClip[], input: PlaybackOrderInput) {

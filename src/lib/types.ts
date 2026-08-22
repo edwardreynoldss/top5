@@ -4,6 +4,12 @@ export type TransitionType = "cut" | "flash" | "zoom";
  * sequence, so rank numbers stay attached to their clip (e.g. 4 → 2 → 1 → 5 → 3).
  */
 export type PlayOrder = "countdown" | "ascending" | "custom";
+/**
+ * Top-to-bottom order of the rank numbers drawn on screen, independent of
+ * playback order. "auto" follows {@link PlayOrder} (ascending reads 1→5,
+ * everything else 5→1) so the list never shuffles with a custom sequence.
+ */
+export type RankListOrder = "auto" | "descending" | "ascending";
 export type AspectMode = "blur-pad" | "crop-fill";
 export type TextAlign = "left" | "center" | "right";
 
@@ -253,6 +259,11 @@ export interface ProjectSettings {
    * "custom". Ids missing from this list fall back to countdown order.
    */
   customOrder: string[];
+  /**
+   * Where each rank number sits on screen. Playback order only decides when a
+   * label appears — never which row the number is drawn on.
+   */
+  rankListOrder: RankListOrder;
   /**
    * In Depth Ranking: the playing clip shows its long line, and clips that
    * already played show "label - score" instead.

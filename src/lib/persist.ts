@@ -4,6 +4,7 @@ import {
   normalizeCrop,
   normalizeBedMusic,
   normalizeHook,
+  normalizeRankListOrder,
   normalizeRanksLayout,
   normalizeSegments,
   normalizeTransitionSound,
@@ -84,6 +85,7 @@ export function loadLayoutDefault(): ProjectSettings | null {
       }),
       customOrder: [],
       playOrder: parsed.playOrder === "ascending" ? "ascending" : "countdown",
+      rankListOrder: normalizeRankListOrder(parsed.rankListOrder),
       inDepthRanking: parsed.inDepthRanking === true,
       transitionSound: normalizeTransitionSound(parsed.transitionSound),
       sticker: {
@@ -279,6 +281,7 @@ export function normalizeProject(
       customOrder: Array.isArray(parsed.settings?.customOrder)
         ? parsed.settings.customOrder.filter((id) => clipIds.has(id))
         : [],
+      rankListOrder: normalizeRankListOrder(parsed.settings?.rankListOrder),
       inDepthRanking: parsed.settings?.inDepthRanking === true,
       musicAutoFromFolder:
         typeof parsed.settings?.musicAutoFromFolder === "boolean"

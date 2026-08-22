@@ -12,10 +12,16 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
-import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
+import type {
+  AspectMode,
+  PlayOrder,
+  RankListOrder,
+  TransitionType,
+} from "@/lib/types";
 import {
   defaultSticker,
   defaultTransitionSound,
+  rankListRanks,
   sortClipsForPlayback,
 } from "@/lib/defaults";
 
@@ -52,6 +58,7 @@ export function SettingsPanel() {
     channelState.channels[0];
   const musicAuto = settings.musicAutoFromFolder === true;
   const orderedClips = sortClipsForPlayback(project.clips, settings);
+  const screenRanks = rankListRanks(project.clips, settings);
 
   function moveInOrder(clipId: string, delta: number) {
     const ids = orderedClips.map((c) => c.id);
@@ -187,6 +194,25 @@ export function SettingsPanel() {
           </select>
         </label>
 
+        <label className="field">
+          <span>Numbers on screen</span>
+          <select
+            className="input"
+            value={settings.rankListOrder ?? "auto"}
+            onChange={(e) =>
+              updateSettings({ rankListOrder: e.target.value as RankListOrder })
+            }
+          >
+            <option value="auto">Auto (follows play order)</option>
+            <option value="descending">5 at top → 1 at bottom</option>
+            <option value="ascending">1 at top → 5 at bottom</option>
+          </select>
+          <span className="muted">
+            Numbers stay in this order no matter how the clips play — currently{" "}
+            {screenRanks.join(" → ")} down the screen.
+          </span>
+        </label>
+
         {settings.playOrder === "custom" ? (
           <div className="field custom-order-field">
             <span>Playback sequence</span>
@@ -227,8 +253,9 @@ export function SettingsPanel() {
               <Shuffle size={14} /> Randomize
             </button>
             <p className="muted">
-              Plays top to bottom — rank numbers stay with their clip. Press
-              Randomize again for a different shuffle.
+              Plays top to bottom. The numbers on screen keep their own order —
+              each name just appears next to its number when that clip plays.
+              Press Randomize again for a different shuffle.
             </p>
           </div>
         ) : null}

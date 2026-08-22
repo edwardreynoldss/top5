@@ -81,6 +81,11 @@ interface ExportBody {
   playOrder: PlayOrder;
   /** Explicit playback sequence by rank; wins over playOrder sorting. */
   playbackRanks?: number[];
+  /**
+   * Rank numbers top to bottom for the on-screen list. Independent of playback
+   * order so a custom sequence never shuffles the numbers.
+   */
+  rankListRanks?: number[];
   inDepthRanking?: boolean;
   transition: TransitionType;
   transitionDuration: number;
@@ -942,6 +947,26 @@ export async function POST(req: NextRequest) {
         : [...body.clips].sort((a, b) =>
             body.playOrder === "countdown" ? b.rank - a.rank : a.rank - b.rank
           );
+
+    // Rows of the on-screen list. Pinned to rank order (or the explicit list the
+    // client sends), so playback order only decides when a label shows up.
+    const screenRanks = Array.isArray(body.rankListRanks) ? body.rankListRanks : [];
+    const screenPosition = new Map(screenRanks.map((rank, i) => [rank, i]));
+    const displayed =
+      screenPosition.size > 0
+        ? [...ordered].sort((a, b) => {
+            const ai = screenPosition.get(a.rank);
+            const bi = screenPosition.get(b.rank);
+            if (ai != null && bi != null) return ai - bi;
+            if (ai != null) return -1;
+            if (bi != null) return 1;
+            return b.rank - a.rank;
+          })
+        : [...ordered].sort((a, b) =>
+            body.playOrder === "ascending" ? a.rank - b.rank : b.rank - a.rank
+          );
+    /** Playback position of each rank, used to reveal labels in play order. */
+    const playIndexByRank = new Map(ordered.map((c, i) => [c.rank, i]));
     const inDepth = body.inDepthRanking === true;
     const clampFraction = (value: unknown, fallback: number) => {
       const n = typeof value === "number" ? value : Number(value);
@@ -959,7 +984,7 @@ export async function POST(req: NextRequest) {
     const titleCfg = {
       title: body.title,
       ranksLayout: body.ranksLayout || {},
-      ranks: ordered.map((c) => ({ rank: c.rank, label: c.label })),
+      ranks: displayed.map((c) => ({ rank: c.rank, label: c.label })),
       activeRank: ordered[0]?.rank,
       rankColors: Object.fromEntries(
         Object.entries(body.rankColors || {}).map(([k, v]) => [String(k), v])
@@ -1021,11 +1046,14 @@ export async function POST(req: NextRequest) {
       }));
       const source = resolveMedia(clip.mediaId);
 
-      // Keep labels for this clip and every earlier clip in playback order
+      // Keep labels for this clip and every earlier clip in playback order.
+      // Rows are drawn in screen order, so the label lands on the clip's own
+      // number wherever that number sits.
       const ranksOverlay = body.showRankList ? path.join(jobDir, `ranks-${i}.png`) : null;
-      const rankLabelFor = (c: ExportClip, idx: number) => {
+      const rankLabelFor = (c: ExportClip) => {
         if (body.showActiveLabel === false) return "";
-        if (idx > i) return "";
+        const idx = playIndexByRank.get(c.rank);
+        if (idx == null || idx > i) return "";
         if (!inDepth) return c.label || "";
         // Playing clip reads long; everything already played reads "label - score"
         return idx === i ? longText(c) : shortText(c);
@@ -1046,9 +1074,9 @@ export async function POST(req: NextRequest) {
         activeRank: clip.rank,
         showActiveLabel: body.showActiveLabel !== false,
         activeLabelAlpha: inDepthOn ? inDepthFadeTo : null,
-        ranks: ordered.map((c, idx) => ({
+        ranks: displayed.map((c) => ({
           rank: c.rank,
-          label: rankLabelFor(c, idx),
+          label: rankLabelFor(c),
         })),
       };
       const perCfgPath = path.join(jobDir, `overlay-${i}.json`);
