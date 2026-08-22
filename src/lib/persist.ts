@@ -86,7 +86,7 @@ export function loadLayoutDefault(): ProjectSettings | null {
       customOrder: [],
       playOrder: parsed.playOrder === "ascending" ? "ascending" : "countdown",
       rankListOrder: normalizeRankListOrder(parsed.rankListOrder),
-      inDepthRanking: parsed.inDepthRanking === true,
+      inDepthRanking: true,
       transitionSound: normalizeTransitionSound(parsed.transitionSound),
       sticker: {
         ...base.sticker,
@@ -282,7 +282,8 @@ export function normalizeProject(
         ? parsed.settings.customOrder.filter((id) => clipIds.has(id))
         : [],
       rankListOrder: normalizeRankListOrder(parsed.settings?.rankListOrder),
-      inDepthRanking: parsed.settings?.inDepthRanking === true,
+      // Description-while-playing is always on; keep the flag true for older UI.
+      inDepthRanking: true,
       musicAutoFromFolder:
         typeof parsed.settings?.musicAutoFromFolder === "boolean"
           ? parsed.settings.musicAutoFromFolder

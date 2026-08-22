@@ -417,22 +417,11 @@ export function SettingsPanel() {
           <span>Reveal labels as ranks play (names stay on screen)</span>
         </label>
 
-        <label className="field check">
-          <input
-            type="checkbox"
-            checked={settings.inDepthRanking === true}
-            onChange={(e) => updateSettings({ inDepthRanking: e.target.checked })}
-          />
-          <span>In Depth Ranking (description while playing, ranking after)</span>
-        </label>
-        {settings.inDepthRanking ? (
-          <p className="muted">
-            The playing clip shows its description and fades slightly so the video
-            stays readable; once it&apos;s done it becomes “name - 8.11/10”. Write
-            the name, ranking and description on each card in{" "}
-            <strong>Clips</strong>.
-          </p>
-        ) : null}
+        <p className="muted">
+          While a clip plays it shows the <strong>description</strong> from its
+          card; once it finishes it becomes “name - 8.11/10”. Edit both on each
+          card in <strong>Clips</strong>.
+        </p>
 
         <label className="field">
           <span>

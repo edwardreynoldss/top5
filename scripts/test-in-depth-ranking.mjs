@@ -20,8 +20,7 @@ function clipShortText(clip) {
   if (name && score) return `${name} - ${score}`;
   return name || score;
 }
-function rankDisplayText(clip, { inDepth, isActive }) {
-  if (!inDepth) return (clip.label || "").trim();
+function rankDisplayText(clip, { isActive }) {
   return isActive ? clipInDepthText(clip) : clipShortText(clip);
 }
 function inDepthLabelOpacity(progress, activeOpacity, fadeTo) {
@@ -37,41 +36,47 @@ const cat = {
   score: "8.11",
 };
 
-// --- the user's example: description while playing, name + ranking afterwards ---
+// --- description while playing, name + ranking afterwards (always on) ---
 {
   assert.equal(
-    rankDisplayText(cat, { inDepth: true, isActive: true }),
+    rankDisplayText(cat, { isActive: true }),
     "This Cat does NOT care 😂"
   );
   assert.equal(
-    rankDisplayText(cat, { inDepth: true, isActive: false }),
+    rankDisplayText(cat, { isActive: false }),
     "Cat Running - 8.11/10"
   );
 }
 
-// --- in-depth off keeps the plain label in both states ---
+// --- legacy inDepth:false must NOT drop the description anymore ---
 {
-  assert.equal(rankDisplayText(cat, { inDepth: false, isActive: true }), "Cat Running");
-  assert.equal(rankDisplayText(cat, { inDepth: false, isActive: false }), "Cat Running");
+  assert.equal(
+    rankDisplayText(cat, { inDepth: false, isActive: true }),
+    "This Cat does NOT care 😂"
+  );
+  assert.equal(
+    rankDisplayText(cat, { inDepth: false, isActive: false }),
+    "Cat Running - 8.11/10"
+  );
 }
 
 // --- missing pieces degrade instead of showing stray separators ---
 {
   assert.equal(
-    rankDisplayText({ label: "Just A Name" }, { inDepth: true, isActive: true }),
+    rankDisplayText({ label: "Just A Name" }, { isActive: true }),
     "Just A Name",
     "no long line falls back to the label"
   );
   assert.equal(
-    rankDisplayText({ label: "Just A Name" }, { inDepth: true, isActive: false }),
+    rankDisplayText({ label: "Just A Name" }, { isActive: false }),
     "Just A Name",
     "no score means no trailing dash"
   );
   assert.equal(
-    rankDisplayText({ label: "", score: "9.4" }, { inDepth: true, isActive: false }),
+    rankDisplayText({ label: "", score: "9.4" }, { isActive: false }),
     "9.4/10"
   );
-  assert.equal(rankDisplayText({}, { inDepth: true, isActive: true }), "");
+  assert.equal(rankDisplayText({}, { isActive: true }), "");
 }
 
 // --- the playing line eases down across the clip, never below the floor ---

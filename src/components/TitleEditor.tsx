@@ -24,7 +24,6 @@ export function TitleEditor({
     updateSettings,
   } = useEditor();
   const { title, ranksLayout, rankColors } = project.settings;
-  const inDepth = project.settings.inDepthRanking === true;
 
   function toggle(key: string) {
     onSectionOpenChange({ ...sectionOpen, [key]: !sectionOpen[key] });
@@ -401,29 +400,25 @@ export function TitleEditor({
             </label>
           </div>
         ) : null}
-        {inDepth ? (
-          <label className="field">
-            <span>
-              In Depth fade-to ({Math.round((ranksLayout.inDepthFadeTo ?? 0.45) * 100)}%)
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={ranksLayout.inDepthFadeTo ?? 0.45}
-              onChange={(e) =>
-                updateRanksLayout({ inDepthFadeTo: parseFloat(e.target.value) })
-              }
-            />
-          </label>
-        ) : null}
+        <label className="field">
+          <span>
+            Description fade-to ({Math.round((ranksLayout.inDepthFadeTo ?? 0.45) * 100)}%)
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={ranksLayout.inDepthFadeTo ?? 0.45}
+            onChange={(e) =>
+              updateRanksLayout({ inDepthFadeTo: parseFloat(e.target.value) })
+            }
+          />
+        </label>
         <p className="muted edge-crop-hint">
           When a new rank plays, earlier titles fade and the current title stays
-          bright. The # numbers never change transparency.
-          {inDepth
-            ? " In Depth Ranking eases the playing clip's line down to the fade-to level across the clip."
-            : ""}
+          bright. The # numbers never change transparency. The playing clip&apos;s
+          description eases down to the fade-to level across the clip.
         </p>
 
         <p className="field-label">Rank colors</p>

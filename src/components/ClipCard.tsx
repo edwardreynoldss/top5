@@ -83,7 +83,6 @@ export function ClipCard({ clip }: { clip: RankClip }) {
 
   const color = project.settings.rankColors[clip.rank] || "#fff";
   const busy = clip.status === "loading";
-  const inDepth = project.settings.inDepthRanking === true;
   const afterText = clipShortText(clip);
   const clipCrop = getClipCrop(clip);
   const thumbLayout = cropPreviewStyle(clipCrop, {
@@ -438,7 +437,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
               onChange={(e) => updateClip(clip.id, { inDepthText: e.target.value })}
             />
           </label>
-          {inDepth && afterText ? (
+          {afterText ? (
             <p className="muted clip-after-hint">
               After it plays: “{clip.rank}. {afterText}”
             </p>

@@ -1467,7 +1467,6 @@ export function PreviewPhone({
 
   const title = settings.title;
   const ranksLayout = settings.ranksLayout;
-  const inDepth = settings.inDepthRanking === true;
   // Rows are pinned to rank order; playback order only decides when a label
   // lands on its number.
   const ranksToShow = useMemo(
@@ -1634,7 +1633,7 @@ export function PreviewPhone({
                 const isActive = activeClip?.id === c.id;
                 // Progressive reveal: keep labels for ranks already played (and current)
                 const seqIdx = sequence.findIndex((x) => x.id === c.id);
-                const text = rankDisplayText(c, { inDepth, isActive });
+                const text = rankDisplayText(c, { isActive });
                 const revealed =
                   settings.showActiveLabel &&
                   Boolean(text) &&
@@ -1643,7 +1642,7 @@ export function PreviewPhone({
                 const dimOn = ranksLayout.labelDimEnabled !== false;
                 const labelOpacity = !revealed
                   ? 0
-                  : inDepth && isActive
+                  : isActive
                     ? inDepthLabelOpacity(
                         activeClipProgress,
                         ranksLayout.labelActiveOpacity ?? 1,
@@ -1651,9 +1650,7 @@ export function PreviewPhone({
                       )
                     : !dimOn
                       ? 1
-                      : isActive
-                        ? ranksLayout.labelActiveOpacity ?? 1
-                        : ranksLayout.labelDimOpacity ?? 0.35;
+                      : ranksLayout.labelDimOpacity ?? 0.35;
                 return (
                   <div
                     key={c.id}
@@ -1671,7 +1668,7 @@ export function PreviewPhone({
                     </span>
                     {revealed ? (
                       <span
-                        className={`rank-label ${inDepth && isActive ? "in-depth" : ""}`}
+                        className={`rank-label ${isActive ? "in-depth" : ""}`}
                         style={{
                           fontSize: `${labelFontPx}px`,
                           opacity: labelOpacity,

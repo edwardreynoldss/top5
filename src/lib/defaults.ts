@@ -544,7 +544,8 @@ export function builtInDefaultSettings(): ProjectSettings {
     playOrder: "countdown",
     customOrder: [],
     rankListOrder: "auto",
-    inDepthRanking: false,
+    // Always on for new projects — description while playing, name - score/10 after.
+    inDepthRanking: true,
     transition: "flash",
     transitionDuration: 0.25,
     aspectMode: "crop-fill",
@@ -781,15 +782,14 @@ export function clipShortText(clip: Pick<RankClip, "label" | "score">) {
 }
 
 /**
- * Text beside a rank for the current playback state.
- * In Depth Ranking swaps the playing clip to its description and everything
- * already played to "name - score/10"; otherwise it's just the label.
+ * Text beside a rank for the current playback state: description while the
+ * clip plays, then "name - score/10" once it's done. The legacy `inDepth` flag
+ * is ignored — leaving it off used to drop the description from exports.
  */
 export function rankDisplayText(
   clip: Pick<RankClip, "label" | "inDepthText" | "score">,
-  opts: { inDepth: boolean; isActive: boolean }
+  opts: { isActive: boolean; inDepth?: boolean }
 ) {
-  if (!opts.inDepth) return (clip.label || "").trim();
   return opts.isActive ? clipInDepthText(clip) : clipShortText(clip);
 }
 
