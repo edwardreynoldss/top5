@@ -85,13 +85,13 @@ export interface RankClip {
   /** Short name shown next to the rank once the clip has played. */
   label: string;
   /**
-   * In Depth Ranking only: longer line shown while this clip is playing
+   * In Depth Ranking only: description shown while this clip is playing
    * (e.g. "This Cat does NOT care 😂"). Falls back to {@link label}.
    */
   inDepthText?: string;
   /**
-   * In Depth Ranking only: score appended to the short label after the clip
-   * has played (e.g. "8.12" → "Careless Cat - 8.12"). Free text.
+   * In Depth Ranking only: ranking out of 10 shown after the clip has played
+   * (e.g. "8.11" → "Cat Running - 8.11/10"). Typed without the "/10".
    */
   score?: string;
   mediaId: string | null;
@@ -265,8 +265,8 @@ export interface ProjectSettings {
    */
   rankListOrder: RankListOrder;
   /**
-   * In Depth Ranking: the playing clip shows its long line, and clips that
-   * already played show "label - score" instead.
+   * In Depth Ranking: the playing clip shows its description, and clips that
+   * already played show "name - score/10" instead.
    */
   inDepthRanking: boolean;
   transition: TransitionType;

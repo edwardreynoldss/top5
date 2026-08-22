@@ -7,9 +7,16 @@ const clampUnit = (n, fallback = 1) =>
 function clipInDepthText(clip) {
   return (clip.inDepthText || "").trim() || (clip.label || "").trim();
 }
+function formatClipScore(raw) {
+  const score = (raw || "").trim();
+  if (!score || /^\/\s*\d+(?:[.,]\d+)?$/.test(score)) return "";
+  if (/^\d+(?:[.,]\d+)?$/.test(score)) return `${score}/10`;
+  const outOf = score.match(/^(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)$/);
+  return outOf ? `${outOf[1]}/${outOf[2]}` : score;
+}
 function clipShortText(clip) {
   const name = (clip.label || "").trim();
-  const score = (clip.score || "").trim();
+  const score = formatClipScore(clip.score);
   if (name && score) return `${name} - ${score}`;
   return name || score;
 }
@@ -25,12 +32,12 @@ function inDepthLabelOpacity(progress, activeOpacity, fadeTo) {
 }
 
 const cat = {
-  label: "Careless Cat",
+  label: "Cat Running",
   inDepthText: "This Cat does NOT care 😂",
-  score: "8.12",
+  score: "8.11",
 };
 
-// --- the user's example: long line while playing, short + score afterwards ---
+// --- the user's example: description while playing, name + ranking afterwards ---
 {
   assert.equal(
     rankDisplayText(cat, { inDepth: true, isActive: true }),
@@ -38,14 +45,14 @@ const cat = {
   );
   assert.equal(
     rankDisplayText(cat, { inDepth: true, isActive: false }),
-    "Careless Cat - 8.12"
+    "Cat Running - 8.11/10"
   );
 }
 
 // --- in-depth off keeps the plain label in both states ---
 {
-  assert.equal(rankDisplayText(cat, { inDepth: false, isActive: true }), "Careless Cat");
-  assert.equal(rankDisplayText(cat, { inDepth: false, isActive: false }), "Careless Cat");
+  assert.equal(rankDisplayText(cat, { inDepth: false, isActive: true }), "Cat Running");
+  assert.equal(rankDisplayText(cat, { inDepth: false, isActive: false }), "Cat Running");
 }
 
 // --- missing pieces degrade instead of showing stray separators ---
@@ -62,7 +69,7 @@ const cat = {
   );
   assert.equal(
     rankDisplayText({ label: "", score: "9.4" }, { inDepth: true, isActive: false }),
-    "9.4"
+    "9.4/10"
   );
   assert.equal(rankDisplayText({}, { inDepth: true, isActive: true }), "");
 }
