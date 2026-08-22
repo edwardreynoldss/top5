@@ -13,6 +13,7 @@ import type {
   SnapTextStyle,
   StickerOverlay,
   TitleLine,
+  TransitionSound,
   TitleWord,
   TrimSegment,
 } from "./types";
@@ -38,6 +39,112 @@ export function defaultSticker(): StickerOverlay {
     duration: 0,
     hasAlpha: false,
   };
+}
+
+/** Bundled whoosh, served from public/ and readable by the export server. */
+export const BUILTIN_TRANSITION_SOUND_ID = "builtin-transition-whoosh";
+export const BUILTIN_TRANSITION_SOUND_URL = "/audio/transition-whoosh.mp3";
+
+/**
+ * A transition slider at 100% maps to this real gain, matching clip audio and
+ * SFX so "quiet by default" holds without forcing the slider down.
+ */
+export const TRANSITION_VOLUME_UI_SCALE = 0.2;
+
+export function defaultTransitionSound(): TransitionSound {
+  return {
+    enabled: true,
+    mediaId: BUILTIN_TRANSITION_SOUND_ID,
+    mediaUrl: BUILTIN_TRANSITION_SOUND_URL,
+    fileName: "transition-whoosh.mp3",
+    volume: 1,
+    lead: 0.25,
+  };
+}
+
+/** Merge partial/legacy transition sound with defaults and clamp fields. */
+export function normalizeTransitionSound(
+  raw?: Partial<TransitionSound> | null
+): TransitionSound {
+  const d = defaultTransitionSound();
+  if (!raw || typeof raw !== "object") return d;
+  const mediaId = typeof raw.mediaId === "string" && raw.mediaId ? raw.mediaId : d.mediaId;
+  const isBuiltin = mediaId === BUILTIN_TRANSITION_SOUND_ID;
+  return {
+    enabled: raw.enabled !== false,
+    mediaId,
+    mediaUrl: isBuiltin
+      ? BUILTIN_TRANSITION_SOUND_URL
+      : typeof raw.mediaUrl === "string" && raw.mediaUrl
+        ? raw.mediaUrl
+        : d.mediaUrl,
+    fileName:
+      typeof raw.fileName === "string" && raw.fileName ? raw.fileName : d.fileName,
+    volume:
+      typeof raw.volume === "number" && Number.isFinite(raw.volume)
+        ? Math.max(0, Math.min(2, raw.volume))
+        : d.volume,
+    lead:
+      typeof raw.lead === "number" && Number.isFinite(raw.lead)
+        ? Math.max(0, Math.min(1.5, raw.lead))
+        : d.lead,
+  };
+}
+
+/** Per-clip UI gain for the handoff whoosh (1 = 100%). */
+export function getClipTransitionVolume(clip: Pick<RankClip, "transitionVolume">) {
+  const v = clip.transitionVolume;
+  return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(2, v)) : 1;
+}
+
+/** Real gain: project UI × clip UI × the quiet scale. */
+export function effectiveTransitionVolume(
+  settingsVolume: number,
+  clipVolume: number
+) {
+  const s =
+    typeof settingsVolume === "number" && Number.isFinite(settingsVolume)
+      ? Math.max(0, Math.min(2, settingsVolume))
+      : 1;
+  const c =
+    typeof clipVolume === "number" && Number.isFinite(clipVolume)
+      ? Math.max(0, Math.min(2, clipVolume))
+      : 1;
+  return Math.max(0, Math.min(3, s * c * TRANSITION_VOLUME_UI_SCALE));
+}
+
+/**
+ * Where the whoosh fires: at each clip's handoff to the next, started `lead`
+ * seconds early so it builds into the cut. The last clip has no handoff.
+ * Preview and export both drive off this so they stay in sync.
+ */
+export function transitionSoundHits(
+  clips: RankClip[],
+  settings: Pick<ProjectSettings, "playOrder" | "customOrder" | "transitionSound">
+): { clipId: string; startAt: number; volume: number }[] {
+  const sound = normalizeTransitionSound(settings.transitionSound);
+  if (!sound.enabled || !sound.mediaId) return [];
+  const order = getPlaybackOrder(clips, settings);
+  const offsets = clipTimelineOffsets(clips, settings);
+  const hits: { clipId: string; startAt: number; volume: number }[] = [];
+  for (let i = 0; i < order.length - 1; i++) {
+    const clip = order[i];
+    const row = offsets.find((o) => o.clipId === clip.id);
+    if (!row) continue;
+    const volume = effectiveTransitionVolume(
+      sound.volume,
+      getClipTransitionVolume(clip)
+    );
+    if (volume <= 0.0005) continue;
+    // The cut is where this clip's content ends (before any black hold)
+    const boundary = row.start + row.duration;
+    hits.push({
+      clipId: clip.id,
+      startAt: Math.max(0, boundary - sound.lead),
+      volume,
+    });
+  }
+  return hits;
 }
 
 /** Merge partial/legacy sticker with defaults and clamp fields. */
@@ -432,6 +539,7 @@ export function builtInDefaultSettings(): ProjectSettings {
       inDepthFadeTo: 0.45,
     },
     sticker: defaultSticker(),
+    transitionSound: defaultTransitionSound(),
     playOrder: "countdown",
     customOrder: [],
     inDepthRanking: false,

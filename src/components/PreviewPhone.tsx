@@ -40,12 +40,19 @@ import {
   segmentPlayDuration,
   getClipBedMusic,
   clipMutesLookMusic,
+  transitionSoundHits,
+  BUILTIN_TRANSITION_SOUND_URL,
   defaultSticker,
   stickerPlayDuration,
 } from "@/lib/defaults";
 import { sfxMediaUrl } from "@/lib/sfxLibrary";
 import { overlayMediaUrl } from "@/lib/overlayMedia";
 import { fontCss, type RankClip } from "@/lib/types";
+
+/** Pool slot for the transition whoosh (not a real SFX asset id). */
+const TRANSITION_POOL_KEY = "__transition__";
+/** Longest we'll chase a missed whoosh; the bundled sound is ~1.2s. */
+const TRANSITION_SOUND_MAX_LEN = 2;
 
 export function PreviewPhone({
   previewClip: _unusedPreviewClip = null,
@@ -85,6 +92,7 @@ export function PreviewPhone({
   const stickerVideoRef = useRef<HTMLVideoElement>(null);
   const stickerArmedRef = useRef(false);
   const firedSfxRef = useRef<Set<string>>(new Set());
+  const firedTransitionRef = useRef<Set<string>>(new Set());
   const activeSfxRef = useRef<HTMLAudioElement[]>([]);
   /** Decoded, ready-to-play elements per asset so hits don't wait on a load. */
   const sfxPoolRef = useRef<Map<string, HTMLAudioElement[]>>(new Map());
@@ -471,6 +479,62 @@ export function PreviewPhone({
     return el;
   }
 
+  /**
+   * Transition whooshes are timed off the same helper the export uses, so the
+   * preview hears them exactly where the render places them.
+   */
+  const transitionHits = useMemo(
+    () => transitionSoundHits(project.clips, settings),
+    [project.clips, settings]
+  );
+  const transitionSoundUrl = settings.transitionSound?.enabled
+    ? settings.transitionSound.mediaUrl || BUILTIN_TRANSITION_SOUND_URL
+    : null;
+
+  function resetTransitionFiring(fromAbs = 0) {
+    firedTransitionRef.current = new Set(
+      transitionHits
+        .filter((h) => h.startAt + TRANSITION_SOUND_MAX_LEN <= fromAbs + 0.02)
+        .map((h) => h.clipId)
+    );
+  }
+
+  function playTransitionHit(
+    hit: { clipId: string; startAt: number; volume: number },
+    absNow: number
+  ) {
+    if (firedTransitionRef.current.has(hit.clipId)) return;
+    if (!transitionSoundUrl) return;
+    const end = hit.startAt + TRANSITION_SOUND_MAX_LEN;
+    if (absNow < hit.startAt - 0.03 || absNow >= end - 0.02) return;
+
+    firedTransitionRef.current.add(hit.clipId);
+    const audio = acquireSfxAudio(TRANSITION_POOL_KEY, transitionSoundUrl);
+    audio.volume = Math.min(1, Math.max(0, hit.volume));
+    const startPlayback = () => {
+      const into = Math.max(0, absTimeRef.current - hit.startAt);
+      try {
+        if (Math.abs(audio.currentTime - into) > 0.02) audio.currentTime = into;
+      } catch {
+        // ignore seek errors on thin metadata
+      }
+      void audio.play().catch(() => undefined);
+    };
+    if (!activeSfxRef.current.includes(audio)) activeSfxRef.current.push(audio);
+    if (audio.readyState >= 2) startPlayback();
+    else {
+      audio.addEventListener("canplay", startPlayback, { once: true });
+      try {
+        audio.load();
+      } catch {
+        startPlayback();
+      }
+      window.setTimeout(() => {
+        if (audio.paused && !audio.ended) startPlayback();
+      }, 40);
+    }
+  }
+
   function resetSfxFiring(fromAbs = 0) {
     // Mark only SFX that already fully finished before fromAbs as fired.
     // Anything that should still be audible (including startAt === 0) stays unfired
@@ -574,6 +638,10 @@ export function PreviewPhone({
         copies: Math.min(4, (prev?.copies ?? 0) + 1),
       });
     }
+    // The whoosh fires on a cut, so it must be decoded ahead of time too
+    if (transitionSoundUrl && transitionHits.length > 0) {
+      wanted.set(TRANSITION_POOL_KEY, { url: transitionSoundUrl, copies: 2 });
+    }
 
     for (const [assetId, { url, copies }] of wanted) {
       const existing = pool.get(assetId);
@@ -602,7 +670,7 @@ export function PreviewPhone({
       for (const el of pool.get(assetId) || []) el.pause();
       pool.delete(assetId);
     }
-  }, [placements, assets]);
+  }, [placements, assets, transitionSoundUrl, transitionHits.length]);
 
   function safePlay(el: HTMLVideoElement | null) {
     if (!el) return;
@@ -707,9 +775,13 @@ export function PreviewPhone({
 
     if (isPlaying && activeClip?.mediaUrl && mediaReady) {
       resetSfxFiring(absTime);
+      resetTransitionFiring(absTime);
       // Fire immediately on play (don't wait for timeupdate) so 0.00s hits are instant
       for (const p of placements) {
         playSfxPlacement(p, absTime);
+      }
+      for (const hit of transitionHits) {
+        playTransitionHit(hit, absTime);
       }
       safePlay(fg);
       if (bg) {
@@ -732,8 +804,11 @@ export function PreviewPhone({
     for (const p of placements) {
       playSfxPlacement(p, absTime);
     }
+    for (const hit of transitionHits) {
+      playTransitionHit(hit, absTime);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [absTime, isPlaying, placements, assets, offsets, totalDur]);
+  }, [absTime, isPlaying, placements, assets, offsets, totalDur, transitionHits]);
 
   // Drive black-gap hold on wall clock (video is paused)
   useEffect(() => {
@@ -1162,6 +1237,7 @@ export function PreviewPhone({
     onPlayingChange(false);
     stopAllSfx();
     resetSfxFiring(clamped);
+    resetTransitionFiring(clamped);
 
     const idx = sequence.findIndex((c) => c.id === clip.id);
     scrubbingRef.current = true;

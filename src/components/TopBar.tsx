@@ -22,6 +22,7 @@ import {
   getSegmentSpeed,
   getClipCrop,
   getClipBedMusic,
+  transitionSoundHits,
   getClipPlaybackSegments,
   getClipGapAfter,
   getHookGapAfter,
@@ -284,6 +285,14 @@ export function TopBar({
           // readyClips is already in playback order; ranks pin it for the server
           playbackRanks: readyClips.map((c) => c.rank),
           inDepthRanking: settings.inDepthRanking === true,
+          // Same helper the preview uses, so the whoosh lands identically
+          transitionSfx: settings.transitionSound?.enabled
+            ? transitionSoundHits(project.clips, settings).map((h) => ({
+                mediaId: settings.transitionSound.mediaId || "",
+                startAt: h.startAt,
+                volume: h.volume,
+              }))
+            : [],
           transition: settings.transition,
           transitionDuration: settings.transitionDuration,
           aspectMode: settings.aspectMode,

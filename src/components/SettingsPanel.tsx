@@ -13,7 +13,11 @@ import {
   ChevronDown,
 } from "lucide-react";
 import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
-import { defaultSticker, sortClipsForPlayback } from "@/lib/defaults";
+import {
+  defaultSticker,
+  defaultTransitionSound,
+  sortClipsForPlayback,
+} from "@/lib/defaults";
 
 type MusicFolderItem = {
   id: string;
@@ -241,6 +245,77 @@ export function SettingsPanel() {
             <option value="zoom">Zoom punch</option>
           </select>
         </label>
+
+        <div className="field transition-sound-field">
+          <label className="field check">
+            <input
+              type="checkbox"
+              checked={settings.transitionSound?.enabled !== false}
+              onChange={(e) =>
+                updateSettings({
+                  transitionSound: {
+                    ...defaultTransitionSound(),
+                    ...settings.transitionSound,
+                    enabled: e.target.checked,
+                  },
+                })
+              }
+            />
+            <span>Transition whoosh between clips</span>
+          </label>
+          {settings.transitionSound?.enabled !== false ? (
+            <>
+              <label className="field">
+                <span>
+                  Whoosh volume (
+                  {Math.round((settings.transitionSound?.volume ?? 1) * 100)}%)
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={2}
+                  step={0.05}
+                  value={settings.transitionSound?.volume ?? 1}
+                  onChange={(e) =>
+                    updateSettings({
+                      transitionSound: {
+                        ...defaultTransitionSound(),
+                        ...settings.transitionSound,
+                        volume: parseFloat(e.target.value),
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>
+                  Starts before the cut (
+                  {(settings.transitionSound?.lead ?? 0.25).toFixed(2)}s)
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={settings.transitionSound?.lead ?? 0.25}
+                  onChange={(e) =>
+                    updateSettings({
+                      transitionSound: {
+                        ...defaultTransitionSound(),
+                        ...settings.transitionSound,
+                        lead: parseFloat(e.target.value),
+                      },
+                    })
+                  }
+                />
+              </label>
+              <p className="muted">
+                Plays as each clip hands off to the next. Set a clip&apos;s own
+                whoosh level on its card — 0% skips it for that clip.
+              </p>
+            </>
+          ) : null}
+        </div>
 
         <label className="field">
           <span>Transition length ({settings.transitionDuration.toFixed(2)}s)</span>

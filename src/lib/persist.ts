@@ -6,6 +6,7 @@ import {
   normalizeHook,
   normalizeRanksLayout,
   normalizeSegments,
+  normalizeTransitionSound,
   createSegment,
   clampClipSpeed,
   clampClipGap,
@@ -84,6 +85,7 @@ export function loadLayoutDefault(): ProjectSettings | null {
       customOrder: [],
       playOrder: parsed.playOrder === "ascending" ? "ascending" : "countdown",
       inDepthRanking: parsed.inDepthRanking === true,
+      transitionSound: normalizeTransitionSound(parsed.transitionSound),
       sticker: {
         ...base.sticker,
         ...(parsed.sticker || {}),
@@ -150,6 +152,10 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
     crop: normalizeCrop(clip.crop),
     inDepthText: typeof clip.inDepthText === "string" ? clip.inDepthText : "",
     score: typeof clip.score === "string" ? clip.score : "",
+    transitionVolume:
+      typeof clip.transitionVolume === "number" && Number.isFinite(clip.transitionVolume)
+        ? Math.max(0, Math.min(2, clip.transitionVolume))
+        : 1,
     volume:
       typeof clip.volume === "number" && Number.isFinite(clip.volume)
         ? Math.max(0, Math.min(2, clip.volume))
@@ -249,6 +255,7 @@ export function normalizeProject(
         ...fallback.settings.ranksLayout,
         ...(parsed.settings?.ranksLayout || {}),
       }),
+      transitionSound: normalizeTransitionSound(parsed.settings?.transitionSound),
       sticker: {
         ...fallback.settings.sticker,
         ...(parsed.settings?.sticker || {}),

@@ -121,6 +121,11 @@ export interface RankClip {
    * the black gap after). Use when the clip already has its own bed/audio.
    */
   muteLookMusic?: boolean;
+  /**
+   * UI gain 0–2 for the transition whoosh that plays as THIS clip hands off to
+   * the next (1 = 100%, 0 = silent for this clip). Ignored on the last clip.
+   */
+  transitionVolume?: number;
   /** Optional short teaser played before the main segments (same source). */
   hook?: ClipHook;
   /**
@@ -222,10 +227,26 @@ export interface StickerOverlay {
   hasAlpha: boolean;
 }
 
+/**
+ * Whoosh played at every clip-to-clip transition. Ships with a bundled sound;
+ * point `mediaId` at an sfx/ drop file to use your own.
+ */
+export interface TransitionSound {
+  enabled: boolean;
+  mediaId: string | null;
+  mediaUrl: string | null;
+  fileName: string | null;
+  /** UI gain 0–2 (1 = 100% on the slider); real gain applies the quiet scale. */
+  volume: number;
+  /** Seconds before the cut that the sound starts, so it builds into it. */
+  lead: number;
+}
+
 export interface ProjectSettings {
   title: TitleConfig;
   ranksLayout: RankLayout;
   sticker: StickerOverlay;
+  transitionSound: TransitionSound;
   playOrder: PlayOrder;
   /**
    * Clip ids in explicit playback order, used when {@link playOrder} is

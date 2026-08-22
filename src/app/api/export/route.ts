@@ -9,7 +9,12 @@ import { ensurePillow, whichTools } from "@/lib/bins";
 import { resolveSfxDropFile, isDropSfxMediaId } from "@/lib/sfxFolder";
 import { resolveMusicDropFile, isMusicDropMediaId } from "@/lib/musicFolder";
 import { resolveOverlayFile, isOverlayMediaId } from "@/lib/overlayFolder";
-import { ffmpegAtempoChain, buildOverlayAxisExpr, buildOverlayRotationExpr } from "@/lib/defaults";
+import {
+  ffmpegAtempoChain,
+  buildOverlayAxisExpr,
+  buildOverlayRotationExpr,
+  BUILTIN_TRANSITION_SOUND_ID,
+} from "@/lib/defaults";
 import type { AspectMode, OverlayMotionKeypoint, PlayOrder, TransitionType } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -112,6 +117,12 @@ interface ExportBody {
     trimEnd: number;
     volume: number;
   }[];
+  /** Transition whooshes at each clip handoff (absolute times, real gain). */
+  transitionSfx?: {
+    mediaId: string;
+    startAt: number;
+    volume: number;
+  }[];
   /** Timed Snapchat captions / objects burned onto the final timeline */
   overlays?: {
     kind: "text" | "media";
@@ -174,6 +185,12 @@ function resolveMedia(mediaId: string) {
   if (existsSync(p)) return p;
   const exp = path.join(EXPORT_DIR, clean);
   if (existsSync(exp)) return exp;
+
+  // Bundled transition whoosh shipped in public/audio
+  if (clean === BUILTIN_TRANSITION_SOUND_ID || clean === "transition-whoosh.mp3") {
+    const bundled = path.join(process.cwd(), "public", "audio", "transition-whoosh.mp3");
+    if (existsSync(bundled)) return bundled;
+  }
 
   // Bundled / channel subscribe stickers:
   // channel-animals-sticker.webm → public/stickers/channels/animals.webm
@@ -1371,9 +1388,22 @@ export async function POST(req: NextRequest) {
     }
 
     const finalOut = exportPath(jobId);
-    const sfxList = (body.sfx || []).filter(
-      (s) => s.mediaId && s.trimEnd > s.trimStart && s.startAt >= 0
-    );
+    // Transition whooshes mix exactly like SFX hits — whole file, no trim.
+    const transitionList = (body.transitionSfx || [])
+      .filter((t) => t.mediaId && t.startAt >= 0 && (t.volume ?? 0) > 0.0005)
+      .map((t) => ({
+        mediaId: t.mediaId,
+        startAt: t.startAt,
+        trimStart: 0,
+        trimEnd: 10,
+        volume: t.volume,
+      }));
+    const sfxList = [
+      ...(body.sfx || []).filter(
+        (s) => s.mediaId && s.trimEnd > s.trimStart && s.startAt >= 0
+      ),
+      ...transitionList,
+    ];
     const hasMusic = Boolean(body.musicMediaId);
     const needsMix = hasMusic || sfxList.length > 0;
 

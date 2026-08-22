@@ -13,6 +13,7 @@ import {
   X,
   Volume2,
   Gauge,
+  Wind,
 } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import type { ClipBedMusic, ClipCrop, ClipHook, RankClip, TrimSegment } from "@/lib/types";
@@ -30,6 +31,8 @@ import {
   normalizeHook,
   getClipCrop,
   getClipBedMusic,
+  getClipTransitionVolume,
+  getPlaybackOrder,
   getClipVolume,
   getClipSpeed,
   getSegmentSpeed,
@@ -299,6 +302,13 @@ export function ClipCard({ clip }: { clip: RankClip }) {
     partSpeeds.some((s) => Math.abs(s - partSpeeds[0]) > 0.001);
   const speedSliderValue = speedMixed ? partSpeeds[0] : clipSpeed;
   const clipBed = getClipBedMusic(clip);
+  const clipTransitionVol = getClipTransitionVolume(clip);
+  const transitionSoundOn = project.settings.transitionSound?.enabled !== false;
+  // The final clip has no handoff, so it never plays a whoosh
+  const playbackOrder = getPlaybackOrder(project.clips, project.settings);
+  const isLastInPlayback =
+    playbackOrder.length > 0 &&
+    playbackOrder[playbackOrder.length - 1]?.id === clip.id;
 
   // New ingest (upload/fetch) uses pendingMeta → fresh trim defaults.
   // Re-edit (scissors) only sets pendingSrc so existing trim/crop are kept.
@@ -507,6 +517,31 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                     }
                   />
                 </label>
+                {transitionSoundOn && !isLastInPlayback ? (
+                  <label
+                    className="clip-volume"
+                    title="Whoosh level as this clip hands off to the next (0% skips it)"
+                  >
+                    <Wind size={14} className="muted-icon" />
+                    <span>{Math.round(clipTransitionVol * 100)}%</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2}
+                      step={0.05}
+                      value={clipTransitionVol}
+                      aria-label={`Transition whoosh volume for rank ${clip.rank}`}
+                      onChange={(e) =>
+                        updateClip(clip.id, {
+                          transitionVolume: Math.max(
+                            0,
+                            Math.min(2, parseFloat(e.target.value) || 0)
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                ) : null}
                 <label
                   className="field check clip-mute-look"
                   title="Silence Look background music while this clip plays (resumes after)"
