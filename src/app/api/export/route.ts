@@ -13,6 +13,8 @@ import {
   ffmpegAtempoChain,
   buildOverlayAxisExpr,
   buildOverlayRotationExpr,
+  clipInDepthText,
+  clipShortText,
   BUILTIN_TRANSITION_SOUND_ID,
 } from "@/lib/defaults";
 import type { AspectMode, OverlayMotionKeypoint, PlayOrder, TransitionType } from "@/lib/types";
@@ -44,9 +46,9 @@ interface ExportClip {
   mediaId: string;
   rank: number;
   label: string;
-  /** In Depth Ranking: long line shown while this clip plays */
+  /** In Depth Ranking: description shown while this clip plays */
   inDepthText?: string;
-  /** In Depth Ranking: score appended to the short label afterwards */
+  /** In Depth Ranking: score appended as "name - score/10" afterwards */
   score?: string;
   trimStart: number;
   trimEnd: number;
@@ -972,14 +974,8 @@ export async function POST(req: NextRequest) {
       const n = typeof value === "number" ? value : Number(value);
       return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback;
     };
-    const shortText = (c: ExportClip) => {
-      const name = (c.label || "").trim();
-      const score = (c.score || "").trim();
-      if (name && score) return `${name} - ${score}`;
-      return name || score;
-    };
-    const longText = (c: ExportClip) =>
-      (c.inDepthText || "").trim() || (c.label || "").trim();
+    const shortText = (c: ExportClip) => clipShortText(c);
+    const longText = (c: ExportClip) => clipInDepthText(c);
 
     const titleCfg = {
       title: body.title,
