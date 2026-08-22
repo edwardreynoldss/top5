@@ -16,11 +16,11 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const PLAYBACK_RANKS = [5, 4, 3, 2, 1];
 const CLIP_TEXT = {
-  1: { label: "Cat Running", inDepthText: "This Cat does NOT care 😂", score: "8.11" },
+  1: { label: "Goat Yelling", inDepthText: "Volume up for this one", score: "" },
   2: { label: "Dog Sliding", inDepthText: "Wait for the landing", score: "9" },
   3: { label: "Bird Diving", inDepthText: "Straight into the pond", score: "7.5/10" },
   4: { label: "Fox Jumping", inDepthText: "", score: "6.25" },
-  5: { label: "Goat Yelling", inDepthText: "Volume up for this one", score: "" },
+  5: { label: "Cat Running", inDepthText: "This Cat does NOT care 😂", score: "8.11" },
 };
 
 /** Mirrors clipShortText/formatClipScore in src/lib/defaults.ts */
@@ -161,26 +161,36 @@ for (let i = 0; i < PLAYBACK_RANKS.length; i++) {
 }
 
 // The user's example, spelled out: the score box holds "8.11", the video reads "/10"
-const lastCfg = JSON.parse(
-  fs.readFileSync(path.join(jobDir, `overlay-4.json`), "utf8")
+const firstCfg = JSON.parse(
+  fs.readFileSync(path.join(jobDir, "overlay-0.json"), "utf8")
 );
 assert.equal(
-  lastCfg.ranks.find((r) => r.rank === 1).label,
+  firstCfg.ranks.find((r) => r.rank === 5).label,
   "This Cat does NOT care 😂",
-  "rank 1 is playing on the last clip, so it shows its description"
+  "rank 5 plays first, so it shows its description"
 );
-const midCfg = JSON.parse(
-  fs.readFileSync(path.join(jobDir, `overlay-3.json`), "utf8")
+const lastCfg = JSON.parse(
+  fs.readFileSync(path.join(jobDir, "overlay-4.json"), "utf8")
 );
 assert.equal(
-  midCfg.ranks.find((r) => r.rank === 3).label,
+  lastCfg.ranks.find((r) => r.rank === 5).label,
+  "Cat Running - 8.11/10",
+  "once played, the same rank reads name - score/10"
+);
+assert.equal(
+  lastCfg.ranks.find((r) => r.rank === 3).label,
   "Bird Diving - 7.5/10",
   "a score saved with its own /10 is not doubled"
 );
 assert.equal(
-  lastCfg.ranks.find((r) => r.rank === 5).label,
-  "Goat Yelling",
-  "no score means no trailing dash"
+  lastCfg.ranks.find((r) => r.rank === 1).label,
+  "Volume up for this one",
+  "rank 1 plays last, so it is still on its description"
+);
+assert.equal(
+  firstCfg.ranks.find((r) => r.rank === 1).label,
+  "",
+  "a clip that has not played yet has no line at all"
 );
 
 console.log("live clip description & score test: OK");
