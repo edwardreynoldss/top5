@@ -8,6 +8,9 @@ import { AddSfxAtTimeModal } from "./AddSfxAtTimeModal";
 import { AddOverlayAtTimeModal, SnapCaptionView } from "./AddOverlayAtTimeModal";
 import {
   getPlaybackOrder,
+  sortClipsForPlayback,
+  rankDisplayText,
+  inDepthLabelOpacity,
   clipPlayDuration,
   displayWord,
   getClipPlaybackSegments,
@@ -134,17 +137,17 @@ export function PreviewPhone({
   gapElapsedRef.current = gapElapsed;
 
   const sequence = useMemo(
-    () => getPlaybackOrder(project.clips, settings.playOrder),
-    [project.clips, settings.playOrder]
+    () => getPlaybackOrder(project.clips, settings),
+    [project.clips, settings.playOrder, settings.customOrder]
   );
   sequenceRef.current = sequence;
   const offsets = useMemo(
-    () => clipTimelineOffsets(project.clips, settings.playOrder),
-    [project.clips, settings.playOrder]
+    () => clipTimelineOffsets(project.clips, settings),
+    [project.clips, settings.playOrder, settings.customOrder]
   );
   const totalDur = useMemo(
-    () => totalTimelineDuration(project.clips, settings.playOrder),
-    [project.clips, settings.playOrder]
+    () => totalTimelineDuration(project.clips, settings),
+    [project.clips, settings.playOrder, settings.customOrder]
   );
 
   // Full ranking preview only — never lock to a single selected clip
@@ -1388,13 +1391,21 @@ export function PreviewPhone({
 
   const title = settings.title;
   const ranksLayout = settings.ranksLayout;
-  const ranksToShow = useMemo(() => {
-    const ordered =
-      settings.playOrder === "countdown"
-        ? [...project.clips].sort((a, b) => b.rank - a.rank)
-        : [...project.clips].sort((a, b) => a.rank - b.rank);
-    return ordered;
-  }, [project.clips, settings.playOrder]);
+  const inDepth = settings.inDepthRanking === true;
+  const ranksToShow = useMemo(
+    () => sortClipsForPlayback(project.clips, settings),
+    [project.clips, settings.playOrder, settings.customOrder]
+  );
+
+  /** 0–1 through the playing clip, used to ease its In Depth line down. */
+  const activeClipProgress = useMemo(() => {
+    if (!activeClip) return 0;
+    if (inGap) return 1;
+    const dur = clipPlayDuration(activeClip);
+    if (dur <= 0) return 0;
+    const played = localPlay + (inHookGap ? gapElapsed : 0);
+    return Math.max(0, Math.min(1, played / dur));
+  }, [activeClip, localPlay, inGap, inHookGap, gapElapsed]);
 
   const titleJustify =
     title.align === "left" ? "flex-start" : title.align === "right" ? "flex-end" : "center";
@@ -1542,22 +1553,29 @@ export function PreviewPhone({
               }}
             >
               {ranksToShow.map((c) => {
-                const isActive = activeClip?.rank === c.rank;
+                const isActive = activeClip?.id === c.id;
                 // Progressive reveal: keep labels for ranks already played (and current)
                 const seqIdx = sequence.findIndex((x) => x.id === c.id);
+                const text = rankDisplayText(c, { inDepth, isActive });
                 const revealed =
                   settings.showActiveLabel &&
-                  Boolean(c.label) &&
+                  Boolean(text) &&
                   seqIdx >= 0 &&
                   seqIdx <= activeIndex;
                 const dimOn = ranksLayout.labelDimEnabled !== false;
                 const labelOpacity = !revealed
                   ? 0
-                  : !dimOn
-                    ? 1
-                    : isActive
-                      ? ranksLayout.labelActiveOpacity ?? 1
-                      : ranksLayout.labelDimOpacity ?? 0.35;
+                  : inDepth && isActive
+                    ? inDepthLabelOpacity(
+                        activeClipProgress,
+                        ranksLayout.labelActiveOpacity ?? 1,
+                        ranksLayout.inDepthFadeTo ?? 0.45
+                      )
+                    : !dimOn
+                      ? 1
+                      : isActive
+                        ? ranksLayout.labelActiveOpacity ?? 1
+                        : ranksLayout.labelDimOpacity ?? 0.35;
                 return (
                   <div
                     key={c.id}
@@ -1575,13 +1593,13 @@ export function PreviewPhone({
                     </span>
                     {revealed ? (
                       <span
-                        className="rank-label"
+                        className={`rank-label ${inDepth && isActive ? "in-depth" : ""}`}
                         style={{
                           fontSize: `${labelFontPx}px`,
                           opacity: labelOpacity,
                         }}
                       >
-                        {c.label.toUpperCase()}
+                        {text.toUpperCase()}
                       </span>
                     ) : null}
                   </div>

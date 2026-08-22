@@ -26,7 +26,7 @@ export function OverlayPanel() {
     previewAbsTime,
   } = useEditor();
 
-  const offsets = clipTimelineOffsets(project.clips, project.settings.playOrder);
+  const offsets = clipTimelineOffsets(project.clips, project.settings);
   const totalDur = Math.max(
     0.1,
     offsets.reduce((s, o) => s + o.duration + (o.gapAfter || 0), 0)

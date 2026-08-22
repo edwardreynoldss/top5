@@ -66,3 +66,6 @@ sfx/*
 music/*
 !music/README.md
 !music/.gitkeep
+
+# Python bytecode from overlay scripts
+scripts/__pycache__/

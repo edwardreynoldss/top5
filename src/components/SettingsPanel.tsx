@@ -2,9 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useEditor } from "@/lib/store";
-import { Upload, Music2, Bookmark, Sparkles, RefreshCw } from "lucide-react";
+import {
+  Upload,
+  Music2,
+  Bookmark,
+  Sparkles,
+  RefreshCw,
+  Shuffle,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
 import type { AspectMode, PlayOrder, TransitionType } from "@/lib/types";
-import { defaultSticker } from "@/lib/defaults";
+import { defaultSticker, sortClipsForPlayback } from "@/lib/defaults";
 
 type MusicFolderItem = {
   id: string;
@@ -21,6 +30,8 @@ export function SettingsPanel() {
     updateSettings,
     updateSticker,
     setPlayOrder,
+    setCustomOrder,
+    shuffleCustomOrder,
     setTransition,
     saveLayoutAsDefault,
   } = useEditor();
@@ -36,6 +47,16 @@ export function SettingsPanel() {
     channelState.channels.find((c) => c.slug === channelState.activeSlug) ||
     channelState.channels[0];
   const musicAuto = settings.musicAutoFromFolder === true;
+  const orderedClips = sortClipsForPlayback(project.clips, settings);
+
+  function moveInOrder(clipId: string, delta: number) {
+    const ids = orderedClips.map((c) => c.id);
+    const from = ids.indexOf(clipId);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    setCustomOrder(ids);
+  }
 
   async function refreshMusicFolder(opts?: { autoPick?: boolean }) {
     setMusicFolderBusy(true);
@@ -158,8 +179,55 @@ export function SettingsPanel() {
           >
             <option value="countdown">Countdown (#5 → #1) — best for retention</option>
             <option value="ascending">Ascending (#1 → #5)</option>
+            <option value="custom">Custom order (pick the sequence)</option>
           </select>
         </label>
+
+        {settings.playOrder === "custom" ? (
+          <div className="field custom-order-field">
+            <span>Playback sequence</span>
+            <ol className="custom-order-list">
+              {orderedClips.map((c, i) => (
+                <li key={c.id} className="custom-order-row">
+                  <span className="custom-order-pos">{i + 1}</span>
+                  <span className="custom-order-rank">#{c.rank}</span>
+                  <span className="truncate">
+                    {c.label || c.fileName || "empty slot"}
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label={`Move rank ${c.rank} earlier`}
+                    disabled={i === 0}
+                    onClick={() => moveInOrder(c.id, -1)}
+                  >
+                    <ChevronUp size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label={`Move rank ${c.rank} later`}
+                    disabled={i === orderedClips.length - 1}
+                    onClick={() => moveInOrder(c.id, 1)}
+                  >
+                    <ChevronDown size={14} />
+                  </button>
+                </li>
+              ))}
+            </ol>
+            <button
+              type="button"
+              className="btn ghost small"
+              onClick={shuffleCustomOrder}
+            >
+              <Shuffle size={14} /> Randomize
+            </button>
+            <p className="muted">
+              Plays top to bottom — rank numbers stay with their clip. Press
+              Randomize again for a different shuffle.
+            </p>
+          </div>
+        ) : null}
 
         <label className="field">
           <span>Transition</span>
@@ -246,6 +314,22 @@ export function SettingsPanel() {
           />
           <span>Reveal labels as ranks play (names stay on screen)</span>
         </label>
+
+        <label className="field check">
+          <input
+            type="checkbox"
+            checked={settings.inDepthRanking === true}
+            onChange={(e) => updateSettings({ inDepthRanking: e.target.checked })}
+          />
+          <span>In Depth Ranking (long line while playing, score after)</span>
+        </label>
+        {settings.inDepthRanking ? (
+          <p className="muted">
+            The playing clip shows its long line and fades slightly so the video
+            stays readable; once it&apos;s done it becomes “label - score”. Write
+            both in <strong>Title &amp; ranks → Rank numbers</strong>.
+          </p>
+        ) : null}
 
         <label className="field">
           <span>

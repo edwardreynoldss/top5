@@ -38,7 +38,7 @@ export function ClipList() {
     }
   }
 
-  const playbackOrder = getPlaybackOrder(project.clips, project.settings.playOrder);
+  const playbackOrder = getPlaybackOrder(project.clips, project.settings);
   const playIndex = new Map(playbackOrder.map((c, i) => [c.id, i]));
 
   return (

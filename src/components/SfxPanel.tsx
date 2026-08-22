@@ -78,16 +78,16 @@ export function SfxPanel() {
   }, [favoriteTick]);
 
   const readyClips = useMemo(
-    () => getPlaybackOrder(project.clips, project.settings.playOrder),
-    [project.clips, project.settings.playOrder]
+    () => getPlaybackOrder(project.clips, project.settings),
+    [project.clips, project.settings.playOrder, project.settings.customOrder]
   );
   const offsets = useMemo(
-    () => clipTimelineOffsets(project.clips, project.settings.playOrder),
-    [project.clips, project.settings.playOrder]
+    () => clipTimelineOffsets(project.clips, project.settings),
+    [project.clips, project.settings.playOrder, project.settings.customOrder]
   );
   const totalDur = useMemo(
-    () => totalTimelineDuration(project.clips, project.settings.playOrder),
-    [project.clips, project.settings.playOrder]
+    () => totalTimelineDuration(project.clips, project.settings),
+    [project.clips, project.settings.playOrder, project.settings.customOrder]
   );
 
   const q = query.trim().toLowerCase();

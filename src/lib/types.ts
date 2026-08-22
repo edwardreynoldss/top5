@@ -1,5 +1,9 @@
 export type TransitionType = "cut" | "flash" | "zoom";
-export type PlayOrder = "countdown" | "ascending";
+/**
+ * "custom" plays clips in the explicit {@link ProjectSettings.customOrder}
+ * sequence, so rank numbers stay attached to their clip (e.g. 4 → 2 → 1 → 5 → 3).
+ */
+export type PlayOrder = "countdown" | "ascending" | "custom";
 export type AspectMode = "blur-pad" | "crop-fill";
 export type TextAlign = "left" | "center" | "right";
 
@@ -72,7 +76,18 @@ export interface ClipHook {
 export interface RankClip {
   id: string;
   rank: number;
+  /** Short name shown next to the rank once the clip has played. */
   label: string;
+  /**
+   * In Depth Ranking only: longer line shown while this clip is playing
+   * (e.g. "This Cat does NOT care 😂"). Falls back to {@link label}.
+   */
+  inDepthText?: string;
+  /**
+   * In Depth Ranking only: score appended to the short label after the clip
+   * has played (e.g. "8.12" → "Careless Cat - 8.12"). Free text.
+   */
+  score?: string;
   mediaId: string | null;
   mediaUrl: string | null;
   fileName: string | null;
@@ -174,6 +189,12 @@ export interface RankLayout {
   labelDimOpacity: number;
   /** 0–1 opacity for the currently playing clip’s label. */
   labelActiveOpacity: number;
+  /**
+   * In Depth Ranking: the playing clip's long line starts at
+   * {@link labelActiveOpacity} and eases down to this by the end of the clip so
+   * the video stays readable underneath.
+   */
+  inDepthFadeTo: number;
 }
 
 /**
@@ -206,6 +227,16 @@ export interface ProjectSettings {
   ranksLayout: RankLayout;
   sticker: StickerOverlay;
   playOrder: PlayOrder;
+  /**
+   * Clip ids in explicit playback order, used when {@link playOrder} is
+   * "custom". Ids missing from this list fall back to countdown order.
+   */
+  customOrder: string[];
+  /**
+   * In Depth Ranking: the playing clip shows its long line, and clips that
+   * already played show "label - score" instead.
+   */
+  inDepthRanking: boolean;
   transition: TransitionType;
   transitionDuration: number;
   aspectMode: AspectMode;

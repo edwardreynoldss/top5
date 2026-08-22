@@ -43,6 +43,9 @@ export function defaultLeftUi(): LeftUiState {
 export function layoutSettingsFromProject(settings: ProjectSettings): ProjectSettings {
   const next = JSON.parse(JSON.stringify(settings)) as ProjectSettings;
   next.sticker = builtInDefaultSettings().sticker;
+  // Custom order is clip ids from this project — meaningless in another one
+  next.customOrder = [];
+  if (next.playOrder === "custom") next.playOrder = "countdown";
   return next;
 }
 
@@ -78,6 +81,9 @@ export function loadLayoutDefault(): ProjectSettings | null {
         ...base.ranksLayout,
         ...(parsed.ranksLayout || {}),
       }),
+      customOrder: [],
+      playOrder: parsed.playOrder === "ascending" ? "ascending" : "countdown",
+      inDepthRanking: parsed.inDepthRanking === true,
       sticker: {
         ...base.sticker,
         ...(parsed.sticker || {}),
@@ -142,6 +148,8 @@ function normalizeClip(clip: Partial<RankClip>, fallbackRank: number): RankClip 
             ),
           ],
     crop: normalizeCrop(clip.crop),
+    inDepthText: typeof clip.inDepthText === "string" ? clip.inDepthText : "",
+    score: typeof clip.score === "string" ? clip.score : "",
     volume:
       typeof clip.volume === "number" && Number.isFinite(clip.volume)
         ? Math.max(0, Math.min(2, clip.volume))
@@ -193,6 +201,7 @@ export function normalizeProject(
     ? parsed.clips
     : fallback.clips
   ).map((c, i) => normalizeClip(c, ranks[i]));
+  const clipIds = new Set(clips.map((c) => c.id));
 
   return {
     ...fallback,
@@ -259,6 +268,11 @@ export function normalizeProject(
         ...fallback.settings.rankColors,
         ...(parsed.settings?.rankColors || {}),
       },
+      // Drop ids from older projects whose clips no longer exist
+      customOrder: Array.isArray(parsed.settings?.customOrder)
+        ? parsed.settings.customOrder.filter((id) => clipIds.has(id))
+        : [],
+      inDepthRanking: parsed.settings?.inDepthRanking === true,
       musicAutoFromFolder:
         typeof parsed.settings?.musicAutoFromFolder === "boolean"
           ? parsed.settings.musicAutoFromFolder

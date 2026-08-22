@@ -207,6 +207,17 @@ def make_ranks_overlay(cfg: dict, out: Path) -> None:
     dim_opacity = max(0.0, min(1.0, dim_opacity))
     active_opacity = max(0.0, min(1.0, active_opacity))
 
+    # In Depth Ranking draws the playing clip's line on its own layer so ffmpeg
+    # can fade it over the clip; `only_active` renders just that layer.
+    only_active = bool(cfg.get("onlyActiveLabel"))
+    raw_active_alpha = cfg.get("activeLabelAlpha")
+    active_alpha_override = None
+    if raw_active_alpha is not None:
+        try:
+            active_alpha_override = max(0.0, min(1.0, float(raw_active_alpha)))
+        except (TypeError, ValueError):
+            active_alpha_override = None
+
     font = load_font(font_id, font_size)
     label_font = load_font("inter", label_size)
 
@@ -216,29 +227,46 @@ def make_ranks_overlay(cfg: dict, out: Path) -> None:
     for i, item in enumerate(ranks):
         rank = int(item.get("rank", i + 1))
         label = item.get("label") or ""
-        # Numbers always fully opaque
-        color = hex_to_rgba(colors.get(str(rank)) or colors.get(rank) or "#FFFFFF", 255)
-        text = f"{rank}."
-        y = start_y + i * gap
-        draw_text_outline(draw, (start_x, y), text, font, color, width=max(4, font_size // 12))
-        if label:
-            if not dim_enabled:
-                label_a = 255
-            elif rank == active:
-                label_a = int(round(255 * active_opacity))
-            else:
-                label_a = int(round(255 * dim_opacity))
-            label_a = max(0, min(255, label_a))
-            tw, _ = measure(draw, text, font)
+        is_active = rank == active
+        if only_active and not is_active:
+            continue
+        # Numbers always fully opaque, and never on the fading layer
+        if not only_active:
+            color = hex_to_rgba(colors.get(str(rank)) or colors.get(rank) or "#FFFFFF", 255)
             draw_text_outline(
                 draw,
-                (start_x + tw + 18, y + font_size * 0.28),
-                label.upper(),
-                label_font,
-                (255, 255, 255, label_a),
-                outline=(0, 0, 0, label_a),
-                width=4,
+                (start_x, start_y + i * gap),
+                f"{rank}.",
+                font,
+                color,
+                width=max(4, font_size // 12),
             )
+        if not label:
+            continue
+
+        if is_active and active_alpha_override is not None:
+            alpha = active_alpha_override
+        elif not dim_enabled:
+            alpha = 1.0
+        elif is_active:
+            alpha = active_opacity
+        else:
+            alpha = dim_opacity
+        label_a = max(0, min(255, int(round(255 * alpha))))
+        if label_a <= 0:
+            continue
+
+        y = start_y + i * gap
+        tw, _ = measure(draw, f"{rank}.", font)
+        draw_text_outline(
+            draw,
+            (start_x + tw + 18, y + font_size * 0.28),
+            label.upper(),
+            label_font,
+            (255, 255, 255, label_a),
+            outline=(0, 0, 0, label_a),
+            width=4,
+        )
     img.save(out)
 
 

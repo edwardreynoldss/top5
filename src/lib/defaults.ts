@@ -6,6 +6,7 @@ import type {
   EditorProject,
   OverlayMotionKeypoint,
   OverlayPlacement,
+  PlayOrder,
   ProjectSettings,
   RankClip,
   RankLayout,
@@ -321,9 +322,9 @@ export function clipMutesLookMusic(clip: Pick<RankClip, "muteLookMusic"> | null 
  */
 export function lookMusicMuteWindows(
   clips: RankClip[],
-  playOrder: "countdown" | "ascending"
+  input: PlaybackOrderInput
 ): { start: number; end: number }[] {
-  const offsets = clipTimelineOffsets(clips, playOrder);
+  const offsets = clipTimelineOffsets(clips, input);
   const out: { start: number; end: number }[] = [];
   for (const row of offsets) {
     const clip = clips.find((c) => c.id === row.clipId);
@@ -428,9 +429,12 @@ export function builtInDefaultSettings(): ProjectSettings {
       labelDimEnabled: true,
       labelDimOpacity: 0.35,
       labelActiveOpacity: 1,
+      inDepthFadeTo: 0.45,
     },
     sticker: defaultSticker(),
     playOrder: "countdown",
+    customOrder: [],
+    inDepthRanking: false,
     transition: "flash",
     transitionDuration: 0.25,
     aspectMode: "crop-fill",
@@ -500,6 +504,10 @@ export function normalizeRanksLayout(
       layout?.labelActiveOpacity as number,
       d.labelActiveOpacity
     ),
+    inDepthFadeTo: clampUnitOpacity(
+      layout?.inDepthFadeTo as number,
+      d.inDepthFadeTo
+    ),
   };
 }
 
@@ -520,11 +528,116 @@ export function createDefaultProject(settings?: ProjectSettings): EditorProject 
   };
 }
 
-export function getPlaybackOrder(clips: RankClip[], playOrder: "countdown" | "ascending") {
-  const sorted = [...clips].sort((a, b) =>
+/**
+ * Everything that needs playback order accepts either the bare mode (legacy)
+ * or the settings slice, so adding "custom" didn't require every caller to
+ * thread a second argument.
+ */
+export type PlaybackOrderInput =
+  | PlayOrder
+  | Pick<ProjectSettings, "playOrder" | "customOrder">;
+
+function resolveOrderInput(input: PlaybackOrderInput): {
+  playOrder: PlayOrder;
+  customOrder: string[];
+} {
+  if (typeof input === "string") return { playOrder: input, customOrder: [] };
+  return {
+    playOrder: input.playOrder,
+    customOrder: Array.isArray(input.customOrder) ? input.customOrder : [],
+  };
+}
+
+/**
+ * Clips sorted for playback. "custom" follows an explicit clip-id sequence so
+ * rank numbers stay with their clip (4 → 2 → 1 → 5 → 3); anything not listed
+ * keeps countdown order behind the listed clips.
+ */
+export function sortClipsForPlayback(
+  clips: RankClip[],
+  input: PlaybackOrderInput
+): RankClip[] {
+  const { playOrder, customOrder } = resolveOrderInput(input);
+  if (playOrder === "custom") {
+    const position = new Map(customOrder.map((id, i) => [id, i]));
+    return [...clips].sort((a, b) => {
+      const ai = position.get(a.id);
+      const bi = position.get(b.id);
+      if (ai != null && bi != null) return ai - bi;
+      if (ai != null) return -1;
+      if (bi != null) return 1;
+      return b.rank - a.rank;
+    });
+  }
+  return [...clips].sort((a, b) =>
     playOrder === "countdown" ? b.rank - a.rank : a.rank - b.rank
   );
-  return sorted.filter((c) => c.status === "ready" && c.mediaUrl);
+}
+
+export function getPlaybackOrder(clips: RankClip[], input: PlaybackOrderInput) {
+  return sortClipsForPlayback(clips, input).filter(
+    (c) => c.status === "ready" && c.mediaUrl
+  );
+}
+
+/** Clip ids in playback order — what a custom order is stored as. */
+export function playbackOrderIds(
+  clips: RankClip[],
+  input: PlaybackOrderInput
+): string[] {
+  return sortClipsForPlayback(clips, input).map((c) => c.id);
+}
+
+/** Fisher-Yates shuffle; press again for a different order. */
+export function shuffleOrderIds(ids: string[]): string[] {
+  const out = [...ids];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/** Long line shown beside the rank while this clip plays (In Depth Ranking). */
+export function clipInDepthText(clip: Pick<RankClip, "label" | "inDepthText">) {
+  const long = (clip.inDepthText || "").trim();
+  return long || (clip.label || "").trim();
+}
+
+/** Short line shown once the clip has played: "Careless Cat - 8.12". */
+export function clipShortText(clip: Pick<RankClip, "label" | "score">) {
+  const name = (clip.label || "").trim();
+  const score = (clip.score || "").trim();
+  if (name && score) return `${name} - ${score}`;
+  return name || score;
+}
+
+/**
+ * Text beside a rank for the current playback state.
+ * In Depth Ranking swaps the playing clip to its long line and everything
+ * already played to "label - score"; otherwise it's just the label.
+ */
+export function rankDisplayText(
+  clip: Pick<RankClip, "label" | "inDepthText" | "score">,
+  opts: { inDepth: boolean; isActive: boolean }
+) {
+  if (!opts.inDepth) return (clip.label || "").trim();
+  return opts.isActive ? clipInDepthText(clip) : clipShortText(clip);
+}
+
+/**
+ * Opacity of the playing clip's long line, easing from the active value down to
+ * `inDepthFadeTo` across the clip so the video stays readable.
+ */
+export function inDepthLabelOpacity(
+  progress: number,
+  activeOpacity: number,
+  fadeTo: number
+) {
+  const p = Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
+  const from = clampUnitOpacity(activeOpacity, 1);
+  const to = clampUnitOpacity(fadeTo, 0.45);
+  return from + (to - from) * p;
 }
 
 /** Main trim parts only (what Trim & crop edits) — does not include hook. */
@@ -924,9 +1037,9 @@ export function clampCropPan(value: number) {
 /** Absolute timeline start for each ready clip in playback order */
 export function clipTimelineOffsets(
   clips: RankClip[],
-  playOrder: "countdown" | "ascending"
+  input: PlaybackOrderInput
 ): { clipId: string; start: number; duration: number; gapAfter: number }[] {
-  const order = getPlaybackOrder(clips, playOrder);
+  const order = getPlaybackOrder(clips, input);
   let t = 0;
   return order.map((c, i) => {
     const duration = clipPlayDuration(c);
@@ -939,9 +1052,9 @@ export function clipTimelineOffsets(
 
 export function totalTimelineDuration(
   clips: RankClip[],
-  playOrder: "countdown" | "ascending"
+  input: PlaybackOrderInput
 ) {
-  return clipTimelineOffsets(clips, playOrder).reduce(
+  return clipTimelineOffsets(clips, input).reduce(
     (s, o) => s + o.duration + (o.gapAfter || 0),
     0
   );

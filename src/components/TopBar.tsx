@@ -69,8 +69,8 @@ export function TopBar({
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const readyClips = useMemo(
-    () => getPlaybackOrder(project.clips, project.settings.playOrder),
-    [project.clips, project.settings.playOrder]
+    () => getPlaybackOrder(project.clips, project.settings),
+    [project.clips, project.settings.playOrder, project.settings.customOrder]
   );
 
   const totalDuration = readyClips.reduce((sum, c) => sum + clipPlayDuration(c), 0);
@@ -153,7 +153,7 @@ export function TopBar({
       const assetById = new Map(restoredAssets.map((a) => [a.id, a]));
       const { settings } = project;
 
-      const offsets = clipTimelineOffsets(project.clips, settings.playOrder).map((o) => ({
+      const offsets = clipTimelineOffsets(project.clips, settings).map((o) => ({
         clipId: o.clipId,
         start: o.start,
         duration: o.duration,
@@ -253,6 +253,8 @@ export function TopBar({
               mediaId: c.mediaId,
               rank: c.rank,
               label: c.label,
+              inDepthText: c.inDepthText || "",
+              score: c.score || "",
               trimStart: first?.start ?? c.trimStart,
               trimEnd: last?.end ?? c.trimEnd,
               segments: playback,
@@ -278,6 +280,9 @@ export function TopBar({
           title: titlePayload,
           ranksLayout: settings.ranksLayout,
           playOrder: settings.playOrder,
+          // readyClips is already in playback order; ranks pin it for the server
+          playbackRanks: readyClips.map((c) => c.rank),
+          inDepthRanking: settings.inDepthRanking === true,
           transition: settings.transition,
           transitionDuration: settings.transitionDuration,
           aspectMode: settings.aspectMode,

@@ -10,7 +10,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createDefaultProject, createWord, normalizeSticker, createOverlayPlacement, normalizeRanksLayout } from "./defaults";
+import {
+  createDefaultProject,
+  createWord,
+  normalizeSticker,
+  createOverlayPlacement,
+  normalizeRanksLayout,
+  playbackOrderIds,
+  shuffleOrderIds,
+} from "./defaults";
 import {
   clearSavedProject,
   loadLayoutDefault,
@@ -117,6 +125,10 @@ interface EditorContextValue {
   setExportSlot: (slot: EditorProject["exportSlot"]) => void;
   saveLayoutAsDefault: () => void;
   setPlayOrder: (order: PlayOrder) => void;
+  /** Set the explicit playback sequence (clip ids) and switch to custom order. */
+  setCustomOrder: (clipIds: string[]) => void;
+  /** Randomize the playback sequence; call again for another shuffle. */
+  shuffleCustomOrder: () => void;
   setTransition: (t: TransitionType) => void;
 }
 
@@ -501,6 +513,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       const [moved] = next.splice(oldIndex, 1);
       next.splice(newIndex, 0, moved);
 
+      // A custom sequence owns playback order, so dragging cards only
+      // rearranges the editor list and must not rewrite ranks.
+      if (prev.settings.playOrder === "custom") {
+        return { ...prev, clips: next };
+      }
       const ranks =
         prev.settings.playOrder === "countdown" ? [5, 4, 3, 2, 1] : [1, 2, 3, 4, 5];
       return {
@@ -788,13 +805,48 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const setPlayOrder = useCallback((order: PlayOrder) => {
     setProject((prev) => {
+      if (order === "custom") {
+        // Seed the custom sequence from whatever is on screen right now so
+        // switching modes doesn't reshuffle the video.
+        return {
+          ...prev,
+          settings: {
+            ...prev.settings,
+            playOrder: order,
+            customOrder: playbackOrderIds(prev.clips, prev.settings),
+          },
+        };
+      }
       const ranks = order === "countdown" ? [5, 4, 3, 2, 1] : [1, 2, 3, 4, 5];
       return {
         ...prev,
-        settings: { ...prev.settings, playOrder: order },
+        settings: { ...prev.settings, playOrder: order, customOrder: [] },
         clips: prev.clips.map((clip, i) => ({ ...clip, rank: ranks[i] ?? clip.rank })),
       };
     });
+  }, []);
+
+  const setCustomOrder = useCallback((clipIds: string[]) => {
+    setProject((prev) => {
+      const known = new Set(prev.clips.map((c) => c.id));
+      const next = clipIds.filter((id) => known.has(id));
+      for (const c of prev.clips) if (!next.includes(c.id)) next.push(c.id);
+      return {
+        ...prev,
+        settings: { ...prev.settings, playOrder: "custom", customOrder: next },
+      };
+    });
+  }, []);
+
+  const shuffleCustomOrder = useCallback(() => {
+    setProject((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        playOrder: "custom",
+        customOrder: shuffleOrderIds(playbackOrderIds(prev.clips, prev.settings)),
+      },
+    }));
   }, []);
 
   const setTransition = useCallback((t: TransitionType) => {
@@ -854,6 +906,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setExportSlot,
       saveLayoutAsDefault,
       setPlayOrder,
+      setCustomOrder,
+      shuffleCustomOrder,
       setTransition,
     }),
     [
@@ -900,6 +954,8 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       setExportSlot,
       saveLayoutAsDefault,
       setPlayOrder,
+      setCustomOrder,
+      shuffleCustomOrder,
       setTransition,
     ]
   );

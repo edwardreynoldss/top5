@@ -39,6 +39,10 @@ interface ExportClip {
   mediaId: string;
   rank: number;
   label: string;
+  /** In Depth Ranking: long line shown while this clip plays */
+  inDepthText?: string;
+  /** In Depth Ranking: score appended to the short label afterwards */
+  score?: string;
   trimStart: number;
   trimEnd: number;
   segments?: { start: number; end: number; speed?: number }[];
@@ -70,6 +74,9 @@ interface ExportBody {
   };
   ranksLayout?: Record<string, unknown>;
   playOrder: PlayOrder;
+  /** Explicit playback sequence by rank; wins over playOrder sorting. */
+  playbackRanks?: number[];
+  inDepthRanking?: boolean;
   transition: TransitionType;
   transitionDuration: number;
   aspectMode: AspectMode;
@@ -434,6 +441,13 @@ async function renderClipSegment(opts: {
   aspectMode: AspectMode;
   titleOverlay: string;
   ranksOverlay: string | null;
+  /**
+   * In Depth Ranking: extra layer holding only the playing clip's line. Fading
+   * it out reveals the base layer's lower opacity underneath.
+   */
+  ranksFadeOverlay?: string | null;
+  /** Fade length in seconds; 0 holds the extra layer at constant opacity. */
+  ranksFadeDuration?: number;
   stickerPath: string | null;
   stickerScale: number;
   stickerSpeed: number;
@@ -468,6 +482,8 @@ async function renderClipSegment(opts: {
     aspectMode,
     titleOverlay,
     ranksOverlay,
+    ranksFadeOverlay = null,
+    ranksFadeDuration = 0,
     stickerPath,
     stickerScale,
     stickerSpeed,
@@ -551,9 +567,10 @@ async function renderClipSegment(opts: {
     `y='(H-h)/2+(0.5-${panY})*max(h-H\\,H*${panRoom})':` +
     `shortest=1,setsar=1${padTop}`;
 
-  // Input layout: 0=clip, 1=title, [2=ranks], [2|3=sticker], [n=bed]
+  // Input layout: 0=clip, 1=title, [ranks], [ranks fade], [sticker], [bed]
   let nextInput = 2;
   const ranksIdx = ranksOverlay ? nextInput++ : -1;
+  const ranksFadeIdx = ranksFadeOverlay ? nextInput++ : -1;
   const stickerIdx = stickerPath ? nextInput++ : -1;
   const bedIdx = bedMusicPath ? nextInput++ : -1;
   const bedVol = Math.max(0, Math.min(1, bedVolume ?? 0.35));
@@ -576,6 +593,17 @@ async function renderClipSegment(opts: {
     if (ranksIdx >= 0) {
       parts.push(`[${last}][${ranksIdx}:v]overlay=0:0:shortest=1[withranks]`);
       last = "withranks";
+    }
+    if (ranksFadeIdx >= 0) {
+      // Fading this layer to 0 leaves the base layer's opacity showing through,
+      // so the composite eases from the active value down to the fade-to value.
+      const fadeChain =
+        ranksFadeDuration > 0.01
+          ? `[${ranksFadeIdx}:v]format=rgba,fade=t=out:st=0:d=${ranksFadeDuration.toFixed(3)}:alpha=1[rkfade]`
+          : `[${ranksFadeIdx}:v]format=rgba[rkfade]`;
+      parts.push(fadeChain);
+      parts.push(`[${last}][rkfade]overlay=0:0:shortest=1[withrankfade]`);
+      last = "withrankfade";
     }
     parts.push(`[${last}][1:v]overlay=0:0:shortest=1[withtitle]`);
     last = "withtitle";
@@ -638,6 +666,9 @@ async function renderClipSegment(opts: {
 
   if (ranksOverlay) {
     commonArgs.push("-loop", "1", "-t", String(wallDuration), "-i", ranksOverlay);
+  }
+  if (ranksFadeOverlay) {
+    commonArgs.push("-loop", "1", "-t", String(wallDuration), "-i", ranksFadeOverlay);
   }
 
   if (stickerPath) {
@@ -728,6 +759,8 @@ async function renderBlackGapSegment(opts: {
   fps: number;
   titleOverlay: string;
   ranksOverlay: string | null;
+  /** In Depth Ranking: holds the playing clip's line steady across the hold. */
+  ranksFadeOverlay?: string | null;
   stickerPath: string | null;
   stickerScale: number;
   stickerSpeed: number;
@@ -742,6 +775,7 @@ async function renderBlackGapSegment(opts: {
     fps,
     titleOverlay,
     ranksOverlay,
+    ranksFadeOverlay = null,
     stickerPath,
     stickerScale,
     stickerSpeed,
@@ -773,6 +807,10 @@ async function renderBlackGapSegment(opts: {
   if (ranksOverlay) {
     args.push("-loop", "1", "-t", String(wallDuration), "-i", ranksOverlay);
   }
+  const ranksFadeIdx = ranksFadeOverlay ? next++ : -1;
+  if (ranksFadeOverlay) {
+    args.push("-loop", "1", "-t", String(wallDuration), "-i", ranksFadeOverlay);
+  }
   const stickerIdx = stickerPath ? next++ : -1;
   if (stickerPath) {
     if (stickerSourceSeek > 0.01) args.push("-ss", String(stickerSourceSeek));
@@ -795,6 +833,11 @@ async function renderBlackGapSegment(opts: {
   if (ranksIdx >= 0) {
     parts.push(`[${last}][${ranksIdx}:v]overlay=0:0:shortest=1[withranks]`);
     last = "withranks";
+  }
+  if (ranksFadeIdx >= 0) {
+    // Held steady: the black hold pauses the ease rather than snapping down
+    parts.push(`[${last}][${ranksFadeIdx}:v]overlay=0:0:shortest=1[withrankfade]`);
+    last = "withrankfade";
   }
   parts.push(`[${last}][1:v]overlay=0:0:shortest=1[withtitle]`);
   last = "withtitle";
@@ -867,9 +910,34 @@ export async function POST(req: NextRequest) {
     const jobDir = path.join(EXPORT_DIR, jobId);
     mkdirSync(jobDir, { recursive: true });
 
-    const ordered = [...body.clips].sort((a, b) =>
-      body.playOrder === "countdown" ? b.rank - a.rank : a.rank - b.rank
-    );
+    const explicitRanks = Array.isArray(body.playbackRanks) ? body.playbackRanks : [];
+    const rankPosition = new Map(explicitRanks.map((rank, i) => [rank, i]));
+    const ordered =
+      rankPosition.size > 0
+        ? [...body.clips].sort((a, b) => {
+            const ai = rankPosition.get(a.rank);
+            const bi = rankPosition.get(b.rank);
+            if (ai != null && bi != null) return ai - bi;
+            if (ai != null) return -1;
+            if (bi != null) return 1;
+            return b.rank - a.rank;
+          })
+        : [...body.clips].sort((a, b) =>
+            body.playOrder === "countdown" ? b.rank - a.rank : a.rank - b.rank
+          );
+    const inDepth = body.inDepthRanking === true;
+    const clampFraction = (value: unknown, fallback: number) => {
+      const n = typeof value === "number" ? value : Number(value);
+      return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback;
+    };
+    const shortText = (c: ExportClip) => {
+      const name = (c.label || "").trim();
+      const score = (c.score || "").trim();
+      if (name && score) return `${name} - ${score}`;
+      return name || score;
+    };
+    const longText = (c: ExportClip) =>
+      (c.inDepthText || "").trim() || (c.label || "").trim();
 
     const titleCfg = {
       title: body.title,
@@ -938,19 +1006,32 @@ export async function POST(req: NextRequest) {
 
       // Keep labels for this clip and every earlier clip in playback order
       const ranksOverlay = body.showRankList ? path.join(jobDir, `ranks-${i}.png`) : null;
+      const rankLabelFor = (c: ExportClip, idx: number) => {
+        if (body.showActiveLabel === false) return "";
+        if (idx > i) return "";
+        if (!inDepth) return c.label || "";
+        // Playing clip reads long; everything already played reads "label - score"
+        return idx === i ? longText(c) : shortText(c);
+      };
+      // In Depth: base layer holds the playing line at its faded-to floor and a
+      // second layer decays on top, so the composite eases down across the clip.
+      const inDepthFadeTo = clampFraction(
+        (body.ranksLayout as Record<string, unknown> | undefined)?.inDepthFadeTo,
+        0.45
+      );
+      const inDepthActive = clampFraction(
+        (body.ranksLayout as Record<string, unknown> | undefined)?.labelActiveOpacity,
+        1
+      );
+      const inDepthOn = inDepth && body.showRankList && body.showActiveLabel !== false;
       const perCfg = {
         ...titleCfg,
         activeRank: clip.rank,
         showActiveLabel: body.showActiveLabel !== false,
+        activeLabelAlpha: inDepthOn ? inDepthFadeTo : null,
         ranks: ordered.map((c, idx) => ({
           rank: c.rank,
-          // Progressive reveal: once a rank plays, its name stays on later clips
-          label:
-            body.showActiveLabel === false
-              ? ""
-              : idx <= i
-                ? c.label || ""
-                : "",
+          label: rankLabelFor(c, idx),
         })),
       };
       const perCfgPath = path.join(jobDir, `overlay-${i}.json`);
@@ -965,6 +1046,53 @@ export async function POST(req: NextRequest) {
         "--ranks-out",
         ranksOverlay || path.join(jobDir, `ranks-unused-${i}.png`),
       ]);
+
+      const fadeSpan = Math.max(0, inDepthActive - inDepthFadeTo);
+      const wantsInDepthFade = inDepthOn && fadeSpan > 0.01 && Boolean(longText(clip));
+      const clipWallTotal = Math.max(
+        0.2,
+        ranged.reduce((sum, s) => sum + Math.max(0.2, s.end - s.start) / s.speed, 0)
+      );
+      /** Alpha that, composited over the floor, reaches the active opacity. */
+      const fadeLayerAlpha = fadeSpan / Math.max(0.001, 1 - inDepthFadeTo);
+
+      /**
+       * Build the decaying layer for one piece of this clip. The PNG is baked at
+       * the opacity the fade should start from, and ffmpeg's fade length is
+       * stretched so it reaches the right value at the end of the piece.
+       */
+      async function buildRanksFadeLayer(offsetWall: number, pieceWall: number) {
+        if (!wantsInDepthFade) return { path: null as string | null, duration: 0 };
+        const fStart = Math.max(0, Math.min(1, 1 - offsetWall / clipWallTotal));
+        const fEnd = Math.max(
+          0,
+          Math.min(1, 1 - (offsetWall + pieceWall) / clipWallTotal)
+        );
+        if (fStart <= 0.005) return { path: null as string | null, duration: 0 };
+        const ratio = fEnd / fStart;
+        const duration = ratio >= 0.999 ? 0 : pieceWall / (1 - ratio);
+        const tag = `${i}-${offsetWall.toFixed(2)}`;
+        const outPath = path.join(jobDir, `ranks-fade-${tag}.png`);
+        const fadeCfgPath = path.join(jobDir, `overlay-fade-${tag}.json`);
+        writeFileSync(
+          fadeCfgPath,
+          JSON.stringify({
+            ...perCfg,
+            onlyActiveLabel: true,
+            activeLabelAlpha: fadeLayerAlpha * fStart,
+          })
+        );
+        await runCommand("python3", [
+          script,
+          "--config",
+          fadeCfgPath,
+          "--title-out",
+          path.join(jobDir, `title-unused-${i}.png`),
+          "--ranks-out",
+          outPath,
+        ]);
+        return { path: outPath, duration };
+      }
 
       const titleEnabled = body.title?.enabled !== false;
       const barH = !titleEnabled
@@ -1009,6 +1137,8 @@ export async function POST(req: NextRequest) {
           ]
         : [{ ranges: ranged, tag: "all", endFx: wantsEndFx }];
 
+      /** Wall seconds of this clip already rendered — drives the In Depth fade. */
+      let clipWallElapsed = 0;
       for (let pi = 0; pi < pieces.length; pi++) {
         const piece = pieces[pi];
         const pieceRanges = piece.ranges;
@@ -1062,6 +1192,8 @@ export async function POST(req: NextRequest) {
               )
             : 0;
 
+        const pieceFade = await buildRanksFadeLayer(clipWallElapsed, pieceWall);
+
         await renderClipSegment({
           input: pieceInput,
           output: pieceOut,
@@ -1075,6 +1207,8 @@ export async function POST(req: NextRequest) {
           aspectMode: body.aspectMode || "crop-fill",
           titleOverlay,
           ranksOverlay: body.showRankList ? ranksOverlay : null,
+          ranksFadeOverlay: body.showRankList ? pieceFade.path : null,
+          ranksFadeDuration: pieceFade.duration,
           stickerPath: pieceStickerOverlaps ? stickerPath : null,
           stickerScale,
           stickerSpeed,
@@ -1110,6 +1244,7 @@ export async function POST(req: NextRequest) {
         });
 
         timelineCursor += pieceWall;
+        clipWallElapsed += pieceWall;
         segmentPaths.push(pieceOut);
 
         // Black hold after hook teaser, before main
@@ -1121,6 +1256,8 @@ export async function POST(req: NextRequest) {
             stickerEnabled &&
             stickerAbsEnd > gapAbsStart + 0.01 &&
             stickerStartAt < gapAbsEnd - 0.01;
+          // Hold the In Depth line at the level the hook piece ended on
+          const holdFade = await buildRanksFadeLayer(clipWallElapsed, 0);
           await renderBlackGapSegment({
             output: hookGapPath,
             duration: hookGapAfter,
@@ -1129,6 +1266,7 @@ export async function POST(req: NextRequest) {
             fps,
             titleOverlay,
             ranksOverlay: body.showRankList ? ranksOverlay : null,
+            ranksFadeOverlay: body.showRankList ? holdFade.path : null,
             stickerPath: stickerOverlapsGap ? stickerPath : null,
             stickerScale,
             stickerSpeed,
