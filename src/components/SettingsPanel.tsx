@@ -423,13 +423,14 @@ export function SettingsPanel() {
             checked={settings.inDepthRanking === true}
             onChange={(e) => updateSettings({ inDepthRanking: e.target.checked })}
           />
-          <span>In Depth Ranking (long line while playing, score after)</span>
+          <span>In Depth Ranking (description while playing, ranking after)</span>
         </label>
         {settings.inDepthRanking ? (
           <p className="muted">
-            The playing clip shows its long line and fades slightly so the video
-            stays readable; once it&apos;s done it becomes “label - score”. Write
-            both in <strong>Title &amp; ranks → Rank numbers</strong>.
+            The playing clip shows its description and fades slightly so the video
+            stays readable; once it&apos;s done it becomes “name - 8.11/10”. Write
+            the name, ranking and description on each card in{" "}
+            <strong>Clips</strong>.
           </p>
         ) : null}
 

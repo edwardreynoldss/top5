@@ -40,6 +40,7 @@ export function ClipList() {
 
   const playbackOrder = getPlaybackOrder(project.clips, project.settings);
   const playIndex = new Map(playbackOrder.map((c, i) => [c.id, i]));
+  const inDepth = project.settings.inDepthRanking === true;
 
   return (
     <section className="panel">
@@ -48,6 +49,19 @@ export function ClipList() {
         <p className="muted">
           Drag to reorder · drop a video onto a clip · tap{" "}
           <strong>+ black</strong> between clips (or after a hook) for a short black hold
+        </p>
+        <p className="muted">
+          {inDepth ? (
+            <>
+              Each clip shows its <strong>description</strong> while it plays, then
+              switches to “name - score/10”.
+            </>
+          ) : (
+            <>
+              Turn on <strong>In Depth Ranking</strong> in Look to play the
+              description first and reveal “name - score/10” afterwards.
+            </>
+          )}
         </p>
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
