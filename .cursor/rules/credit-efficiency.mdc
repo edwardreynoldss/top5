@@ -1,0 +1,13 @@
+---
+description: Prefer low-credit workflows on this repo; no screen/video demos
+alwaysApply: true
+---
+
+# Agent efficiency (top5)
+
+Owner preference for this repository:
+
+- Do **not** use screen recording, video preview, computer-use walkthrough demos, or video-review subagents unless the user explicitly asks for them in that prompt.
+- Use the **least amount of credits** that still fully fulfills the prompt (prefer focused edits and unit/script checks over browser demos, long exploratory agents, and Multitask/parallel agents).
+- Only touch code that is **in scope** for the current prompt. Do not refactor, restyle, or “improve” unrelated files.
+- Prefer one coherent agent path over spawning parallel/background workers unless the user asks for multitasking or the work is clearly independent and parallelization is required.
