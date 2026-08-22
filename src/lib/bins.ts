@@ -146,6 +146,9 @@ export function toolEnv(extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     ...process.env,
     ...extra,
     PATH: EXTRA_PATH,
+    // Overlay JSON is UTF-8; without this, Windows Python can decode emoji as ðŸ˜‚
+    PYTHONUTF8: "1",
+    PYTHONIOENCODING: "utf-8",
   };
 }
 
