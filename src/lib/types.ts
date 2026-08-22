@@ -265,8 +265,8 @@ export interface ProjectSettings {
    */
   rankListOrder: RankListOrder;
   /**
-   * In Depth Ranking: the playing clip shows its description, and clips that
-   * already played show "name - score/10" instead.
+   * Legacy flag. Description-while-playing is always on; this no longer gates
+   * preview or export text. Kept so older saved projects still load.
    */
   inDepthRanking: boolean;
   transition: TransitionType;

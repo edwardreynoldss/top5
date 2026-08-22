@@ -97,7 +97,8 @@ const body = {
   ranksLayout: { labelActiveOpacity: 1, inDepthFadeTo: 0.45 },
   playOrder: "countdown",
   rankListRanks: PLAYBACK_RANKS,
-  inDepthRanking: true,
+  // Was the bug: false used to drop descriptions and only export the name.
+  inDepthRanking: false,
   transition: "cut",
   transitionDuration: 0.2,
   aspectMode: "crop-fill",

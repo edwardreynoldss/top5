@@ -969,7 +969,6 @@ export async function POST(req: NextRequest) {
           );
     /** Playback position of each rank, used to reveal labels in play order. */
     const playIndexByRank = new Map(ordered.map((c, i) => [c.rank, i]));
-    const inDepth = body.inDepthRanking === true;
     const clampFraction = (value: unknown, fallback: number) => {
       const n = typeof value === "number" ? value : Number(value);
       return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback;
@@ -1050,11 +1049,10 @@ export async function POST(req: NextRequest) {
         if (body.showActiveLabel === false) return "";
         const idx = playIndexByRank.get(c.rank);
         if (idx == null || idx > i) return "";
-        if (!inDepth) return c.label || "";
-        // Playing clip reads long; everything already played reads "label - score"
+        // Playing clip reads the description; finished clips read "name - score/10"
         return idx === i ? longText(c) : shortText(c);
       };
-      // In Depth: base layer holds the playing line at its faded-to floor and a
+      // Base layer holds the playing description at its faded-to floor and a
       // second layer decays on top, so the composite eases down across the clip.
       const inDepthFadeTo = clampFraction(
         (body.ranksLayout as Record<string, unknown> | undefined)?.inDepthFadeTo,
@@ -1064,7 +1062,7 @@ export async function POST(req: NextRequest) {
         (body.ranksLayout as Record<string, unknown> | undefined)?.labelActiveOpacity,
         1
       );
-      const inDepthOn = inDepth && body.showRankList && body.showActiveLabel !== false;
+      const inDepthOn = body.showRankList && body.showActiveLabel !== false;
       const perCfg = {
         ...titleCfg,
         activeRank: clip.rank,
