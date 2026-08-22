@@ -429,8 +429,16 @@ export const TITLE_FONTS: {
   },
 ];
 
+/**
+ * Appended to every display stack so emoji fall through to the platform colour
+ * font — Apple Color Emoji on Mac/iPhone, which is what the picker targets.
+ */
+export const EMOJI_FONT_STACK =
+  '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Segoe UI Symbol"';
+
 export function fontCss(id: TitleFontId) {
-  return TITLE_FONTS.find((f) => f.id === id)?.css || TITLE_FONTS[0].css;
+  const base = TITLE_FONTS.find((f) => f.id === id)?.css || TITLE_FONTS[0].css;
+  return `${base}, ${EMOJI_FONT_STACK}`;
 }
 
 export function fontFile(id: TitleFontId) {

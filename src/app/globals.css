@@ -14,8 +14,11 @@
   --danger: #ff5c5c;
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
   --radius: 14px;
-  --font-display: var(--font-display-google), "Noto Sans Display", "Avenir Next", "Segoe UI", sans-serif;
-  --font-body: var(--font-inter), "Inter", "Avenir Next", "Segoe UI", sans-serif;
+  /* Trailing emoji families let the OS colour font handle emoji — Apple Color
+     Emoji on Mac/iPhone, which is what the emoji picker inserts. */
+  --font-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Segoe UI Symbol";
+  --font-display: var(--font-display-google), "Noto Sans Display", "Avenir Next", "Segoe UI", sans-serif, var(--font-emoji);
+  --font-body: var(--font-inter), "Inter", "Avenir Next", "Segoe UI", sans-serif, var(--font-emoji);
 }
 
 * {
@@ -1055,6 +1058,95 @@ a {
 
 .rank-layout {
   margin-top: 0.5rem;
+}
+
+.emoji-picker-root {
+  position: relative;
+}
+
+.emoji-picker-toggle.is-open {
+  border-color: rgba(200, 245, 66, 0.55);
+  background: rgba(200, 245, 66, 0.12);
+}
+
+.emoji-picker-panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  /* Anchored to the button's left edge: the toggle sits at the start of the
+     actions row, so right-anchoring pushed the panel off-screen. */
+  left: 0;
+  z-index: 140;
+  width: min(360px, 92vw);
+  max-width: calc(100vw - 2rem);
+  padding: 0.6rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 0.5rem;
+}
+
+.emoji-picker-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.emoji-picker-tabs {
+  display: flex;
+  gap: 0.2rem;
+  flex-wrap: wrap;
+}
+
+.emoji-picker-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  padding: 0.2rem 0.35rem;
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.emoji-picker-tab.active {
+  border-color: rgba(200, 245, 66, 0.55);
+  background: rgba(200, 245, 66, 0.12);
+}
+
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0.15rem;
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.emoji-picker-cell {
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 0.25rem 0;
+  font-size: 1.35rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.emoji-picker-cell:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.emoji-picker-empty {
+  grid-column: 1 / -1;
+  margin: 0.5rem 0;
+  text-align: center;
+}
+
+.emoji-picker-hint {
+  margin: 0;
+  font-size: 0.72rem;
 }
 
 .rank-title-list {
@@ -2640,7 +2732,7 @@ a {
   max-width: 100%;
   box-sizing: border-box;
   text-align: center;
-  font-family: "Public Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: "Public Sans", "Helvetica Neue", Helvetica, Arial, sans-serif, var(--font-emoji);
   font-weight: 700;
   font-size: calc(15px * var(--snap-scale, 1));
   line-height: 1.25;

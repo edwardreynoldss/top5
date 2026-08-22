@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -56,6 +57,136 @@ def load_font(font_id: str, size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
+# Colour emoji fonts, best first. Apple Color Emoji is what an iPhone shows;
+# it is proprietary so it is never bundled — we only use the copy already
+# installed on the machine doing the export (any Mac has it). Everything else
+# falls back to Noto Color Emoji.
+EMOJI_FONTS = [
+    "/System/Library/Fonts/Apple Color Emoji.ttc",
+    "/System/Library/Fonts/Supplemental/Apple Color Emoji.ttc",
+    "/Library/Fonts/Apple Color Emoji.ttc",
+    str(Path.home() / "Library/Fonts/Apple Color Emoji.ttc"),
+    "assets/fonts/AppleColorEmoji.ttc",
+    "assets/fonts/NotoColorEmoji.ttf",
+    "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+    "/usr/share/fonts/truetype/noto-color-emoji/NotoColorEmoji.ttf",
+    "/usr/local/share/fonts/NotoColorEmoji.ttf",
+    "C:/Windows/Fonts/seguiemj.ttf",
+]
+
+# Bitmap emoji fonts only ship a few fixed sizes; we render at a real strike and
+# scale the result to whatever the layout needs.
+EMOJI_STRIKES = [137, 109, 160, 96, 64, 48, 40, 32, 20]
+
+_emoji_font_cache: dict[int, object] = {}
+
+
+def load_emoji_font(target_px: int):
+    """Return (font, strike_px) for a colour emoji font, or (None, 0)."""
+    key = max(8, int(target_px))
+    if key in _emoji_font_cache:
+        return _emoji_font_cache[key]
+
+    result = (None, 0)
+    for path in EMOJI_FONTS:
+        resolved = resolve_font_path(path)
+        if not Path(resolved).is_file():
+            continue
+        # Scalable colour fonts (COLRv1) accept any size; bitmap ones don't.
+        for size in [key] + EMOJI_STRIKES:
+            try:
+                result = (ImageFont.truetype(resolved, size=size), size)
+                break
+            except OSError:
+                continue
+        if result[0] is not None:
+            break
+
+    _emoji_font_cache[key] = result
+    return result
+
+
+# Emoji cluster: a pictograph plus any variation selector, skin-tone modifier,
+# keycap or ZWJ continuation, so multi-part emoji stay together.
+_EMOJI_CORE = (
+    "\U0001F000-\U0001FAFF"
+    "\u2600-\u27BF"
+    "\u2B00-\u2BFF"
+    "\uFE0F"
+    "\u20E3"
+    "\u2190-\u21FF"
+    "\u2300-\u23FF"
+)
+EMOJI_RE = re.compile(
+    "(?:"
+    "[\U0001F1E6-\U0001F1FF]{2}"  # flags (regional indicator pairs)
+    "|"
+    "[0-9#*]\uFE0F?\u20E3"  # keycaps
+    "|"
+    f"[{_EMOJI_CORE}]"
+    f"(?:[\U0001F3FB-\U0001F3FF\uFE0E\uFE0F])*"
+    f"(?:\u200D[{_EMOJI_CORE}][\U0001F3FB-\U0001F3FF\uFE0E\uFE0F]*)*"
+    ")"
+)
+
+
+def is_emoji_cluster(chunk: str) -> bool:
+    """Plain ASCII/dingbat-ish matches are better drawn with the text font."""
+    if not chunk:
+        return False
+    if all(ch in "0123456789#*" for ch in chunk.replace("\uFE0F", "").replace("\u20E3", "")):
+        return "\u20E3" in chunk
+    return any(ord(ch) >= 0x1F000 or 0x2600 <= ord(ch) <= 0x27BF for ch in chunk)
+
+
+def split_emoji_runs(text: str) -> list[tuple[bool, str]]:
+    """Split into (is_emoji, chunk) runs, preserving order."""
+    runs: list[tuple[bool, str]] = []
+    pos = 0
+    for m in EMOJI_RE.finditer(text):
+        if not is_emoji_cluster(m.group()):
+            continue
+        if m.start() > pos:
+            runs.append((False, text[pos : m.start()]))
+        runs.append((True, m.group()))
+        pos = m.end()
+    if pos < len(text):
+        runs.append((False, text[pos:]))
+    return [r for r in runs if r[1]]
+
+
+_emoji_glyph_cache: dict[tuple[str, int], object] = {}
+
+
+def emoji_glyph(cluster: str, target_px: int):
+    """RGBA image of one emoji scaled to roughly `target_px` tall, or None."""
+    key = (cluster, int(target_px))
+    if key in _emoji_glyph_cache:
+        return _emoji_glyph_cache[key]
+
+    font, strike = load_emoji_font(target_px)
+    glyph = None
+    if font is not None:
+        canvas = Image.new("RGBA", (strike * 3, strike * 3), (0, 0, 0, 0))
+        d = ImageDraw.Draw(canvas)
+        try:
+            d.text((strike // 2, strike // 2), cluster, font=font, embedded_color=True)
+            box = canvas.getbbox()
+            if box:
+                cropped = canvas.crop(box)
+                scale = target_px / max(1, cropped.height)
+                size = (
+                    max(1, int(round(cropped.width * scale))),
+                    max(1, int(round(cropped.height * scale))),
+                )
+                glyph = cropped.resize(size, Image.LANCZOS)
+        except (OSError, ValueError):
+            glyph = None
+
+    _emoji_glyph_cache[key] = glyph
+    return glyph
+
+
 def hex_to_rgba(hex_color: str, alpha: int = 255) -> tuple[int, int, int, int]:
     c = (hex_color or "#FFFFFF").lstrip("#")
     if len(c) == 3:
@@ -86,6 +217,79 @@ def draw_text_outline(
 def measure(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont) -> tuple[int, int]:
     bbox = draw.textbbox((0, 0), text, font=font)
     return bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+
+def emoji_px_for(font: ImageFont.FreeTypeFont) -> int:
+    """Match emoji height to the surrounding capitals."""
+    try:
+        ascent, _ = font.getmetrics()
+        return max(8, int(round(ascent * 0.92)))
+    except Exception:
+        return max(8, int(round(getattr(font, "size", 32) * 0.9)))
+
+
+def measure_rich(
+    draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont
+) -> tuple[int, int]:
+    """Width/height of mixed text + emoji, matching what draw_rich_text lays out."""
+    runs = split_emoji_runs(text)
+    if not any(is_emoji for is_emoji, _ in runs):
+        return measure(draw, text, font)
+    px = emoji_px_for(font)
+    total_w = 0
+    max_h = 0
+    for is_emoji, chunk in runs:
+        if is_emoji:
+            glyph = emoji_glyph(chunk, px)
+            total_w += glyph.width + max(1, px // 12) if glyph else measure(draw, chunk, font)[0]
+            max_h = max(max_h, px)
+        else:
+            w, h = measure(draw, chunk, font)
+            total_w += w
+            max_h = max(max_h, h)
+    return total_w, max_h
+
+
+def draw_rich_text(
+    img: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[float, float],
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    fill: tuple[int, int, int, int],
+    outline: tuple[int, int, int, int] = (0, 0, 0, 255),
+    width: int = 6,
+) -> int:
+    """
+    Draw text where emoji are pasted as colour bitmaps and everything else uses
+    the outlined text font. Returns the advance width.
+    """
+    runs = split_emoji_runs(text)
+    if not any(is_emoji for is_emoji, _ in runs):
+        draw_text_outline(draw, xy, text, font, fill, outline, width)
+        return measure(draw, text, font)[0]
+
+    x, y = xy
+    px = emoji_px_for(font)
+    alpha = fill[3] if len(fill) > 3 else 255
+    for is_emoji, chunk in runs:
+        if not is_emoji:
+            draw_text_outline(draw, (x, y), chunk, font, fill, outline, width)
+            x += measure(draw, chunk, font)[0]
+            continue
+        glyph = emoji_glyph(chunk, px)
+        if glyph is None:
+            # No colour emoji font available — keep the text run readable
+            draw_text_outline(draw, (x, y), chunk, font, fill, outline, width)
+            x += measure(draw, chunk, font)[0]
+            continue
+        layer = glyph
+        if alpha < 255:
+            layer = glyph.copy()
+            layer.putalpha(layer.getchannel("A").point(lambda a: int(a * alpha / 255)))
+        img.alpha_composite(layer, (int(round(x)), int(round(y))))
+        x += layer.width + max(1, px // 12)
+    return int(round(x - xy[0]))
 
 
 def make_title_overlay(cfg: dict, out: Path) -> None:
@@ -147,7 +351,7 @@ def make_title_overlay(cfg: dict, out: Path) -> None:
         total_w = 0
         max_h = 0
         for i, (text, _) in enumerate(words):
-            tw, th = measure(draw, text, font)
+            tw, th = measure_rich(draw, text, font)
             total_w += tw
             if i > 0:
                 sw, _ = measure(draw, " ", font)
@@ -173,9 +377,9 @@ def make_title_overlay(cfg: dict, out: Path) -> None:
             if i > 0:
                 sw, _ = measure(draw, " ", font)
                 x += sw
-            draw_text_outline(draw, (x, y), text, font, color, width=max(3, font_size // 14))
-            tw, _ = measure(draw, text, font)
-            x += tw
+            x += draw_rich_text(
+                img, draw, (x, y), text, font, color, width=max(3, font_size // 14)
+            )
         y += lh + line_gap
 
     img.save(out)
@@ -258,7 +462,8 @@ def make_ranks_overlay(cfg: dict, out: Path) -> None:
 
         y = start_y + i * gap
         tw, _ = measure(draw, f"{rank}.", font)
-        draw_text_outline(
+        draw_rich_text(
+            img,
             draw,
             (start_x + tw + 18, y + font_size * 0.28),
             label,

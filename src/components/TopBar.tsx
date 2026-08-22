@@ -36,6 +36,7 @@ import {
 } from "@/lib/channels";
 import { saveFilmArchive } from "@/lib/projectHistory";
 import { FilmHistoryModal } from "./FilmHistoryModal";
+import { EmojiPicker } from "./EmojiPicker";
 
 export function TopBar({
   isPlaying,
@@ -402,6 +403,7 @@ export function TopBar({
       </div>
 
       <div className="topbar-actions">
+        <EmojiPicker />
         <div
           className="channel-picker"
           title="Upload channel — sets export folder, filename, and subscribe sticker"

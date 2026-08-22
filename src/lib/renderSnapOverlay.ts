@@ -1,8 +1,16 @@
-import { OUTPUT_HEIGHT, OUTPUT_WIDTH, type OverlayPlacement } from "@/lib/types";
+import {
+  EMOJI_FONT_STACK,
+  OUTPUT_HEIGHT,
+  OUTPUT_WIDTH,
+  type OverlayPlacement,
+} from "@/lib/types";
 
-/** Public Sans — OFL substitute for proprietary Snapchat Sans (Kapwing et al.). */
+/**
+ * Public Sans — OFL substitute for proprietary Snapchat Sans (Kapwing et al.).
+ * The emoji families trail so captions burn in with the platform colour emoji.
+ */
 export const SNAP_FONT_STACK =
-  '"Public Sans", "Helvetica Neue", Helvetica, Arial, sans-serif';
+  `"Public Sans", "Helvetica Neue", Helvetica, Arial, sans-serif, ${EMOJI_FONT_STACK}`;
 
 /** Classic Snapchat caption bar: ~55% black, full bleed. */
 export const SNAP_BAR_BG = "rgba(0, 0, 0, 0.55)";
