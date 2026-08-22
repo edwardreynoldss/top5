@@ -25,6 +25,7 @@ import {
   getClipHook,
   hookDuration,
   clipPlayDuration,
+  clipShortText,
   defaultCrop,
   normalizeCrop,
   normalizeBedMusic,
@@ -82,6 +83,8 @@ export function ClipCard({ clip }: { clip: RankClip }) {
 
   const color = project.settings.rankColors[clip.rank] || "#fff";
   const busy = clip.status === "loading";
+  const inDepth = project.settings.inDepthRanking === true;
+  const afterText = clipShortText(clip);
   const clipCrop = getClipCrop(clip);
   const thumbLayout = cropPreviewStyle(clipCrop, {
     frameAspect: 9 / 16,
@@ -377,11 +380,26 @@ export function ClipCard({ clip }: { clip: RankClip }) {
           <div className="clip-top">
             <input
               className="input label-input"
-              placeholder="Label (e.g. WEEE)"
+              placeholder="Name (e.g. Cat Running)"
               value={clip.label}
               onChange={(e) => updateClip(clip.id, { label: e.target.value })}
               onClick={(e) => e.stopPropagation()}
             />
+            <label
+              className="clip-score"
+              title="Ranking added after the name once this clip has played"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                className="input"
+                placeholder="8.11"
+                inputMode="decimal"
+                value={clip.score || ""}
+                aria-label={`Ranking out of 10 for rank ${clip.rank}`}
+                onChange={(e) => updateClip(clip.id, { score: e.target.value })}
+              />
+              <span>/10</span>
+            </label>
             {clip.status === "ready" && (
               <div className="clip-actions">
                 <button
@@ -410,6 +428,21 @@ export function ClipCard({ clip }: { clip: RankClip }) {
               </div>
             )}
           </div>
+
+          <label className="field clip-description" onClick={(e) => e.stopPropagation()}>
+            <span>Description — shows while this clip plays</span>
+            <input
+              className="input"
+              placeholder="This Cat does NOT care 😂"
+              value={clip.inDepthText || ""}
+              onChange={(e) => updateClip(clip.id, { inDepthText: e.target.value })}
+            />
+          </label>
+          {inDepth && afterText ? (
+            <p className="muted clip-after-hint">
+              After it plays: “{clip.rank}. {afterText}”
+            </p>
+          ) : null}
 
           {fileDragOver && (
             <div className="clip-drop-overlay" aria-hidden>

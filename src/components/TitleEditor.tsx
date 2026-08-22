@@ -22,7 +22,6 @@ export function TitleEditor({
     removeTitleWord,
     setTitleLines,
     updateSettings,
-    updateClip,
   } = useEditor();
   const { title, ranksLayout, rankColors } = project.settings;
   const inDepth = project.settings.inDepthRanking === true;
@@ -265,69 +264,14 @@ export function TitleEditor({
 
       <CollapsibleSection
         title="Rank numbers"
-        subtitle="Titles, position, size, label fade, colors 1–5"
+        subtitle="Position, size, label fade, colors 1–5"
         open={!!sectionOpen.ranks}
         onToggle={() => toggle("ranks")}
       >
-        <p className="field-label">Titles under each number</p>
-        <div className="rank-title-list">
-          {[1, 2, 3, 4, 5].map((r) => {
-            const clip = project.clips.find((c) => c.rank === r);
-            return (
-              <div key={r} className="rank-title-group">
-                <label className="field rank-title-field">
-                  <span>#{r}</span>
-                  <input
-                    className="input"
-                    placeholder={clip ? "Label (e.g. WEEE)" : "No clip"}
-                    value={clip?.label || ""}
-                    disabled={!clip}
-                    onChange={(e) => {
-                      if (!clip) return;
-                      updateClip(clip.id, { label: e.target.value });
-                    }}
-                  />
-                </label>
-                {inDepth ? (
-                  <>
-                    <label className="field rank-title-field">
-                      <span title="Shown while this clip plays">While</span>
-                      <input
-                        className="input"
-                        placeholder="This Cat does NOT care 😂"
-                        value={clip?.inDepthText || ""}
-                        disabled={!clip}
-                        onChange={(e) => {
-                          if (!clip) return;
-                          updateClip(clip.id, { inDepthText: e.target.value });
-                        }}
-                      />
-                    </label>
-                    <label className="field rank-title-field">
-                      <span title="Appended after the clip has played">Score</span>
-                      <input
-                        className="input"
-                        placeholder="8.12"
-                        value={clip?.score || ""}
-                        disabled={!clip}
-                        onChange={(e) => {
-                          if (!clip) return;
-                          updateClip(clip.id, { score: e.target.value });
-                        }}
-                      />
-                    </label>
-                  </>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-        {inDepth ? (
-          <p className="muted edge-crop-hint">
-            While playing: “{"{#}"}. While-text”. After it plays: “{"{#}"}. Label -
-            Score”.
-          </p>
-        ) : null}
+        <p className="muted edge-crop-hint">
+          Names, descriptions and rankings live on each card in{" "}
+          <strong>Clips</strong>.
+        </p>
 
         <div className="field-grid">
           <label className="field">

@@ -10,6 +10,7 @@ import type {
   ProjectSettings,
   RankClip,
   RankLayout,
+  RankListOrder,
   SnapTextStyle,
   StickerOverlay,
   TitleLine,
@@ -542,6 +543,7 @@ export function builtInDefaultSettings(): ProjectSettings {
     transitionSound: defaultTransitionSound(),
     playOrder: "countdown",
     customOrder: [],
+    rankListOrder: "auto",
     inDepthRanking: false,
     transition: "flash",
     transitionDuration: 0.25,
@@ -682,6 +684,46 @@ export function sortClipsForPlayback(
   );
 }
 
+/**
+ * Order of the rank rows drawn on screen. Always a plain rank sort, so a custom
+ * playback sequence changes only *when* a label appears, not where its number
+ * sits (5 stays on top, 1 stays at the bottom).
+ */
+export type RankListOrderInput =
+  | RankListOrder
+  | (Pick<ProjectSettings, "playOrder"> & { rankListOrder?: RankListOrder });
+
+export function normalizeRankListOrder(value: unknown): RankListOrder {
+  return value === "descending" || value === "ascending" ? value : "auto";
+}
+
+export function rankListDirection(
+  input: RankListOrderInput
+): "descending" | "ascending" {
+  const mode = typeof input === "string" ? input : input.rankListOrder ?? "auto";
+  if (mode === "descending" || mode === "ascending") return mode;
+  const playOrder = typeof input === "string" ? null : input.playOrder;
+  return playOrder === "ascending" ? "ascending" : "descending";
+}
+
+export function sortClipsForRankList(
+  clips: RankClip[],
+  input: RankListOrderInput
+): RankClip[] {
+  const dir = rankListDirection(input);
+  return [...clips].sort((a, b) =>
+    dir === "descending" ? b.rank - a.rank : a.rank - b.rank
+  );
+}
+
+/** Rank numbers top to bottom — what the export sends for its overlay rows. */
+export function rankListRanks(
+  clips: RankClip[],
+  input: RankListOrderInput
+): number[] {
+  return sortClipsForRankList(clips, input).map((c) => c.rank);
+}
+
 export function getPlaybackOrder(clips: RankClip[], input: PlaybackOrderInput) {
   return sortClipsForPlayback(clips, input).filter(
     (c) => c.status === "ready" && c.mediaUrl
@@ -706,24 +748,42 @@ export function shuffleOrderIds(ids: string[]): string[] {
   return out;
 }
 
-/** Long line shown beside the rank while this clip plays (In Depth Ranking). */
+/** Description shown beside the rank while this clip plays (In Depth Ranking). */
 export function clipInDepthText(clip: Pick<RankClip, "label" | "inDepthText">) {
   const long = (clip.inDepthText || "").trim();
   return long || (clip.label || "").trim();
 }
 
-/** Short line shown once the clip has played: "Careless Cat - 8.12". */
+const BARE_SCORE = /^\d+(?:[.,]\d+)?$/;
+const SCORE_OUT_OF = /^(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)$/;
+const SCORE_DENOMINATOR_ONLY = /^\/\s*\d+(?:[.,]\d+)?$/;
+
+/**
+ * Score as it reads after the clip: the user types the number and we add the
+ * "/10". A score that already carries its own denominator keeps it (so saved
+ * "8.12/10" never becomes "8.12/10/10"), a lone "/10" counts as no score, and
+ * anything that isn't a number is left exactly as typed.
+ */
+export function formatClipScore(raw?: string | null) {
+  const score = (raw || "").trim();
+  if (!score || SCORE_DENOMINATOR_ONLY.test(score)) return "";
+  if (BARE_SCORE.test(score)) return `${score}/10`;
+  const outOf = score.match(SCORE_OUT_OF);
+  return outOf ? `${outOf[1]}/${outOf[2]}` : score;
+}
+
+/** Name + score shown once the clip has played: "Cat Running - 8.11/10". */
 export function clipShortText(clip: Pick<RankClip, "label" | "score">) {
   const name = (clip.label || "").trim();
-  const score = (clip.score || "").trim();
+  const score = formatClipScore(clip.score);
   if (name && score) return `${name} - ${score}`;
   return name || score;
 }
 
 /**
  * Text beside a rank for the current playback state.
- * In Depth Ranking swaps the playing clip to its long line and everything
- * already played to "label - score"; otherwise it's just the label.
+ * In Depth Ranking swaps the playing clip to its description and everything
+ * already played to "name - score/10"; otherwise it's just the label.
  */
 export function rankDisplayText(
   clip: Pick<RankClip, "label" | "inDepthText" | "score">,

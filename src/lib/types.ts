@@ -4,6 +4,12 @@ export type TransitionType = "cut" | "flash" | "zoom";
  * sequence, so rank numbers stay attached to their clip (e.g. 4 → 2 → 1 → 5 → 3).
  */
 export type PlayOrder = "countdown" | "ascending" | "custom";
+/**
+ * Top-to-bottom order of the rank numbers drawn on screen, independent of
+ * playback order. "auto" follows {@link PlayOrder} (ascending reads 1→5,
+ * everything else 5→1) so the list never shuffles with a custom sequence.
+ */
+export type RankListOrder = "auto" | "descending" | "ascending";
 export type AspectMode = "blur-pad" | "crop-fill";
 export type TextAlign = "left" | "center" | "right";
 
@@ -79,13 +85,13 @@ export interface RankClip {
   /** Short name shown next to the rank once the clip has played. */
   label: string;
   /**
-   * In Depth Ranking only: longer line shown while this clip is playing
+   * In Depth Ranking only: description shown while this clip is playing
    * (e.g. "This Cat does NOT care 😂"). Falls back to {@link label}.
    */
   inDepthText?: string;
   /**
-   * In Depth Ranking only: score appended to the short label after the clip
-   * has played (e.g. "8.12" → "Careless Cat - 8.12"). Free text.
+   * In Depth Ranking only: ranking out of 10 shown after the clip has played
+   * (e.g. "8.11" → "Cat Running - 8.11/10"). Typed without the "/10".
    */
   score?: string;
   mediaId: string | null;
@@ -254,8 +260,13 @@ export interface ProjectSettings {
    */
   customOrder: string[];
   /**
-   * In Depth Ranking: the playing clip shows its long line, and clips that
-   * already played show "label - score" instead.
+   * Where each rank number sits on screen. Playback order only decides when a
+   * label appears — never which row the number is drawn on.
+   */
+  rankListOrder: RankListOrder;
+  /**
+   * In Depth Ranking: the playing clip shows its description, and clips that
+   * already played show "name - score/10" instead.
    */
   inDepthRanking: boolean;
   transition: TransitionType;

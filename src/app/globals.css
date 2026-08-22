@@ -1149,22 +1149,6 @@ a {
   font-size: 0.72rem;
 }
 
-.rank-title-list {
-  display: grid;
-  gap: 0.4rem;
-  margin: 0 0 0.85rem;
-}
-
-.rank-title-group {
-  display: grid;
-  gap: 0.25rem;
-  padding-bottom: 0.35rem;
-  border-bottom: 1px solid var(--border);
-}
-.rank-title-group:last-child {
-  border-bottom: 0;
-}
-
 .custom-order-field {
   display: grid;
   gap: 0.45rem;
@@ -1203,19 +1187,6 @@ a {
 .custom-order-row .icon-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
-}
-
-.rank-title-field {
-  display: grid;
-  grid-template-columns: 2rem 1fr;
-  gap: 0.45rem;
-  align-items: center;
-}
-
-.rank-title-field > span {
-  font-weight: 700;
-  font-size: 0.82rem;
-  color: var(--muted);
 }
 
 .rank-row {
@@ -1607,6 +1578,37 @@ a {
 
 .label-input {
   flex: 1;
+}
+
+.clip-score {
+  display: grid;
+  grid-template-columns: 3.6rem auto;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.clip-score input {
+  text-align: right;
+  padding-inline: 0.4rem;
+}
+
+.clip-description {
+  gap: 0.2rem;
+  margin-bottom: 0.55rem;
+}
+
+.clip-description > span {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.clip-after-hint {
+  margin: -0.3rem 0 0.5rem;
+  font-size: 0.72rem;
 }
 
 .clip-actions {

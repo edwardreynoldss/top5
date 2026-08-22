@@ -8,7 +8,7 @@ import { AddSfxAtTimeModal } from "./AddSfxAtTimeModal";
 import { AddOverlayAtTimeModal, SnapCaptionView } from "./AddOverlayAtTimeModal";
 import {
   getPlaybackOrder,
-  sortClipsForPlayback,
+  sortClipsForRankList,
   rankDisplayText,
   inDepthLabelOpacity,
   clipPlayDuration,
@@ -1468,9 +1468,11 @@ export function PreviewPhone({
   const title = settings.title;
   const ranksLayout = settings.ranksLayout;
   const inDepth = settings.inDepthRanking === true;
+  // Rows are pinned to rank order; playback order only decides when a label
+  // lands on its number.
   const ranksToShow = useMemo(
-    () => sortClipsForPlayback(project.clips, settings),
-    [project.clips, settings.playOrder, settings.customOrder]
+    () => sortClipsForRankList(project.clips, settings),
+    [project.clips, settings.playOrder, settings.rankListOrder]
   );
 
   /** 0–1 through the playing clip, used to ease its In Depth line down. */

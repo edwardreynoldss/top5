@@ -27,6 +27,7 @@ import {
   getClipGapAfter,
   getHookGapAfter,
   clipTimelineOffsets,
+  rankListRanks,
 } from "@/lib/defaults";
 import { ensureSfxOnServer } from "@/lib/sfxLibrary";
 import { renderSnapCaptionPng } from "@/lib/renderSnapOverlay";
@@ -284,6 +285,8 @@ export function TopBar({
           playOrder: settings.playOrder,
           // readyClips is already in playback order; ranks pin it for the server
           playbackRanks: readyClips.map((c) => c.rank),
+          // Where each number sits on screen, top to bottom — never the play order
+          rankListRanks: rankListRanks(readyClips, settings),
           inDepthRanking: settings.inDepthRanking === true,
           // Same helper the preview uses, so the whoosh lands identically
           transitionSfx: settings.transitionSound?.enabled
