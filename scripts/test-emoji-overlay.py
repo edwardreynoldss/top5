@@ -57,6 +57,29 @@ for sample in [
 ]:
     assert "".join(chunk for _, chunk in runs(sample)) == sample, sample
 
+# --- UTF-8 config load: Windows locale must not turn 😂 into ðŸ˜‚ ---
+import json as _json
+
+_td_enc = Path(tempfile.mkdtemp())
+_label = "This does NOT add flavour 😂"
+_cfg_path = _td_enc / "overlay.json"
+# Same bytes Node writes for export configs
+_cfg_path.write_bytes(
+    _json.dumps(
+        {
+            "activeRank": 3,
+            "ranks": [{"rank": 3, "label": _label}],
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+)
+# Simulate the old Windows default and prove it mangles
+_mangled = _json.loads(_cfg_path.read_text(encoding="cp1252"))["ranks"][0]["label"]
+assert "ðŸ˜" in _mangled or "ðŸ" in _mangled, _mangled
+assert "😂" not in _mangled
+_loaded = m.load_overlay_config(_cfg_path)
+assert _loaded["ranks"][0]["label"] == _label, repr(_loaded["ranks"][0]["label"])
+
 # --- rendering: emoji come out in colour, plain text is untouched ---
 td = Path(tempfile.mkdtemp())
 

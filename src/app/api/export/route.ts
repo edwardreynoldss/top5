@@ -988,7 +988,7 @@ export async function POST(req: NextRequest) {
     };
 
     const cfgPath = path.join(jobDir, "overlay.json");
-    writeFileSync(cfgPath, JSON.stringify(titleCfg));
+    writeFileSync(cfgPath, JSON.stringify(titleCfg), "utf8");
 
     const titleOverlay = path.join(jobDir, "title.png");
     const script = path.join(process.cwd(), "scripts", "generate-overlays.py");
@@ -1074,7 +1074,7 @@ export async function POST(req: NextRequest) {
         })),
       };
       const perCfgPath = path.join(jobDir, `overlay-${i}.json`);
-      writeFileSync(perCfgPath, JSON.stringify(perCfg));
+      writeFileSync(perCfgPath, JSON.stringify(perCfg), "utf8");
 
       await runCommand("python3", [
         script,
@@ -1119,7 +1119,8 @@ export async function POST(req: NextRequest) {
             ...perCfg,
             onlyActiveLabel: true,
             activeLabelAlpha: fadeLayerAlpha * fStart,
-          })
+          }),
+          "utf8"
         );
         await runCommand("python3", [
           script,

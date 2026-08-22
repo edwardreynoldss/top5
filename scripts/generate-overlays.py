@@ -475,13 +475,18 @@ def make_ranks_overlay(cfg: dict, out: Path) -> None:
     img.save(out)
 
 
+def load_overlay_config(path: str | Path) -> dict:
+    """Always decode as UTF-8 — locale defaults on Windows mangle emoji (ðŸ˜‚)."""
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--title-out", required=True)
     parser.add_argument("--ranks-out", required=True)
     args = parser.parse_args()
-    cfg = json.loads(Path(args.config).read_text())
+    cfg = load_overlay_config(args.config)
     make_title_overlay(cfg.get("title") or {}, Path(args.title_out))
     make_ranks_overlay(cfg, Path(args.ranks_out))
 
