@@ -261,7 +261,7 @@ def make_ranks_overlay(cfg: dict, out: Path) -> None:
         draw_text_outline(
             draw,
             (start_x + tw + 18, y + font_size * 0.28),
-            label.upper(),
+            label,
             label_font,
             (255, 255, 255, label_a),
             outline=(0, 0, 0, label_a),

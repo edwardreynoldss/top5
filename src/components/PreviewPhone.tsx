@@ -1599,7 +1599,7 @@ export function PreviewPhone({
                           opacity: labelOpacity,
                         }}
                       >
-                        {text.toUpperCase()}
+                        {text}
                       </span>
                     ) : null}
                   </div>
