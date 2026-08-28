@@ -384,7 +384,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
             }}
           >
             {RANK_SLOTS.map((n) => (
-              <option key={n} value={n}>
+              <option key={n} value={n} style={{ color: "#111", background: "#fff" }}>
                 {n}
               </option>
             ))}
