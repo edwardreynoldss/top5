@@ -35,6 +35,10 @@ import {
   findClipAtAbsoluteTime,
   formatTime,
   effectiveSfxVolume,
+  sfxShouldCatchup,
+  sfxCrossedStart,
+  sfxPreviewSourceTime,
+  sfxTrimDuration,
   effectiveClipVolume,
   getSegmentSpeed,
   segmentPlayDuration,
@@ -93,6 +97,12 @@ export function PreviewPhone({
   const stickerArmedRef = useRef(false);
   const firedSfxRef = useRef<Set<string>>(new Set());
   const firedTransitionRef = useRef<Set<string>>(new Set());
+  /** True while a play session is running — clip advances must not re-arm SFX. */
+  const sfxArmedForPlayRef = useRef(false);
+  /** Last playhead used for live crossing detection. */
+  const lastSfxScanAbsRef = useRef(0);
+  /** Bumped on stop so in-flight canplay/timeouts cannot start a second play. */
+  const sfxSessionRef = useRef(0);
   const activeSfxRef = useRef<HTMLAudioElement[]>([]);
   /** Decoded, ready-to-play elements per asset so hits don't wait on a load. */
   const sfxPoolRef = useRef<Map<string, HTMLAudioElement[]>>(new Map());
@@ -448,6 +458,7 @@ export function PreviewPhone({
   ]);
 
   function stopAllSfx() {
+    sfxSessionRef.current += 1;
     for (const a of activeSfxRef.current) {
       try {
         sfxStopRef.current.get(a)?.();
@@ -501,26 +512,45 @@ export function PreviewPhone({
 
   function playTransitionHit(
     hit: { clipId: string; startAt: number; volume: number },
-    absNow: number
+    absNow: number,
+    mode: "live" | "catchup"
   ) {
     if (firedTransitionRef.current.has(hit.clipId)) return;
     if (!transitionSoundUrl) return;
-    const end = hit.startAt + TRANSITION_SOUND_MAX_LEN;
-    if (absNow < hit.startAt - 0.03 || absNow >= end - 0.02) return;
+    const start = hit.startAt;
+    const trimEnd = TRANSITION_SOUND_MAX_LEN;
+    if (mode === "catchup") {
+      if (!sfxShouldCatchup(absNow, start, 0, trimEnd)) return;
+    } else if (!sfxCrossedStart(lastSfxScanAbsRef.current, absNow, start, 0, trimEnd)) {
+      return;
+    }
 
     firedTransitionRef.current.add(hit.clipId);
     const audio = acquireSfxAudio(TRANSITION_POOL_KEY, transitionSoundUrl);
     audio.volume = Math.min(1, Math.max(0, hit.volume));
+    const from = sfxPreviewSourceTime(absNow, start, 0, trimEnd, mode === "catchup");
+    const session = sfxSessionRef.current;
+    let started = false;
     const startPlayback = () => {
-      const into = Math.max(0, absTimeRef.current - hit.startAt);
+      if (started || session !== sfxSessionRef.current) return;
+      started = true;
       try {
-        if (Math.abs(audio.currentTime - into) > 0.02) audio.currentTime = into;
+        if (Math.abs(audio.currentTime - from) > 0.02) audio.currentTime = from;
       } catch {
         // ignore seek errors on thin metadata
       }
       void audio.play().catch(() => undefined);
     };
     if (!activeSfxRef.current.includes(audio)) activeSfxRef.current.push(audio);
+    const fallback = window.setTimeout(() => {
+      if (audio.paused && !audio.ended) startPlayback();
+    }, 40);
+    const detach = () => {
+      window.clearTimeout(fallback);
+      audio.removeEventListener("canplay", startPlayback);
+      sfxStopRef.current.delete(audio);
+    };
+    sfxStopRef.current.set(audio, detach);
     if (audio.readyState >= 2) startPlayback();
     else {
       audio.addEventListener("canplay", startPlayback, { once: true });
@@ -529,9 +559,6 @@ export function PreviewPhone({
       } catch {
         startPlayback();
       }
-      window.setTimeout(() => {
-        if (audio.paused && !audio.ended) startPlayback();
-      }, 40);
     }
   }
 
@@ -543,22 +570,27 @@ export function PreviewPhone({
       placements
         .filter((p) => {
           const start = resolveSfxStartAt(p, offsets);
-          const dur = Math.max(0.05, (p.trimEnd ?? 0) - (p.trimStart ?? 0));
+          const dur = sfxTrimDuration(p.trimStart, p.trimEnd);
           return start + dur <= fromAbs + 0.02;
         })
         .map((p) => p.id)
     );
   }
 
-  function playSfxPlacement(p: (typeof placements)[number], absNow: number) {
+  function playSfxPlacement(
+    p: (typeof placements)[number],
+    absNow: number,
+    mode: "live" | "catchup"
+  ) {
     if (firedSfxRef.current.has(p.id)) return;
     const start = resolveSfxStartAt(p, offsets);
     const trimStart = Math.max(0, p.trimStart ?? 0);
     const trimEnd = Math.max(trimStart + 0.05, p.trimEnd ?? trimStart + 1);
-    const dur = trimEnd - trimStart;
-    const end = start + dur;
-    // Catch late: if we crossed the start, still play the remaining tail
-    if (absNow < start - 0.03 || absNow >= end - 0.02) return;
+    if (mode === "catchup") {
+      if (!sfxShouldCatchup(absNow, start, trimStart, trimEnd)) return;
+    } else if (!sfxCrossedStart(lastSfxScanAbsRef.current, absNow, start, trimStart, trimEnd)) {
+      return;
+    }
 
     const asset = assets.find((a) => a.id === p.assetId);
     if (!asset?.mediaUrl) return;
@@ -569,11 +601,20 @@ export function PreviewPhone({
     const audio = acquireSfxAudio(asset.id, url);
     audio.volume = Math.min(1, Math.max(0, effectiveSfxVolume(asset.volume, p.volume)));
 
-    // Seek to where the render would already be at this instant, measured when
-    // playback actually begins rather than when the hit was queued.
+    // Freeze the source offset at fire time. Recomputing from absTimeRef after
+    // canplay/load delay skipped the attack and made preview quieter than export.
+    const from = sfxPreviewSourceTime(
+      absNow,
+      start,
+      trimStart,
+      trimEnd,
+      mode === "catchup"
+    );
+    const session = sfxSessionRef.current;
+    let started = false;
     const startPlayback = () => {
-      const into = Math.max(0, absTimeRef.current - start);
-      const from = Math.min(trimStart + into, trimEnd - 0.02);
+      if (started || session !== sfxSessionRef.current) return;
+      started = true;
       try {
         if (Math.abs(audio.currentTime - from) > 0.02) {
           audio.currentTime = from;
@@ -591,7 +632,11 @@ export function PreviewPhone({
         detach();
       }
     };
+    const fallback = window.setTimeout(() => {
+      if (audio.paused && !audio.ended) startPlayback();
+    }, 40);
     const detach = () => {
+      window.clearTimeout(fallback);
       audio.removeEventListener("timeupdate", onAudioTime);
       audio.removeEventListener("canplay", startPlayback);
       sfxStopRef.current.delete(audio);
@@ -613,10 +658,6 @@ export function PreviewPhone({
       } catch {
         startPlayback();
       }
-      // Fallback if canplay never fires (cached / drop-folder stream)
-      window.setTimeout(() => {
-        if (audio.paused && !audio.ended) startPlayback();
-      }, 40);
     }
   }
 
@@ -774,14 +815,19 @@ export function PreviewPhone({
     if (!fg) return;
 
     if (isPlaying && activeClip?.mediaUrl && mediaReady) {
-      resetSfxFiring(absTime);
-      resetTransitionFiring(absTime);
-      // Fire immediately on play (don't wait for timeupdate) so 0.00s hits are instant
-      for (const p of placements) {
-        playSfxPlacement(p, absTime);
-      }
-      for (const hit of transitionHits) {
-        playTransitionHit(hit, absTime);
+      // Arm once per play session. Re-arming on every clip/mediaReady cycle
+      // re-fired in-window SFX (often mid-sample) throughout the preview.
+      if (!sfxArmedForPlayRef.current) {
+        sfxArmedForPlayRef.current = true;
+        lastSfxScanAbsRef.current = absTime;
+        resetSfxFiring(absTime);
+        resetTransitionFiring(absTime);
+        for (const p of placements) {
+          playSfxPlacement(p, absTime, "catchup");
+        }
+        for (const hit of transitionHits) {
+          playTransitionHit(hit, absTime, "catchup");
+        }
       }
       safePlay(fg);
       if (bg) {
@@ -789,6 +835,7 @@ export function PreviewPhone({
         safePlay(bg);
       }
     } else if (!isPlaying) {
+      sfxArmedForPlayRef.current = false;
       fg.pause();
       bg?.pause();
       stopAllSfx();
@@ -798,17 +845,18 @@ export function PreviewPhone({
   }, [isPlaying, activeClip?.id, activeClip?.mediaUrl, mediaReady, onPlayingChange]);
 
   // Fire SFX as the playhead crosses their start — including startAt === 0.
-  // Uses a wide catch window + seek-into so a late timeupdate still plays the hit.
   useEffect(() => {
     if (!isPlaying || totalDur <= 0) return;
+    if (advancingRef.current || !mediaReady) return;
     for (const p of placements) {
-      playSfxPlacement(p, absTime);
+      playSfxPlacement(p, absTime, "live");
     }
     for (const hit of transitionHits) {
-      playTransitionHit(hit, absTime);
+      playTransitionHit(hit, absTime, "live");
     }
+    lastSfxScanAbsRef.current = absTime;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [absTime, isPlaying, placements, assets, offsets, totalDur, transitionHits]);
+  }, [absTime, isPlaying, placements, assets, offsets, totalDur, transitionHits, mediaReady]);
 
   // Drive black-gap hold on wall clock (video is paused)
   useEffect(() => {
@@ -1010,10 +1058,17 @@ export function PreviewPhone({
           setTransitionFlash(true);
           window.setTimeout(() => setTransitionFlash(false), 120);
         }
+        const nextClip = seq[next];
+        const nextStart = nextClip
+          ? getClipPlaybackSegments(nextClip)[0]?.start || 0
+          : 0;
         activeIndexRef.current = next;
         segIndexRef.current = 0;
         setActiveIndex(next);
         setSegIndex(0);
+        // Keep absTime continuous across the cut — leftover source time from
+        // the previous clip would spike the playhead and re-trigger SFX.
+        setLocalTime(nextStart);
         // advancingRef cleared when next clip media initializes
       } else {
         activeIndexRef.current = 0;

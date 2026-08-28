@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 
 /**
- * Preview seeks into the sample by however far the playhead already passed the
- * hit, so the audible position matches what ffmpeg's adelay produces.
+ * Live hits play from trimStart so the attack matches ffmpeg's atrim.
+ * Catch-up after pause/seek jumps into the sample to match adelay.
  */
-function previewSeek(absNow, start, trimStart, trimEnd) {
-  const into = Math.max(0, absNow - start);
-  return Math.min(trimStart + into, trimEnd - 0.02);
+function previewSeek(absNow, start, trimStart, trimEnd, catchup) {
+  const ts = Math.max(0, trimStart);
+  const te = Math.max(ts + 0.05, trimEnd);
+  const into = catchup ? Math.max(0, absNow - start) : 0;
+  return Math.min(ts + into, te - 0.02);
 }
 
 /** Where the rendered mix is inside the sample at this timeline instant. */
@@ -14,36 +16,36 @@ function renderPosition(absNow, start, trimStart) {
   return trimStart + (absNow - start);
 }
 
-// --- fired exactly on time: both start at the trim point ---
+// --- fired on time: both start at the trim point ---
 {
   const start = 4;
-  assert.equal(previewSeek(4, start, 0.5, 2), 0.5);
+  assert.equal(previewSeek(4, start, 0.5, 2, false), 0.5);
   assert.equal(renderPosition(4, start, 0.5), 0.5);
 }
 
-// --- fired a frame late: preview skips ahead so it stays aligned ---
+// --- a frame late during live play: still start at the attack, not seek into it ---
 {
   const start = 4;
   const absNow = 4 + 1 / 60;
-  const p = previewSeek(absNow, start, 0.5, 2);
-  const r = renderPosition(absNow, start, 0.5);
-  assert.ok(Math.abs(p - r) < 1e-9, `preview=${p} render=${r}`);
-  // Drift stays within a frame rather than the old ~250ms timeupdate gap
+  const p = previewSeek(absNow, start, 0.5, 2, false);
+  assert.equal(p, 0.5, "live play must not skip the transient");
   assert.ok(p - 0.5 < 0.02, `into=${p - 0.5}`);
 }
 
-// --- a late catch mid-sample still lines up with the render ---
+// --- resume/seek mid-sample still lines up with the render ---
 {
   const start = 10;
   const absNow = 10.4;
   assert.ok(
-    Math.abs(previewSeek(absNow, start, 0, 3) - renderPosition(absNow, start, 0)) < 1e-9
+    Math.abs(
+      previewSeek(absNow, start, 0, 3, true) - renderPosition(absNow, start, 0)
+    ) < 1e-9
   );
 }
 
 // --- never seeks past the trimmed tail ---
 {
-  assert.equal(previewSeek(99, 0, 0, 1.5), 1.48);
+  assert.equal(previewSeek(99, 0, 0, 1.5, true), 1.48);
 }
 
 /**

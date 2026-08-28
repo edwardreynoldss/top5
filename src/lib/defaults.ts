@@ -1788,6 +1788,62 @@ export function effectiveSfxVolume(
   );
 }
 
+/** Trimmed sample length used for SFX fire windows (matches export atrim). */
+export function sfxTrimDuration(trimStart?: number, trimEnd?: number) {
+  const ts = Math.max(0, trimStart ?? 0);
+  const te = Math.max(ts + 0.05, trimEnd ?? ts + 1);
+  return te - ts;
+}
+
+export function sfxWindowEnd(start: number, trimStart?: number, trimEnd?: number) {
+  return start + sfxTrimDuration(trimStart, trimEnd);
+}
+
+/** Resume/seek: play the remaining tail if the playhead is still inside the hit. */
+export function sfxShouldCatchup(
+  absNow: number,
+  start: number,
+  trimStart?: number,
+  trimEnd?: number
+) {
+  const end = sfxWindowEnd(start, trimStart, trimEnd);
+  return !(absNow < start - 0.03 || absNow >= end - 0.02);
+}
+
+/**
+ * Continuous playback: fire once when the playhead crosses the hit time.
+ * Ignores hits the playhead has already jumped past entirely.
+ */
+export function sfxCrossedStart(
+  prevAbs: number,
+  absNow: number,
+  start: number,
+  trimStart?: number,
+  trimEnd?: number
+) {
+  const end = sfxWindowEnd(start, trimStart, trimEnd);
+  if (absNow >= end - 0.02) return false;
+  return prevAbs < start && start <= absNow;
+}
+
+/**
+ * Sample position to start the preview element at.
+ * Live hits play from trimStart so the attack matches the export.
+ * Catch-up after pause/seek jumps into the sample to match ffmpeg adelay.
+ */
+export function sfxPreviewSourceTime(
+  absNow: number,
+  start: number,
+  trimStart: number,
+  trimEnd: number,
+  catchup: boolean
+) {
+  const ts = Math.max(0, trimStart);
+  const te = Math.max(ts + 0.05, trimEnd);
+  const into = catchup ? Math.max(0, absNow - start) : 0;
+  return Math.min(ts + into, te - 0.02);
+}
+
 /** Cycle Snapchat text styles the way the in-app carousel does. */
 export function nextSnapTextStyle(current: SnapTextStyle): SnapTextStyle {
   const i = SNAP_STYLES.indexOf(current);
