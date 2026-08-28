@@ -18,6 +18,7 @@ import {
   normalizeRanksLayout,
   playbackOrderIds,
   shuffleOrderIds,
+  moveIdInOrder,
   clipTimelineOffsets,
   pinSfxToClip,
 } from "./defaults";
@@ -507,24 +508,18 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const reorderClips = useCallback((activeId: string, overId: string) => {
     setProject((prev) => {
-      const oldIndex = prev.clips.findIndex((c) => c.id === activeId);
-      const newIndex = prev.clips.findIndex((c) => c.id === overId);
-      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return prev;
-
-      const next = [...prev.clips];
-      const [moved] = next.splice(oldIndex, 1);
-      next.splice(newIndex, 0, moved);
-
-      // A custom sequence owns playback order, so dragging cards only
-      // rearranges the editor list and must not rewrite ranks.
-      if (prev.settings.playOrder === "custom") {
-        return { ...prev, clips: next };
-      }
-      const ranks =
-        prev.settings.playOrder === "countdown" ? [5, 4, 3, 2, 1] : [1, 2, 3, 4, 5];
+      const orderIds = playbackOrderIds(prev.clips, prev.settings);
+      const nextIds = moveIdInOrder(orderIds, activeId, overId);
+      if (nextIds === orderIds) return prev;
+      // Dragging the right-side list sets the play sequence. Rank numbers stay
+      // on their clips (3 stays #3) so 3-5-2-1-4 can become 5-3-2-1-4.
       return {
         ...prev,
-        clips: next.map((clip, i) => ({ ...clip, rank: ranks[i] ?? clip.rank })),
+        settings: {
+          ...prev.settings,
+          playOrder: "custom",
+          customOrder: nextIds,
+        },
       };
     });
   }, []);

@@ -22,6 +22,7 @@ import {
   getClipHook,
   getHookGapAfter,
   getPlaybackOrder,
+  sortClipsForPlayback,
 } from "@/lib/defaults";
 
 export function ClipList() {
@@ -38,6 +39,7 @@ export function ClipList() {
     }
   }
 
+  const listOrder = sortClipsForPlayback(project.clips, project.settings);
   const playbackOrder = getPlaybackOrder(project.clips, project.settings);
   const playIndex = new Map(playbackOrder.map((c, i) => [c.id, i]));
 
@@ -46,7 +48,7 @@ export function ClipList() {
       <div className="panel-header">
         <h2>Clips</h2>
         <p className="muted">
-          Drag to reorder · drop a video onto a clip · tap{" "}
+          Drag to change play order · drop a video onto a clip · tap{" "}
           <strong>+ black</strong> between clips (or after a hook) for a short black hold
         </p>
         <p className="muted">
@@ -56,11 +58,11 @@ export function ClipList() {
       </div>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext
-          items={project.clips.map((c) => c.id)}
+          items={listOrder.map((c) => c.id)}
           strategy={verticalListSortingStrategy}
         >
           <div className="clip-list">
-            {project.clips.map((clip) => {
+            {listOrder.map((clip) => {
               const playIdx = playIndex.get(clip.id) ?? -1;
               const canSetAfter =
                 clip.status === "ready" &&

@@ -739,6 +739,17 @@ export function playbackOrderIds(
   return sortClipsForPlayback(clips, input).map((c) => c.id);
 }
 
+/** Move one id next to another in a playback sequence (right-side clip drag). */
+export function moveIdInOrder(ids: string[], activeId: string, overId: string) {
+  const oldIndex = ids.indexOf(activeId);
+  const newIndex = ids.indexOf(overId);
+  if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return ids;
+  const next = [...ids];
+  const [moved] = next.splice(oldIndex, 1);
+  next.splice(newIndex, 0, moved);
+  return next;
+}
+
 /** Fisher-Yates shuffle; press again for a different order. */
 export function shuffleOrderIds(ids: string[]): string[] {
   const out = [...ids];

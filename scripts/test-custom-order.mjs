@@ -31,6 +31,16 @@ function shuffleOrderIds(ids, rand = Math.random) {
   return out;
 }
 
+function moveIdInOrder(ids, activeId, overId) {
+  const oldIndex = ids.indexOf(activeId);
+  const newIndex = ids.indexOf(overId);
+  if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return ids;
+  const next = [...ids];
+  const [moved] = next.splice(oldIndex, 1);
+  next.splice(newIndex, 0, moved);
+  return next;
+}
+
 const clips = [1, 2, 3, 4, 5].map((rank) => ({
   id: `c${rank}`,
   rank,
@@ -51,7 +61,46 @@ assert.deepEqual(ranksOf(sortClipsForPlayback(clips, "ascending")), [1, 2, 3, 4,
   assert.deepEqual(ranksOf(sortClipsForPlayback(clips, settings)), [4, 2, 1, 5, 3]);
 }
 
-// --- rank numbers stay attached to their clip ---
+// --- dragging the right-side list updates play order, not rank numbers ---
+{
+  const settings = {
+    playOrder: "custom",
+    customOrder: ["c3", "c5", "c2", "c1", "c4"],
+  };
+  assert.deepEqual(ranksOf(sortClipsForPlayback(clips, settings)), [3, 5, 2, 1, 4]);
+
+  // Drag rank 5 in front of rank 3
+  const ids = moveIdInOrder(settings.customOrder, "c5", "c3");
+  const after = { playOrder: "custom", customOrder: ids };
+  assert.deepEqual(ranksOf(sortClipsForPlayback(clips, after)), [5, 3, 2, 1, 4]);
+  assert.equal(
+    clips.find((c) => c.id === "c3").rank,
+    3,
+    "rank numbers stay on their clip"
+  );
+  assert.equal(clips.find((c) => c.id === "c5").rank, 5);
+
+  // Drag rank 4 from last to second
+  const ids2 = moveIdInOrder(ids, "c4", "c3");
+  assert.deepEqual(
+    ranksOf(sortClipsForPlayback(clips, { playOrder: "custom", customOrder: ids2 })),
+    [5, 4, 3, 2, 1]
+  );
+}
+
+// --- countdown list drag becomes a custom sequence (5 stays #5, moves in line) ---
+{
+  const countdownIds = sortClipsForPlayback(clips, "countdown").map((c) => c.id);
+  assert.deepEqual(
+    ranksOf(sortClipsForPlayback(clips, { playOrder: "custom", customOrder: countdownIds })),
+    [5, 4, 3, 2, 1]
+  );
+  const dragged = moveIdInOrder(countdownIds, "c3", "c5");
+  assert.deepEqual(
+    ranksOf(sortClipsForPlayback(clips, { playOrder: "custom", customOrder: dragged })),
+    [3, 5, 4, 2, 1]
+  );
+}
 {
   const settings = { playOrder: "custom", customOrder: ["c3", "c1"] };
   const out = sortClipsForPlayback(clips, settings);
