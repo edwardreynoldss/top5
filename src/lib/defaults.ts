@@ -760,6 +760,31 @@ export function shuffleOrderIds(ids: string[]): string[] {
   return out;
 }
 
+export const RANK_SLOTS = [1, 2, 3, 4, 5] as const;
+
+/** Clamp to a 1–5 ranking number. */
+export function clampRank(rank: number) {
+  const n = Math.round(Number(rank));
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(5, n));
+}
+
+/**
+ * Set a clip's rank number, swapping with whoever already has that number
+ * so the five ranks stay unique.
+ */
+export function assignClipRank(clips: RankClip[], clipId: string, rank: number): RankClip[] {
+  const nextRank = clampRank(rank);
+  const target = clips.find((c) => c.id === clipId);
+  if (!target || target.rank === nextRank) return clips;
+  const occupant = clips.find((c) => c.rank === nextRank);
+  return clips.map((c) => {
+    if (c.id === clipId) return { ...c, rank: nextRank };
+    if (occupant && c.id === occupant.id) return { ...c, rank: target.rank };
+    return c;
+  });
+}
+
 /** Description shown beside the rank while this clip plays (In Depth Ranking). */
 export function clipInDepthText(clip: Pick<RankClip, "label" | "inDepthText">) {
   const long = (clip.inDepthText || "").trim();

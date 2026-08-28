@@ -39,6 +39,7 @@ import {
   getSegmentSpeed,
   clampClipSpeed,
   cropPreviewStyle,
+  RANK_SLOTS,
 } from "@/lib/defaults";
 
 function isVideoFile(file: File) {
@@ -55,7 +56,7 @@ function pickVideoFromDataTransfer(dt: DataTransfer | null): File | null {
 }
 
 export function ClipCard({ clip }: { clip: RankClip }) {
-  const { updateClip, selectedClipId, setSelectedClipId, project } = useEditor();
+  const { updateClip, setClipRank, selectedClipId, setSelectedClipId, project } = useEditor();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: clip.id });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -371,9 +372,24 @@ export function ClipCard({ clip }: { clip: RankClip }) {
           <GripVertical size={16} />
         </button>
 
-        <div className="clip-rank" style={{ color }}>
-          {clip.rank}
-        </div>
+        <label className="clip-rank" style={{ color }} title="Set this clip's rank number">
+          <select
+            value={clip.rank}
+            aria-label="Rank number"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              e.stopPropagation();
+              setClipRank(clip.id, parseInt(e.target.value, 10));
+            }}
+          >
+            {RANK_SLOTS.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <div className="clip-body">
           <div className="clip-top">

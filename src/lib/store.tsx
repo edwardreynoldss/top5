@@ -19,6 +19,7 @@ import {
   playbackOrderIds,
   shuffleOrderIds,
   moveIdInOrder,
+  assignClipRank,
   clipTimelineOffsets,
   pinSfxToClip,
 } from "./defaults";
@@ -88,6 +89,7 @@ interface EditorContextValue {
   addChannel: (name: string) => Promise<string | null>;
   setChannelState: (state: ChannelExportState) => void;
   updateClip: (id: string, patch: Partial<RankClip>) => void;
+  setClipRank: (clipId: string, rank: number) => void;
   reorderClips: (activeId: string, overId: string) => void;
   addSfxAsset: (asset: Omit<SfxAsset, "id"> & { id?: string }) => string;
   updateSfxAsset: (id: string, patch: Partial<Omit<SfxAsset, "id">>) => void;
@@ -506,6 +508,13 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const setClipRank = useCallback((clipId: string, rank: number) => {
+    setProject((prev) => ({
+      ...prev,
+      clips: assignClipRank(prev.clips, clipId, rank),
+    }));
+  }, []);
+
   const reorderClips = useCallback((activeId: string, overId: string) => {
     setProject((prev) => {
       const orderIds = playbackOrderIds(prev.clips, prev.settings);
@@ -898,6 +907,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       addChannel,
       setChannelState,
       updateClip,
+      setClipRank,
       reorderClips,
       addSfxAsset,
       updateSfxAsset,
@@ -946,6 +956,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       addChannel,
       setChannelState,
       updateClip,
+      setClipRank,
       reorderClips,
       addSfxAsset,
       updateSfxAsset,
