@@ -27,7 +27,12 @@ import {
   saveLayoutDefault,
   saveProject,
 } from "./persist";
-import { hydrateSfxAssets, loadSfxLibrary, sfxMediaUrl, upsertSfxLibraryAsset } from "./sfxLibrary";
+import {
+  hydrateSfxAssets,
+  sfxMediaUrl,
+  upsertProjectSfxAsset,
+  upsertSfxLibraryAsset,
+} from "./sfxLibrary";
 import { fetchFilmArchive, saveFilmArchive } from "./projectHistory";
 import {
   channelSlug,
@@ -182,25 +187,20 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     async function boot() {
       const loaded = loadProject();
-      const lib = loadSfxLibrary();
-      // Merge durable library samples into the project so they remain reusable
-      const byId = new Map((loaded.sfxAssets || []).map((a) => [a.id, a]));
-      for (const a of lib) {
-        if (!byId.has(a.id)) byId.set(a.id, a);
-      }
-      const merged = { ...loaded, sfxAssets: Array.from(byId.values()) };
-      const hydratedAssets = await hydrateSfxAssets(merged.sfxAssets);
+      // Only hydrate SFX that belong to this project. Folder/library catalogs
+      // stay available for picking; Reset must not resurrect old project samples.
+      const hydratedAssets = await hydrateSfxAssets(loaded.sfxAssets || []);
 
       let channels = loadChannelState();
       // Migrate: if active channel has no saved sticker but project does, keep it
       if (
-        merged.settings.sticker?.mediaId &&
+        loaded.settings.sticker?.mediaId &&
         !channels.stickersBySlug?.[channels.activeSlug]?.mediaId
       ) {
         channels = withChannelSticker(
           channels,
           channels.activeSlug,
-          merged.settings.sticker
+          loaded.settings.sticker
         );
       }
 
@@ -257,22 +257,22 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           });
         }
         const placeById = new Map<string, SfxPlacement>();
-        for (const p of merged.sfxPlacements || []) placeById.set(p.id, p);
+        for (const p of loaded.sfxPlacements || []) placeById.set(p.id, p);
         for (const p of live.sfxPlacements || []) placeById.set(p.id, p);
         const overlayById = new Map<string, OverlayPlacement>();
-        for (const p of merged.overlayPlacements || []) overlayById.set(p.id, p);
+        for (const p of loaded.overlayPlacements || []) overlayById.set(p.id, p);
         for (const p of live.overlayPlacements || []) overlayById.set(p.id, p);
         const clips = (live.clips || []).some((c) => c.mediaId)
           ? live.clips
-          : merged.clips;
+          : loaded.clips;
         return {
-          ...merged,
+          ...loaded,
           clips,
           sfxAssets: Array.from(assetByKey.values()),
           sfxPlacements: Array.from(placeById.values()),
           overlayPlacements: Array.from(overlayById.values()),
-          settings: { ...merged.settings, sticker: activeSticker },
-          exportSlot: live.exportSlot ?? merged.exportSlot,
+          settings: { ...loaded.settings, sticker: activeSticker },
+          exportSlot: live.exportSlot ?? loaded.exportSlot,
         };
       });
       setHydrated(true);
@@ -539,16 +539,16 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           : 1,
     };
     upsertSfxLibraryAsset(next);
+    let assetId = id;
     setProject((prev) => {
-      const existing = (prev.sfxAssets || []).filter(
-        (a) => a.id !== id && a.mediaId !== asset.mediaId
+      const { assets, assetId: reused } = upsertProjectSfxAsset(
+        prev.sfxAssets || [],
+        next
       );
-      return {
-        ...prev,
-        sfxAssets: [...existing, next],
-      };
+      assetId = reused;
+      return { ...prev, sfxAssets: assets };
     });
-    return id;
+    return assetId;
   }, []);
 
   const updateSfxAsset = useCallback((id: string, patch: Partial<Omit<SfxAsset, "id">>) => {
@@ -631,10 +631,13 @@ export function EditorProvider({ children }: { children: ReactNode }) {
             : 1,
       };
       upsertSfxLibraryAsset(nextAsset);
+      let resolvedAssetId = nextAsset.id;
       setProject((prev) => {
-        const withoutDup = (prev.sfxAssets || []).filter(
-          (a) => a.id !== nextAsset.id && a.mediaId !== nextAsset.mediaId
+        const { assets, assetId } = upsertProjectSfxAsset(
+          prev.sfxAssets || [],
+          nextAsset
         );
+        resolvedAssetId = assetId;
         const fullDur =
           typeof nextAsset.duration === "number" && nextAsset.duration > 0
             ? nextAsset.duration
@@ -647,7 +650,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         );
         const placement: SfxPlacement = {
           id: placementId,
-          assetId: nextAsset.id,
+          assetId,
           startAt: opts.startAt,
           clipId: null,
           offsetInClip: 0,
@@ -657,12 +660,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         };
         return {
           ...prev,
-          sfxAssets: [...withoutDup, nextAsset],
+          sfxAssets: assets,
           sfxPlacements: [...(prev.sfxPlacements || []), placement],
         };
       });
       setSelectedSfxPlacementId(placementId);
-      return { assetId: nextAsset.id, placementId };
+      return { assetId: resolvedAssetId, placementId };
     },
     []
   );
@@ -726,16 +729,14 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     clearSavedProject();
     const layout = loadLayoutDefault();
     const base = createDefaultProject(layout || undefined);
-    // Keep durable SFX library samples; clear placements, clips, and export version slot
-    const lib = loadSfxLibrary();
-    // Keep the active channel's subscribe sticker across Reset
+    // Keep the active channel's subscribe sticker across Reset.
+    // SFX go back to empty — folder files remain pickable; archived films restore their hits.
     const sticker = stickerForChannel(
       channelStateRef.current,
       channelStateRef.current.activeSlug
     );
     setProject({
       ...base,
-      sfxAssets: lib,
       overlayPlacements: [],
       exportSlot: null,
       settings: { ...base.settings, sticker },
@@ -764,12 +765,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
     const { project: raw } = await fetchFilmArchive(archiveId);
     const normalized = normalizeProject(raw);
-    const lib = loadSfxLibrary();
-    const byId = new Map((normalized.sfxAssets || []).map((a) => [a.id, a]));
-    for (const a of lib) {
-      if (!byId.has(a.id)) byId.set(a.id, a);
-    }
-    const mergedAssets = await hydrateSfxAssets(Array.from(byId.values()));
+    const restoredAssets = await hydrateSfxAssets(normalized.sfxAssets || []);
 
     // Prefer sticker from the archived film; fall back to channel sticker
     const sticker = normalized.settings.sticker?.mediaId
@@ -786,7 +782,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
     setProject({
       ...normalized,
-      sfxAssets: mergedAssets,
+      sfxAssets: restoredAssets,
       settings: { ...normalized.settings, sticker },
     });
     setSelectedClipId(null);

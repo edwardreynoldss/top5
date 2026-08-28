@@ -21,6 +21,47 @@ export function sfxMediaUrl(
   return `/api/media/${mediaId}`;
 }
 
+/** Stable catalog/project key for an SFX sample. */
+export function sfxAssetKey(asset: Pick<SfxAsset, "id" | "mediaId">) {
+  return asset.mediaId || asset.id;
+}
+
+export function sameSfxAsset(
+  asset: Pick<SfxAsset, "id" | "mediaId">,
+  idOrMediaId: string | null | undefined
+) {
+  if (!idOrMediaId) return false;
+  return asset.id === idOrMediaId || asset.mediaId === idOrMediaId;
+}
+
+/**
+ * Insert or reuse a project SFX asset by mediaId so placing the same sample
+ * again keeps prior hits attached (does not swap the asset id).
+ */
+export function upsertProjectSfxAsset(assets: SfxAsset[], incoming: SfxAsset) {
+  const existing = assets.find(
+    (a) => a.id === incoming.id || (incoming.mediaId && a.mediaId === incoming.mediaId)
+  );
+  if (!existing) {
+    return { assets: [...assets, incoming], assetId: incoming.id };
+  }
+  const merged: SfxAsset = {
+    ...existing,
+    ...incoming,
+    id: existing.id,
+    mediaId: existing.mediaId || incoming.mediaId,
+    mediaUrl: incoming.mediaUrl || existing.mediaUrl,
+    fileName: incoming.fileName || existing.fileName,
+    duration:
+      incoming.duration > 0 ? incoming.duration : existing.duration,
+    volume: incoming.volume ?? existing.volume,
+  };
+  return {
+    assets: assets.map((a) => (a.id === existing.id ? merged : a)),
+    assetId: existing.id,
+  };
+}
+
 export function loadSfxLibrary(): SfxAsset[] {
   if (typeof window === "undefined") return [];
   try {

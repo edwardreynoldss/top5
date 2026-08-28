@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Loader2, Play, Plus, Search, Star, Volume2, X } from "lucide-react";
 import { useEditor } from "@/lib/store";
 import { formatTime, effectiveSfxVolume } from "@/lib/defaults";
-import { loadSfxLibrary, playSfxPreview, stopSfxPreview } from "@/lib/sfxLibrary";
+import { loadSfxLibrary, playSfxPreview, sameSfxAsset, sfxAssetKey, stopSfxPreview } from "@/lib/sfxLibrary";
 import {
   loadSfxFavoriteIds,
   sortSfxWithFavorites,
@@ -55,13 +55,29 @@ export function AddSfxAtTimeModal({
   const catalog = useMemo(() => {
     const library = loadSfxLibrary();
     const byKey = new Map<string, SfxAsset>();
-    for (const a of project.sfxAssets || []) byKey.set(a.mediaId || a.id, a);
-    for (const a of folderItems) {
-      if (!byKey.has(a.mediaId || a.id)) byKey.set(a.mediaId || a.id, a);
-    }
-    for (const a of library) {
-      if (!byKey.has(a.mediaId || a.id)) byKey.set(a.mediaId || a.id, a);
-    }
+    const absorb = (a: SfxAsset) => {
+      const key = sfxAssetKey(a);
+      const prev = byKey.get(key);
+      if (!prev) {
+        byKey.set(key, a);
+        return;
+      }
+      byKey.set(key, {
+        ...prev,
+        ...a,
+        id: prev.id,
+        mediaId: prev.mediaId || a.mediaId,
+        mediaUrl: a.mediaUrl || prev.mediaUrl,
+        fileName: a.fileName || prev.fileName,
+        duration: a.duration > 0 ? a.duration : prev.duration,
+        volume: a.volume ?? prev.volume,
+      });
+    };
+    // Folder ids are canonical (drop__file). Overlay library/project metadata
+    // without hiding a sample once it's already in the project.
+    for (const a of folderItems) absorb(a);
+    for (const a of library) absorb(a);
+    for (const a of project.sfxAssets || []) absorb(a);
     return sortSfxWithFavorites(Array.from(byKey.values()), favoriteIds);
   }, [project.sfxAssets, folderItems, favoriteIds]);
 
@@ -74,7 +90,7 @@ export function AddSfxAtTimeModal({
     );
   }, [catalog, query, favoriteIds]);
 
-  const selected = catalog.find((a) => a.id === selectedId) || null;
+  const selected = catalog.find((a) => sameSfxAsset(a, selectedId)) || null;
   const maxDur = sampleDuration(selected);
   const usedLen = Math.max(0.05, trimEnd - trimStart);
 
@@ -106,13 +122,16 @@ export function AddSfxAtTimeModal({
         }
       );
       setFolderItems(items);
-      if (!selectedId && items[0]) setSelectedId(items[0].id);
+      setSelectedId((cur) => {
+        if (cur && items.some((it) => sameSfxAsset(it, cur))) return cur;
+        return cur || items[0]?.id || "";
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load SFX");
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -121,10 +140,17 @@ export function AddSfxAtTimeModal({
     setError(null);
     setPlacing(false);
     setPreviewing(false);
+    setSelectedId("");
     void refreshFolder();
-    const first = project.sfxAssets?.[0];
-    if (first) setSelectedId(first.id);
-  }, [open, refreshFolder, project.sfxAssets]);
+  }, [open, refreshFolder]);
+
+  useEffect(() => {
+    if (!open) return;
+    setSelectedId((cur) => {
+      if (cur && catalog.some((a) => sameSfxAsset(a, cur))) return cur;
+      return catalog[0]?.id || "";
+    });
+  }, [open, catalog]);
 
   // Reset trim window whenever the selected sample changes
   useEffect(() => {
@@ -278,10 +304,10 @@ export function AddSfxAtTimeModal({
           ) : (
             <ul>
               {filtered.map((a) => {
-                const active = a.id === selectedId;
+                const active = sameSfxAsset(a, selectedId);
                 const fav = Boolean(a.mediaId && favoriteIds.has(a.mediaId));
                 return (
-                  <li key={a.id}>
+                  <li key={sfxAssetKey(a)}>
                     <button
                       type="button"
                       className={`add-sfx-row ${active ? "active" : ""}`}
