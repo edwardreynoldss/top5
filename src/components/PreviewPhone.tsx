@@ -92,6 +92,8 @@ export function PreviewPhone({
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgRef = useRef<HTMLVideoElement>(null);
   const musicRef = useRef<HTMLAudioElement | null>(null);
+  const musicStartRef = useRef(0);
+  const musicShouldPlayRef = useRef(false);
   const clipBedRef = useRef<HTMLAudioElement | null>(null);
   const stickerVideoRef = useRef<HTMLVideoElement>(null);
   const stickerArmedRef = useRef(false);
@@ -1179,6 +1181,9 @@ export function PreviewPhone({
   }, [activeClip, activeClip?.speed, activeSeg, activeSeg?.speed, segIndex]);
 
   // Looping background music bed under the full ranking preview
+  musicStartRef.current = Math.max(0, settings.musicStartAt ?? 0);
+  musicShouldPlayRef.current = isPlaying && totalDur > 0;
+
   useEffect(() => {
     const url = settings.musicUrl;
     if (!url) {
@@ -1188,14 +1193,60 @@ export function PreviewPhone({
       }
       return;
     }
-    let audio = musicRef.current;
-    if (!audio || audio.getAttribute("data-src") !== url) {
-      audio?.pause();
-      audio = new Audio(url);
-      audio.loop = true;
-      audio.setAttribute("data-src", url);
-      musicRef.current = audio;
+    const existing = musicRef.current;
+    if (existing && existing.getAttribute("data-src") === url) return;
+
+    existing?.pause();
+    const audio = new Audio(url);
+    audio.loop = false;
+    audio.preload = "auto";
+    audio.setAttribute("data-src", url);
+    const seekToStart = () => {
+      const start = musicStartRef.current;
+      if (start <= 0.01) return;
+      try {
+        audio.currentTime = start;
+      } catch {
+        // ignore
+      }
+    };
+    const onEnded = () => {
+      const el = musicRef.current;
+      if (!el) return;
+      try {
+        el.currentTime = musicStartRef.current;
+      } catch {
+        // ignore
+      }
+      if (musicShouldPlayRef.current) {
+        void el.play().catch(() => undefined);
+      }
+    };
+    audio.addEventListener("loadedmetadata", seekToStart);
+    audio.addEventListener("ended", onEnded);
+    musicRef.current = audio;
+    return () => {
+      audio.removeEventListener("loadedmetadata", seekToStart);
+      audio.removeEventListener("ended", onEnded);
+      audio.pause();
+      if (musicRef.current === audio) musicRef.current = null;
+    };
+  }, [settings.musicUrl]);
+
+  useEffect(() => {
+    const audio = musicRef.current;
+    if (!audio || !settings.musicUrl) return;
+    const start = Math.max(0, settings.musicStartAt ?? 0);
+    try {
+      audio.currentTime = start;
+    } catch {
+      // ignore
     }
+  }, [settings.musicStartAt, settings.musicUrl]);
+
+  useEffect(() => {
+    const audio = musicRef.current;
+    if (!audio) return;
     // Opt-out clips silence Look BGM for their play window; resume after the clip
     // (including during the post-clip black gap). Keep the element playing so the
     // loop position continues under the mute.
@@ -1208,9 +1259,6 @@ export function PreviewPhone({
     } else {
       audio.pause();
     }
-    return () => {
-      // keep instance across play/pause; cleared when url changes / unmount
-    };
   }, [
     settings.musicUrl,
     settings.musicVolume,

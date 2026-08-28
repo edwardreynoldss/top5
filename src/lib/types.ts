@@ -287,6 +287,8 @@ export interface ProjectSettings {
   musicMediaId: string | null;
   musicUrl: string | null;
   musicVolume: number;
+  /** Seconds into the Look BGM file to start (and loop from). */
+  musicStartAt: number;
   /**
    * When true and no music is selected, auto-pick a bed from the music/ folder.
    */
