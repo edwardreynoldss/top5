@@ -1966,3 +1966,19 @@ export function findClipAtAbsoluteTime(
   };
 }
 
+/**
+ * Pin an SFX hit to the clip under `absTime` so it rides with that clip
+ * when playback order changes (swap 5 and 3, custom order, etc.).
+ */
+export function pinSfxToClip(
+  absTime: number,
+  offsets: { clipId: string; start: number; duration: number; gapAfter?: number }[]
+): { clipId: string | null; offsetInClip: number; startAt: number } {
+  const startAt = Math.max(0, Number.isFinite(absTime) ? absTime : 0);
+  const hit = findClipAtAbsoluteTime(startAt, offsets);
+  if (!hit) return { clipId: null, offsetInClip: 0, startAt };
+  const maxOff = Math.max(0, hit.duration - 0.05);
+  const offsetInClip = Math.max(0, Math.min(startAt - hit.start, maxOff));
+  return { clipId: hit.clipId, offsetInClip, startAt };
+}
+

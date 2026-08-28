@@ -18,6 +18,8 @@ import {
   normalizeRanksLayout,
   playbackOrderIds,
   shuffleOrderIds,
+  clipTimelineOffsets,
+  pinSfxToClip,
 } from "./defaults";
 import {
   clearSavedProject,
@@ -590,12 +592,23 @@ export function EditorProvider({ children }: { children: ReactNode }) {
           ? Math.max(0.05, placement.trimEnd)
           : fullDur
       );
+      const pin =
+        typeof placement?.clipId === "string" && placement.clipId
+          ? {
+              clipId: placement.clipId,
+              offsetInClip: Math.max(0, placement.offsetInClip ?? 0),
+              startAt: placement.startAt ?? 0,
+            }
+          : pinSfxToClip(
+              placement?.startAt ?? 0,
+              clipTimelineOffsets(prev.clips, prev.settings)
+            );
       const next: SfxPlacement = {
         id,
         assetId,
-        startAt: placement?.startAt ?? 0,
-        clipId: placement?.clipId ?? null,
-        offsetInClip: placement?.offsetInClip ?? 0,
+        startAt: pin.startAt,
+        clipId: pin.clipId,
+        offsetInClip: pin.offsetInClip,
         trimStart: placement?.trimStart ?? 0,
         trimEnd,
         volume: placement?.volume ?? 1,
@@ -648,12 +661,16 @@ export function EditorProvider({ children }: { children: ReactNode }) {
             ? Math.max(0.05, opts.trimEnd)
             : fullDur
         );
+        const pin = pinSfxToClip(
+          opts.startAt,
+          clipTimelineOffsets(prev.clips, prev.settings)
+        );
         const placement: SfxPlacement = {
           id: placementId,
           assetId,
-          startAt: opts.startAt,
-          clipId: null,
-          offsetInClip: 0,
+          startAt: pin.startAt,
+          clipId: pin.clipId,
+          offsetInClip: pin.offsetInClip,
           trimStart: opts.trimStart ?? 0,
           trimEnd,
           volume: opts.volume ?? 1,
