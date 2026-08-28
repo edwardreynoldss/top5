@@ -1593,6 +1593,13 @@ a {
   outline-offset: 1px;
 }
 
+.clip-rank select option {
+  color: #111;
+  background: #fff;
+  text-shadow: none;
+  font-weight: 700;
+}
+
 .clip-body {
   min-width: 0;
 }
