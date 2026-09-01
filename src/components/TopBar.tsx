@@ -249,6 +249,9 @@ export function TopBar({
               start: s.start,
               end: s.end,
               speed: getSegmentSpeed(c, s),
+              ...(typeof s.zoom === "number" ? { zoom: s.zoom } : {}),
+              ...(typeof s.panX === "number" ? { panX: s.panX } : {}),
+              ...(typeof s.panY === "number" ? { panY: s.panY } : {}),
             }));
             const first = playback[0];
             const last = playback[playback.length - 1];

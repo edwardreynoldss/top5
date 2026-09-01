@@ -347,14 +347,26 @@ export function normalizeSegments(
 ): TrimSegment[] {
   const fallback = clampClipSpeed(defaultSpeed);
   return segments
-    .map((s) => ({
-      ...s,
-      start: Math.max(0, s.start),
-      end: Math.max(s.start + 0.2, s.end),
-      speed: clampClipSpeed(
-        typeof s.speed === "number" && Number.isFinite(s.speed) ? s.speed : fallback
-      ),
-    }))
+    .map((s) => {
+      const next: TrimSegment = {
+        id: s.id,
+        start: Math.max(0, s.start),
+        end: Math.max(s.start + 0.2, s.end),
+        speed: clampClipSpeed(
+          typeof s.speed === "number" && Number.isFinite(s.speed) ? s.speed : fallback
+        ),
+      };
+      if (typeof s.zoom === "number" && Number.isFinite(s.zoom)) {
+        next.zoom = clampCropZoom(s.zoom);
+      }
+      if (typeof s.panX === "number" && Number.isFinite(s.panX)) {
+        next.panX = Math.max(0, Math.min(100, s.panX));
+      }
+      if (typeof s.panY === "number" && Number.isFinite(s.panY)) {
+        next.panY = Math.max(0, Math.min(100, s.panY));
+      }
+      return next;
+    })
     .filter((s) => s.end > s.start);
 }
 
@@ -901,6 +913,71 @@ export function getClipSegments(clip: RankClip): TrimSegment[] {
 
 export function getClipCrop(clip: RankClip): ClipCrop {
   return normalizeCrop(clip.crop);
+}
+
+/**
+ * Clip framing with an optional per-part zoom/pan override.
+ * Edge crop always comes from the clip; only zoom/pan can change per part.
+ */
+export function cropForSegment(
+  clipCrop: Partial<ClipCrop> | null | undefined,
+  seg?: Pick<TrimSegment, "zoom" | "panX" | "panY"> | null
+): ClipCrop {
+  const base = normalizeCrop(clipCrop);
+  if (!seg) return base;
+  return normalizeCrop({
+    ...base,
+    ...(typeof seg.zoom === "number" && Number.isFinite(seg.zoom)
+      ? { zoom: seg.zoom }
+      : {}),
+    ...(typeof seg.panX === "number" && Number.isFinite(seg.panX)
+      ? { panX: seg.panX }
+      : {}),
+    ...(typeof seg.panY === "number" && Number.isFinite(seg.panY)
+      ? { panY: seg.panY }
+      : {}),
+  });
+}
+
+export function getSegmentCrop(
+  clip: RankClip,
+  seg?: Pick<TrimSegment, "zoom" | "panX" | "panY"> | null
+): ClipCrop {
+  return cropForSegment(clip.crop, seg);
+}
+
+function framingKey(crop: ClipCrop) {
+  return `${crop.zoom.toFixed(3)}:${crop.panX.toFixed(2)}:${crop.panY.toFixed(2)}`;
+}
+
+/**
+ * Consecutive ranges that share zoom/pan can stay one encode.
+ * A punch-in part starts a new group so export can apply a different crop.
+ */
+export function groupRangesByFraming<
+  T extends Pick<TrimSegment, "zoom" | "panX" | "panY">,
+>(ranges: T[], clipCrop?: Partial<ClipCrop> | null): T[][] {
+  const groups: T[][] = [];
+  for (const range of ranges) {
+    const key = framingKey(cropForSegment(clipCrop, range));
+    const last = groups[groups.length - 1];
+    if (last && framingKey(cropForSegment(clipCrop, last[0])) === key) {
+      last.push(range);
+    } else {
+      groups.push([range]);
+    }
+  }
+  return groups;
+}
+
+/** Drop per-part zoom/pan so the part inherits the clip crop again. */
+export function stripSegmentFraming(seg: TrimSegment): TrimSegment {
+  return {
+    id: seg.id,
+    start: seg.start,
+    end: seg.end,
+    speed: seg.speed,
+  };
 }
 
 /**

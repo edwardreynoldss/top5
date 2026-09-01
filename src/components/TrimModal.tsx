@@ -15,6 +15,9 @@ import {
   clampCropZoom,
   clampClipSpeed,
   cropEdgeFromWindowPoint,
+  cropForSegment,
+  defaultCrop,
+  stripSegmentFraming,
   type CropEdge,
 } from "@/lib/defaults";
 import {
@@ -121,6 +124,7 @@ export function TrimModal({
   const [edgeDragging, setEdgeDragging] = useState<CropEdge | null>(null);
   const cropWindowRef = useRef<HTMLDivElement>(null);
   const segmentsRef = useRef(segments);
+  const cropRef = useRef(crop);
   const hookRef = useRef(hook);
   const playQueueRef = useRef<TrimSegment[]>(segments);
   const queueIdxRef = useRef(0);
@@ -131,6 +135,7 @@ export function TrimModal({
   const seekingRef = useRef(false);
   const seekClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   segmentsRef.current = segments;
+  cropRef.current = crop;
   hookRef.current = hook;
   playQueueRef.current = buildPreviewQueue(hook, segments, defaultSpeed);
   activeIdxRef.current = activeIdx;
@@ -139,6 +144,39 @@ export function TrimModal({
 
   function applyPlaybackRate(v: HTMLVideoElement, speed: number) {
     v.playbackRate = clampClipSpeed(speed);
+  }
+
+  function applyZoomPan(partial: { zoom?: number; panX?: number; panY?: number }) {
+    const idx = activeIdxRef.current;
+    const seg = segmentsRef.current[idx];
+    const display = cropForSegment(cropRef.current, seg);
+    const nextZoom =
+      partial.zoom != null ? clampCropZoom(partial.zoom) : display.zoom;
+    const nextPanX =
+      partial.panX != null
+        ? Math.max(0, Math.min(100, partial.panX))
+        : display.panX;
+    const nextPanY =
+      partial.panY != null
+        ? Math.max(0, Math.min(100, partial.panY))
+        : display.panY;
+    if (segmentsRef.current.length <= 1) {
+      const nextCrop = normalizeCrop({
+        ...cropRef.current,
+        zoom: nextZoom,
+        panX: nextPanX,
+        panY: nextPanY,
+      });
+      cropRef.current = nextCrop;
+      setCrop(nextCrop);
+    }
+    setSegments((prev) => {
+      const next = prev.map((s, i) =>
+        i === idx ? { ...s, zoom: nextZoom, panX: nextPanX, panY: nextPanY } : s
+      );
+      segmentsRef.current = next;
+      return next;
+    });
   }
 
   function beginSeek() {
@@ -208,7 +246,7 @@ export function TrimModal({
     const segKey = initialSegments
       .map(
         (s) =>
-          `${Number(s.start).toFixed(3)}-${Number(s.end).toFixed(3)}:${Number(s.speed ?? defaultSpeed).toFixed(2)}`
+          `${Number(s.start).toFixed(3)}-${Number(s.end).toFixed(3)}:${Number(s.speed ?? defaultSpeed).toFixed(2)}:${Number(s.zoom ?? -1).toFixed(2)}:${Number(s.panX ?? -1).toFixed(1)}:${Number(s.panY ?? -1).toFixed(1)}`
       )
       .join("|");
     const cropKey = initialCrop
@@ -553,8 +591,12 @@ export function TrimModal({
     if (!el || !open) return;
     const onWheel = (ev: WheelEvent) => {
       ev.preventDefault();
+      const display = cropForSegment(
+        cropRef.current,
+        segmentsRef.current[activeIdxRef.current]
+      );
       const step = ev.deltaY > 0 ? -0.05 : 0.05;
-      setCrop((c) => ({ ...c, zoom: clampCropZoom(c.zoom + step) }));
+      applyZoomPan({ zoom: display.zoom + step });
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -735,6 +777,9 @@ export function TrimModal({
     const end = Math.min(dur || start + 3, start + Math.min(3, room));
     if (end - start < 0.2) return;
     const seg = createSegment(start, end, activeSpeed);
+    if (typeof active?.zoom === "number") seg.zoom = clampCropZoom(active.zoom);
+    if (typeof active?.panX === "number") seg.panX = active.panX;
+    if (typeof active?.panY === "number") seg.panY = active.panY;
     setSegments((p) => {
       const next = [...p, seg];
       segmentsRef.current = next;
@@ -764,7 +809,8 @@ export function TrimModal({
     e.preventDefault();
     e.stopPropagation();
     stageRef.current?.setPointerCapture?.(e.pointerId);
-    dragRef.current = { x: e.clientX, y: e.clientY, panX: crop.panX, panY: crop.panY };
+    const display = cropForSegment(crop, active);
+    dragRef.current = { x: e.clientX, y: e.clientY, panX: display.panX, panY: display.panY };
     setDragging(true);
   };
 
@@ -777,11 +823,10 @@ export function TrimModal({
     // Drag the video with the pointer — 1 frame-width ≈ full pan range
     const dx = ((e.clientX - dragRef.current.x) / rect.width) * 100;
     const dy = ((e.clientY - dragRef.current.y) / rect.height) * 100;
-    setCrop((c) => ({
-      ...c,
+    applyZoomPan({
       panX: Math.max(0, Math.min(100, dragRef.current!.panX - dx)),
       panY: Math.max(0, Math.min(100, dragRef.current!.panY - dy)),
-    }));
+    });
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
@@ -849,7 +894,8 @@ export function TrimModal({
   // Always preview in the final Short frame (9:16) so landscape sources
   // show cover-fit / zoom / edge crop the same way export will.
   const frameAspect = 9 / 16;
-  const cropLayout = cropPreviewStyle(crop, { frameAspect, videoAspect });
+  const displayCrop = cropForSegment(crop, previewingHook ? null : active);
+  const cropLayout = cropPreviewStyle(displayCrop, { frameAspect, videoAspect });
   const edges = {
     left: crop.cropLeft || 0,
     right: crop.cropRight || 0,
@@ -1014,8 +1060,8 @@ export function TrimModal({
               )}
               <div className="crop-hint">
                 Drag sides to crop · drag center to pan · scroll to zoom ·{" "}
-                {crop.zoom.toFixed(2)}×
-                {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
+                {displayCrop.zoom.toFixed(2)}×
+                {displayCrop.zoom < 1 ? " out" : displayCrop.zoom > 1 ? " in" : ""}
               </div>
             </div>
           </div>
@@ -1026,6 +1072,8 @@ export function TrimModal({
               const spd = clampClipSpeed(
                 typeof seg.speed === "number" ? seg.speed : defaultSpeed
               );
+              const partZoom =
+                typeof seg.zoom === "number" ? clampCropZoom(seg.zoom) : null;
               return (
               <button
                 key={seg.id}
@@ -1043,7 +1091,11 @@ export function TrimModal({
                 }}
               >
                 Part {i + 1} ({(seg.end - seg.start).toFixed(1)}s
-                {Math.abs(spd - 1) > 0.001 ? ` · ${spd.toFixed(2)}×` : ""})
+                {Math.abs(spd - 1) > 0.001 ? ` · ${spd.toFixed(2)}×` : ""}
+                {partZoom != null && Math.abs(partZoom - 1) > 0.02
+                  ? ` · ${partZoom.toFixed(2)}× zoom`
+                  : ""}
+                )
                 {segments.length > 1 && (
                   <span
                     className="seg-x"
@@ -1145,10 +1197,46 @@ export function TrimModal({
           )}
 
           <div className="crop-controls">
-            <p className="field-label">Position, zoom & edge crop</p>
+            <p className="field-label">
+              Position, zoom & edge crop
+              {segments.length > 1
+                ? ` · zoom/pan apply to part ${activeIdx + 1}`
+                : ""}
+            </p>
             <EdgeCropControls
-              crop={crop}
-              onChange={setCrop}
+              crop={displayCrop}
+              zoomLabel={
+                segments.length > 1 ? `Zoom (part ${activeIdx + 1})` : "Zoom"
+              }
+              onChange={(next) => {
+                const nextCrop = normalizeCrop({
+                  ...cropRef.current,
+                  cropTop: next.cropTop,
+                  cropBottom: next.cropBottom,
+                  cropLeft: next.cropLeft,
+                  cropRight: next.cropRight,
+                  ...(segmentsRef.current.length <= 1
+                    ? { zoom: next.zoom, panX: next.panX, panY: next.panY }
+                    : {}),
+                });
+                cropRef.current = nextCrop;
+                setCrop(nextCrop);
+                applyZoomPan({
+                  zoom: next.zoom,
+                  panX: next.panX,
+                  panY: next.panY,
+                });
+              }}
+              onResetFraming={() => {
+                const d = defaultCrop();
+                cropRef.current = d;
+                setCrop(d);
+                setSegments((prev) => {
+                  const next = prev.map(stripSegmentFraming);
+                  segmentsRef.current = next;
+                  return next;
+                });
+              }}
               videoAspect={videoAspect}
               frameAspect={frameAspect}
             />

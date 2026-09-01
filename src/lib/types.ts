@@ -22,6 +22,14 @@ export interface TrimSegment {
    * Split parts can each have their own speed.
    */
   speed?: number;
+  /**
+   * Optional zoom for this part only (0.25–4). When omitted, uses the clip crop zoom.
+   * Split parts can punch in without changing the rest of the clip.
+   */
+  zoom?: number;
+  /** Optional pan for this part; omitted → clip crop pan. */
+  panX?: number;
+  panY?: number;
 }
 
 /** Zoom/pan framing for fit-to-screen crop, plus optional edge crop */
