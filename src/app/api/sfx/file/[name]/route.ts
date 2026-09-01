@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createReadStream, statSync } from "fs";
 import { Readable } from "stream";
-import { resolveSfxDropFile } from "@/lib/sfxFolder";
+import { resolveSfxDropFile, renameSfxDropFile, deleteSfxDropFile } from "@/lib/sfxFolder";
 
 export const runtime = "nodejs";
 
@@ -74,6 +74,45 @@ async function serve(name: string, req: NextRequest) {
       "Cache-Control": "public, max-age=86400",
     },
   });
+}
+
+export async function PATCH(
+  req: NextRequest,
+  context: { params: Promise<{ name: string }> }
+) {
+  const { name } = await context.params;
+  const decoded = decodeURIComponent(name);
+  let requested = "";
+  try {
+    const body = (await req.json()) as { fileName?: string; name?: string };
+    requested = String(body.fileName || body.name || "");
+  } catch {
+    requested = "";
+  }
+  try {
+    const result = renameSfxDropFile(decoded, requested);
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not rename sound";
+    const status = message.includes("not found") ? 404 : 400;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  context: { params: Promise<{ name: string }> }
+) {
+  const { name } = await context.params;
+  const decoded = decodeURIComponent(name);
+  try {
+    const result = deleteSfxDropFile(decoded);
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not delete sound";
+    const status = message.includes("not found") ? 404 : 400;
+    return NextResponse.json({ error: message }, { status });
+  }
 }
 
 export async function GET(

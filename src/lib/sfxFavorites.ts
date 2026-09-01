@@ -53,6 +53,20 @@ export function setSfxFavorite(mediaId: string, favorite: boolean) {
   writeIds(ids);
 }
 
+export function removeSfxFavorite(mediaId: string) {
+  writeIds(readIds().filter((id) => id !== mediaId));
+}
+
+/** Keep a star when a folder sample is renamed (mediaId follows the filename). */
+export function renameSfxFavorite(oldMediaId: string, newMediaId: string) {
+  if (!oldMediaId || !newMediaId || oldMediaId === newMediaId) return;
+  const ids = readIds();
+  const i = ids.indexOf(oldMediaId);
+  if (i < 0) return;
+  ids[i] = newMediaId;
+  writeIds([...new Set(ids.filter(Boolean))]);
+}
+
 /** Favorites first (by favorite order), then A–Z by fileName. */
 export function sortSfxWithFavorites<T extends { mediaId?: string | null; fileName: string }>(
   items: T[],

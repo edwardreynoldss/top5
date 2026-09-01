@@ -94,6 +94,11 @@ interface EditorContextValue {
   addSfxAsset: (asset: Omit<SfxAsset, "id"> & { id?: string }) => string;
   updateSfxAsset: (id: string, patch: Partial<Omit<SfxAsset, "id">>) => void;
   removeSfxAsset: (id: string) => void;
+  /** Point project hits at a renamed folder sample (id/mediaId follow the file). */
+  remapSfxMedia: (
+    fromMediaId: string,
+    next: { mediaId: string; mediaUrl: string; fileName: string }
+  ) => void;
   addSfxPlacement: (placement?: Partial<SfxPlacement>) => string | null;
   /** Add asset + placement in one update (right-click / Add-at-time modal). */
   placeSfxHit: (opts: {
@@ -576,6 +581,38 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const remapSfxMedia = useCallback(
+    (
+      fromMediaId: string,
+      next: { mediaId: string; mediaUrl: string; fileName: string }
+    ) => {
+      if (!fromMediaId || !next.mediaId) return;
+      setProject((prev) => {
+        const idMap = new Map<string, string>();
+        const sfxAssets = (prev.sfxAssets || []).map((a) => {
+          if (a.mediaId !== fromMediaId && a.id !== fromMediaId) return a;
+          const nextId =
+            a.id === a.mediaId || a.id === fromMediaId ? next.mediaId : a.id;
+          if (a.id !== nextId) idMap.set(a.id, nextId);
+          const updated = {
+            ...a,
+            id: nextId,
+            mediaId: next.mediaId,
+            mediaUrl: next.mediaUrl,
+            fileName: next.fileName,
+          };
+          upsertSfxLibraryAsset(updated);
+          return updated;
+        });
+        const sfxPlacements = (prev.sfxPlacements || []).map((p) =>
+          idMap.has(p.assetId) ? { ...p, assetId: idMap.get(p.assetId)! } : p
+        );
+        return { ...prev, sfxAssets, sfxPlacements };
+      });
+    },
+    []
+  );
+
   const addSfxPlacement = useCallback((placement?: Partial<SfxPlacement>) => {
     const id = uuidv4();
     let rejected = false;
@@ -912,6 +949,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       addSfxAsset,
       updateSfxAsset,
       removeSfxAsset,
+      remapSfxMedia,
       addSfxPlacement,
       placeSfxHit,
       updateSfxPlacement,
@@ -961,6 +999,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       addSfxAsset,
       updateSfxAsset,
       removeSfxAsset,
+      remapSfxMedia,
       addSfxPlacement,
       placeSfxHit,
       updateSfxPlacement,

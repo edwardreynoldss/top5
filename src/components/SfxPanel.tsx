@@ -25,17 +25,23 @@ import {
 } from "@/lib/defaults";
 import {
   cacheSfxFile,
+  folderSfxFileName,
   forgetSfxLocal,
+  isFolderSfx,
   loadSfxLibrary,
   playSfxPreview,
+  remapSfxLibraryMedia,
   stopSfxPreview,
   upsertSfxLibraryAsset,
 } from "@/lib/sfxLibrary";
 import {
   loadSfxFavoriteIds,
+  removeSfxFavorite,
+  renameSfxFavorite,
   sortSfxWithFavorites,
   toggleSfxFavorite,
 } from "@/lib/sfxFavorites";
+import { deleteFolderSfx, renameFolderSfx } from "@/lib/sfxFolderApi";
 import { RangeRail } from "@/components/RangeRail";
 import type { SfxAsset } from "@/lib/types";
 
@@ -45,6 +51,7 @@ export function SfxPanel() {
     addSfxAsset,
     updateSfxAsset,
     removeSfxAsset,
+    remapSfxMedia,
     addSfxPlacement,
     updateSfxPlacement,
     removeSfxPlacement,
@@ -252,20 +259,40 @@ export function SfxPanel() {
     setRenameValue(asset.fileName);
   }
 
-  function commitRename(assetId: string) {
+  async function commitRename(assetId: string) {
     const name = renameValue.trim();
     setRenamingId(null);
     if (!name) return;
-    if (assets.some((a) => a.id === assetId)) {
-      updateSfxAsset(assetId, { fileName: name });
+    const folderItem = folderItems.find((a) => a.id === assetId);
+    if (folderItem && isFolderSfx(folderItem)) {
+      try {
+        const from = folderSfxFileName(folderItem.mediaId) || folderItem.fileName;
+        const result = await renameFolderSfx(from, name);
+        const updated = {
+          ...folderItem,
+          id: result.mediaId,
+          mediaId: result.mediaId,
+          mediaUrl: result.mediaUrl,
+          fileName: result.fileName,
+        };
+        setFolderItems((prev) =>
+          prev.map((a) => (a.id === assetId ? updated : a))
+        );
+        remapSfxLibraryMedia(folderItem.mediaId, updated);
+        renameSfxFavorite(folderItem.mediaId, result.mediaId);
+        remapSfxMedia(folderItem.mediaId, {
+          mediaId: result.mediaId,
+          mediaUrl: result.mediaUrl,
+          fileName: result.fileName,
+        });
+        setFavoriteTick((n) => n + 1);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not rename");
+      }
       return;
     }
-    if (folderItems.some((a) => a.id === assetId)) {
-      setFolderItems((prev) =>
-        prev.map((a) => (a.id === assetId ? { ...a, fileName: name } : a))
-      );
-      const item = folderItems.find((a) => a.id === assetId);
-      if (item) upsertSfxLibraryAsset({ ...item, fileName: name });
+    if (assets.some((a) => a.id === assetId)) {
+      updateSfxAsset(assetId, { fileName: name });
       return;
     }
     const libItem = library.find((a) => a.id === assetId);
@@ -445,23 +472,55 @@ export function SfxPanel() {
             >
               <Volume2 size={14} />
             </button>
-            {mode !== "folder" && (
-              <button
-                className="icon-btn danger"
-                type="button"
-                title={mode === "project" ? "Remove from project" : "Delete from library"}
-                onClick={() => {
-                  if (mode === "project") removeSfxAsset(a.id);
-                  else {
-                    void forgetSfxLocal(a.id, a.mediaId).then(() =>
-                      setLibraryTick((n) => n + 1)
-                    );
+            <button
+              className="icon-btn danger"
+              type="button"
+              title={
+                mode === "project"
+                  ? "Remove from project"
+                  : mode === "folder"
+                    ? "Delete from sfx folder"
+                    : "Delete from library"
+              }
+              onClick={() => {
+                if (mode === "project") {
+                  removeSfxAsset(a.id);
+                  return;
+                }
+                if (mode === "folder") {
+                  if (
+                    !window.confirm(
+                      `Delete “${a.fileName}” from the sfx folder? This cannot be undone.`
+                    )
+                  ) {
+                    return;
                   }
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
-            )}
+                  const from = folderSfxFileName(a.mediaId) || a.fileName;
+                  void deleteFolderSfx(from)
+                    .then(async () => {
+                      setFolderItems((prev) => prev.filter((x) => x.id !== a.id));
+                      for (const asset of assets) {
+                        if (asset.mediaId === a.mediaId || asset.id === a.id) {
+                          removeSfxAsset(asset.id);
+                        }
+                      }
+                      removeSfxFavorite(a.mediaId);
+                      await forgetSfxLocal(a.id, a.mediaId);
+                      setFavoriteTick((n) => n + 1);
+                      setLibraryTick((n) => n + 1);
+                    })
+                    .catch((e) =>
+                      setError(e instanceof Error ? e.message : "Could not delete")
+                    );
+                  return;
+                }
+                void forgetSfxLocal(a.id, a.mediaId).then(() =>
+                  setLibraryTick((n) => n + 1)
+                );
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
           </div>
         </div>
         {volumeOpen && (

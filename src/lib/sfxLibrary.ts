@@ -21,6 +21,23 @@ export function sfxMediaUrl(
   return `/api/media/${mediaId}`;
 }
 
+export function isFolderSfx(
+  asset: { mediaId?: string | null; mediaUrl?: string | null } | string | null | undefined
+) {
+  if (!asset) return false;
+  if (typeof asset === "string") {
+    return asset.startsWith("drop__") || asset.includes("/api/sfx/file/");
+  }
+  return Boolean(
+    asset.mediaId?.startsWith("drop__") || asset.mediaUrl?.includes("/api/sfx/file/")
+  );
+}
+
+export function folderSfxFileName(mediaId: string | null | undefined) {
+  if (!mediaId?.startsWith("drop__")) return null;
+  return mediaId.slice("drop__".length);
+}
+
 /** Stable catalog/project key for an SFX sample. */
 export function sfxAssetKey(asset: Pick<SfxAsset, "id" | "mediaId">) {
   return asset.mediaId || asset.id;
@@ -107,8 +124,22 @@ export function upsertSfxLibraryAsset(asset: SfxAsset) {
   saveSfxLibrary(lib);
 }
 
+export function remapSfxLibraryMedia(
+  fromMediaId: string,
+  next: SfxAsset
+) {
+  const updated = { ...next, mediaUrl: sfxMediaUrl(next.mediaId, next.mediaUrl) };
+  const lib = loadSfxLibrary().filter(
+    (a) => a.mediaId !== fromMediaId && a.id !== fromMediaId
+  );
+  lib.push(updated);
+  saveSfxLibrary(lib);
+}
+
 export function removeSfxLibraryAsset(id: string) {
-  const lib = loadSfxLibrary().filter((a) => a.id !== id);
+  const lib = loadSfxLibrary().filter(
+    (a) => a.id !== id && a.mediaId !== id
+  );
   saveSfxLibrary(lib);
 }
 

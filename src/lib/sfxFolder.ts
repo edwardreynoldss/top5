@@ -3,7 +3,9 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "fs";
 import path from "path";
@@ -200,4 +202,97 @@ export async function getSfxFolderLibrary(opts?: {
   });
 
   return { items, probed, folder: SFX_DIR };
+}
+
+function splitSfxNameExt(fileName: string) {
+  const base = String(fileName || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .pop() || "";
+  const i = base.lastIndexOf(".");
+  if (i <= 0) return { stem: base, ext: "" };
+  return { stem: base.slice(0, i), ext: base.slice(i) };
+}
+
+/** Keep the original extension; strip path junk and illegal filename chars. */
+export function sanitizeSfxFileName(currentFileName: string, requested: string) {
+  const { ext } = splitSfxNameExt(currentFileName);
+  let raw = String(requested || "").trim();
+  raw = raw.replace(/\\/g, "/").split("/").pop() || "";
+  raw = raw.replace(/[<>:"|?*\u0000-\u001f]/g, "").replace(/\s+/g, " ").trim();
+  if (!raw) throw new Error("Name cannot be empty");
+  const req = splitSfxNameExt(raw);
+  let stem = req.stem.trim();
+  if (!stem) throw new Error("Name cannot be empty");
+  if (stem === "." || stem === "..") throw new Error("Invalid name");
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem)) stem = `${stem}-sfx`;
+  return `${stem}${ext || req.ext || ""}`;
+}
+
+export function uniqueSfxFileName(
+  desired: string,
+  taken: Iterable<string>,
+  keep?: string
+) {
+  const used = new Set(taken);
+  if (keep) used.delete(keep);
+  if (!used.has(desired)) return desired;
+  const { stem, ext } = splitSfxNameExt(desired);
+  let n = 2;
+  let next = `${stem}-${n}${ext}`;
+  while (used.has(next)) {
+    n += 1;
+    next = `${stem}-${n}${ext}`;
+  }
+  return next;
+}
+
+export function renameSfxDropFile(fromName: string, requestedName: string) {
+  ensureSfxDir();
+  const current = isDropSfxMediaId(fromName)
+    ? dropSfxFileName(fromName) || fromName
+    : path.basename(fromName);
+  const src = resolveSfxDropFile(current);
+  if (!src) throw new Error("Sound not found in the sfx folder");
+  const existing = listAudioFiles().map((f) => f.fileName);
+  const wanted = sanitizeSfxFileName(current, requestedName);
+  const destName = uniqueSfxFileName(wanted, existing, current);
+  if (destName === current) {
+    return {
+      fileName: current,
+      mediaId: sfxMediaId(current),
+      mediaUrl: `/api/sfx/file/${encodeURIComponent(current)}`,
+      renamed: false,
+    };
+  }
+  const dest = path.join(SFX_DIR, destName);
+  if (path.dirname(dest) !== SFX_DIR) throw new Error("Invalid name");
+  renameSync(src, dest);
+  const manifest = loadManifest();
+  const prev = manifest.files[current];
+  if (prev) {
+    delete manifest.files[current];
+    manifest.files[destName] = { ...prev, fileName: destName };
+    saveManifest(manifest);
+  }
+  return {
+    fileName: destName,
+    mediaId: sfxMediaId(destName),
+    mediaUrl: `/api/sfx/file/${encodeURIComponent(destName)}`,
+    renamed: true,
+  };
+}
+
+export function deleteSfxDropFile(fileName: string) {
+  const full = resolveSfxDropFile(fileName);
+  if (!full) throw new Error("Sound not found in the sfx folder");
+  const name = path.basename(full);
+  unlinkSync(full);
+  const manifest = loadManifest();
+  if (manifest.files[name] || manifest.files[fileName]) {
+    delete manifest.files[name];
+    delete manifest.files[fileName];
+    saveManifest(manifest);
+  }
+  return { ok: true as const, fileName: name };
 }
