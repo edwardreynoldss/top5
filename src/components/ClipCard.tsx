@@ -31,6 +31,7 @@ import {
   normalizeBedMusic,
   normalizeHook,
   getClipCrop,
+  getSegmentCrop,
   getClipBedMusic,
   getClipTransitionVolume,
   getPlaybackOrder,
@@ -85,7 +86,7 @@ export function ClipCard({ clip }: { clip: RankClip }) {
   const color = project.settings.rankColors[clip.rank] || "#fff";
   const busy = clip.status === "loading";
   const afterText = clipShortText(clip);
-  const clipCrop = getClipCrop(clip);
+  const clipCrop = getSegmentCrop(clip, getClipMainSegments(clip)[0]);
   const thumbLayout = cropPreviewStyle(clipCrop, {
     frameAspect: 9 / 16,
     videoAspect: thumbAspect,
@@ -498,9 +499,17 @@ export function ClipCard({ clip }: { clip: RankClip }) {
                       ? ` · hook ${hookDuration(clipHook).toFixed(1)}s`
                       : ""}
                     {clipSpeed !== 1 ? ` · ${clipSpeed.toFixed(2)}×` : ""}
-                    {clipCrop.zoom !== 1
-                      ? ` · ${clipCrop.zoom.toFixed(1)}× zoom`
-                      : ""}
+                    {(() => {
+                      const zooms = segs.map(
+                        (s) => getSegmentCrop(clip, s).zoom
+                      );
+                      const punched = zooms.filter((z) => Math.abs(z - 1) > 0.02);
+                      if (punched.length === 0) return "";
+                      const mixed = new Set(zooms.map((z) => z.toFixed(2))).size > 1;
+                      return mixed
+                        ? " · part zoom"
+                        : ` · ${punched[0].toFixed(1)}× zoom`;
+                    })()}
                     {Math.abs(clipCrop.panX - 50) > 1 ||
                     Math.abs(clipCrop.panY - 50) > 1
                       ? ` · moved`

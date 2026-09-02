@@ -16,6 +16,8 @@ import {
   clipInDepthText,
   clipShortText,
   BUILTIN_TRANSITION_SOUND_ID,
+  cropForSegment,
+  groupRangesByFraming,
 } from "@/lib/defaults";
 import type { AspectMode, OverlayMotionKeypoint, PlayOrder, TransitionType } from "@/lib/types";
 
@@ -52,7 +54,14 @@ interface ExportClip {
   score?: string;
   trimStart: number;
   trimEnd: number;
-  segments?: { start: number; end: number; speed?: number }[];
+  segments?: {
+    start: number;
+    end: number;
+    speed?: number;
+    zoom?: number;
+    panX?: number;
+    panY?: number;
+  }[];
   crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number; cropLeft?: number; cropRight?: number };
   /** Per-clip gain 0–2; multiplied by body.clipVolume */
   volume?: number;
@@ -1038,6 +1047,9 @@ export async function POST(req: NextRequest) {
             typeof s.speed === "number" && Number.isFinite(s.speed) ? s.speed : clipSpeedFallback
           )
         ),
+        zoom: typeof s.zoom === "number" && Number.isFinite(s.zoom) ? s.zoom : undefined,
+        panX: typeof s.panX === "number" && Number.isFinite(s.panX) ? s.panX : undefined,
+        panY: typeof s.panY === "number" && Number.isFinite(s.panY) ? s.panY : undefined,
       }));
       const source = resolveMedia(clip.mediaId);
 
@@ -1166,19 +1178,26 @@ export async function POST(req: NextRequest) {
         Math.min(10, Number.isFinite(clip.hookGapAfter) ? Number(clip.hookGapAfter) : 0)
       );
       const splitHook = hookGapAfter > 0.05 && ranged.length >= 2;
+      const framingGroups = splitHook
+        ? [
+            [ranged[0]],
+            ...groupRangesByFraming(ranged.slice(1), clip.crop),
+          ]
+        : groupRangesByFraming(ranged, clip.crop);
       const pieces: {
         ranges: typeof ranged;
         tag: string;
         endFx: boolean;
-      }[] = splitHook
-        ? [
-            { ranges: [ranged[0]], tag: "hook", endFx: false },
-            { ranges: ranged.slice(1), tag: "main", endFx: wantsEndFx },
-          ]
-        : [{ ranges: ranged, tag: "all", endFx: wantsEndFx }];
+      }[] = framingGroups.map((group, idx) => ({
+        ranges: group,
+        tag: splitHook && idx === 0 ? "hook" : `p${idx}`,
+        endFx: idx === framingGroups.length - 1 && wantsEndFx,
+      }));
 
       /** Wall seconds of this clip already rendered — drives the In Depth fade. */
       let clipWallElapsed = 0;
+      /** Song-time already consumed by pieces that mixed Look-clip bed. */
+      let bedElapsed = 0;
       for (let pi = 0; pi < pieces.length; pi++) {
         const piece = pieces[pi];
         const pieceRanges = piece.ranges;
@@ -1260,20 +1279,12 @@ export async function POST(req: NextRequest) {
             0,
             Math.min(2, (clip.volume ?? 1) * (body.clipVolume ?? 1))
           ),
-          crop: clip.crop || {
-            zoom: 1,
-            panX: 50,
-            panY: 50,
-            cropTop: 0,
-            cropBottom: 0,
-            cropLeft: 0,
-            cropRight: 0,
-          },
+          crop: cropForSegment(clip.crop, pieceRanges[0]),
           titleOverlap: !titleEnabled ? true : body.titleOverlap !== false,
           titleBarHeight: barH,
-          // Bed only under the main (or only) piece — not under the hook alone
+          // Bed under every piece except a split-off hook (gap case)
           bedMusicPath: piece.tag === "hook" ? null : bedMusicPath,
-          bedStartAt,
+          bedStartAt: piece.tag === "hook" ? 0 : bedStartAt + bedElapsed,
           bedVolume,
           endTransition: piece.endFx
             ? {
@@ -1285,6 +1296,7 @@ export async function POST(req: NextRequest) {
 
         timelineCursor += pieceWall;
         clipWallElapsed += pieceWall;
+        if (piece.tag !== "hook") bedElapsed += pieceWall;
         segmentPaths.push(pieceOut);
 
         // Black hold after hook teaser, before main

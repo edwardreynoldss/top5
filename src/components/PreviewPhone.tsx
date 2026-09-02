@@ -17,7 +17,7 @@ import {
   getClipHook,
   getClipGapAfter,
   getHookGapAfter,
-  getClipCrop,
+  getSegmentCrop,
   cropPreviewStyle,
   clipTimelineOffsets,
   totalTimelineDuration,
@@ -1549,7 +1549,7 @@ export function PreviewPhone({
   const labelFontPx = ranksLayout.labelSize * previewScale;
   const barHeightPx = title.barHeight * previewScale;
   const fitFill = settings.aspectMode === "crop-fill";
-  const crop = activeClip ? getClipCrop(activeClip) : null;
+  const crop = activeClip ? getSegmentCrop(activeClip, activeSeg) : null;
   const cropLayout = cropPreviewStyle(crop || { zoom: 1, panX: 50, panY: 50 }, {
     frameAspect: 9 / 16,
     videoAspect,

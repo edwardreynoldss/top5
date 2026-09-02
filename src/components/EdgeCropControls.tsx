@@ -107,12 +107,18 @@ export function EdgeCropControls({
   onChange,
   videoAspect,
   frameAspect = 9 / 16,
+  zoomLabel = "Zoom",
+  onResetFraming,
 }: {
   crop: ClipCrop;
   onChange: (next: ClipCrop) => void;
   /** Source pixel aspect — used for “Fill frame” zoom. */
   videoAspect?: number;
   frameAspect?: number;
+  /** When set, names the zoom slider for the active trim part. */
+  zoomLabel?: string;
+  /** Full reset (clip crop + per-part zoom). Falls back to default crop. */
+  onResetFraming?: () => void;
 }) {
   const n = normalizeCrop(crop);
   const patch = (partial: Partial<ClipCrop>) =>
@@ -184,7 +190,7 @@ export function EdgeCropControls({
       </div>
       <div className="edge-crop-zoom">
         <div className="edge-crop-zoom-meta">
-          <span>Zoom</span>
+          <span>{zoomLabel}</span>
           <strong>
             {n.zoom.toFixed(2)}×
             {Math.abs(n.zoom - 1) < 0.02
@@ -227,10 +233,14 @@ export function EdgeCropControls({
         </div>
         <p className="muted edge-crop-hint">
           1× shows the whole source (keeps baked black bars). Drag preview to pan ·
-          scroll to zoom.
+          scroll to zoom. Split ranges can each have their own zoom.
         </p>
       </div>
-      <button type="button" className="btn ghost small" onClick={() => onChange(defaultCrop())}>
+      <button
+        type="button"
+        className="btn ghost small"
+        onClick={() => (onResetFraming ? onResetFraming() : onChange(defaultCrop()))}
+      >
         <RotateCcw size={14} /> Reset framing
       </button>
     </div>
