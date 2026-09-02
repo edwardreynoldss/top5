@@ -137,6 +137,22 @@ export function TopBar({
     setAddingChannel(false);
   }
 
+  async function revealSavedExport() {
+    if (!savedExport) return;
+    try {
+      const res = await fetch("/api/export/reveal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: savedExport.savedPath }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not open folder");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open folder");
+    }
+  }
+
   async function exportVideo() {
     if (readyClips.length === 0) {
       setError("Add and trim at least one clip first.");
@@ -525,10 +541,18 @@ export function TopBar({
         <div className="export-toast">
           {toolsHint && !error && <p className="error-text">{toolsHint}</p>}
           {error && <p className="error-text">{error}</p>}
-          {progress && !error && <p>{progress}</p>}
-          {savedExport && !error && (
-            <p className="muted export-saved-path" title={savedExport.savedPath}>
-              {savedExport.savedPath}
+          {progress && !error && !savedExport && <p>{progress}</p>}
+          {savedExport && (
+            <p>
+              Saved to{" "}
+              <button
+                type="button"
+                className="export-saved-path-link"
+                onClick={() => void revealSavedExport()}
+                title="Open this file’s folder"
+              >
+                {savedExport.savedPath}
+              </button>
             </p>
           )}
         </div>

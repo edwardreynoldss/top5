@@ -132,3 +132,28 @@ export function publishChannelExport(
     downloadId,
   };
 }
+
+/**
+ * Resolve a UI export path (`exports\animals\file.mp4` or `exports/animals/file.mp4`)
+ * to an absolute path under PROJECT_EXPORTS_DIR. Rejects traversal and anything
+ * outside the finished-exports folder.
+ */
+export function safeExportRevealPath(rawPath: string): string | null {
+  if (typeof rawPath !== "string") return null;
+  const trimmed = rawPath.trim();
+  if (!trimmed || trimmed.includes("\0")) return null;
+
+  const parts = trimmed
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .split("/")
+    .filter((p) => p && p !== ".");
+  if (parts.length === 0 || parts[0] !== "exports") return null;
+  if (parts.some((p) => p === "..")) return null;
+
+  const resolved = path.resolve(process.cwd(), ...parts);
+  const exportsRoot = path.resolve(PROJECT_EXPORTS_DIR);
+  const rel = path.relative(exportsRoot, resolved);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  return resolved;
+}
