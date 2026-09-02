@@ -16,6 +16,8 @@ import {
   clipInDepthText,
   clipShortText,
   BUILTIN_TRANSITION_SOUND_ID,
+  clampMusicStartAt,
+  lookMusicLoopInputArgs,
 } from "@/lib/defaults";
 import type { AspectMode, OverlayMotionKeypoint, PlayOrder, TransitionType } from "@/lib/types";
 
@@ -99,6 +101,8 @@ interface ExportBody {
   rankColors: Record<string, string>;
   musicMediaId?: string | null;
   musicVolume?: number;
+  /** Seconds into the Look BGM file to start (and loop from). */
+  musicStartAt?: number;
   clipVolume?: number;
   width?: number;
   height?: number;
@@ -216,6 +220,40 @@ function resolveMedia(mediaId: string) {
   if (existsSync(publicSticker)) return publicSticker;
 
   throw new Error(`Missing media: ${clean}`);
+}
+
+/** Looping Look BGM, optionally trimmed so each loop skips the song intro. */
+async function prepareLookMusicInput(
+  mediaId: string,
+  startAt: number,
+  jobDir: string
+): Promise<{ path: string; loopArgs: string[] }> {
+  const src = resolveMedia(mediaId);
+  const ss = clampMusicStartAt(startAt);
+  if (ss > 0.01) {
+    const trimmed = path.join(jobDir, "look-bgm-from-start.wav");
+    try {
+      await runCommand("ffmpeg", [
+        "-y",
+        "-ss",
+        ss.toFixed(3),
+        "-i",
+        src,
+        "-vn",
+        "-ac",
+        "2",
+        "-ar",
+        "44100",
+        "-c:a",
+        "pcm_s16le",
+        trimmed,
+      ]);
+      return { path: trimmed, loopArgs: lookMusicLoopInputArgs(ss, true) };
+    } catch {
+      return { path: src, loopArgs: lookMusicLoopInputArgs(ss, false) };
+    }
+  }
+  return { path: src, loopArgs: lookMusicLoopInputArgs(0) };
 }
 
 /**
@@ -1428,6 +1466,15 @@ export async function POST(req: NextRequest) {
       ...transitionList,
     ];
     const hasMusic = Boolean(body.musicMediaId);
+    const lookMusicStartAt = clampMusicStartAt(body.musicStartAt);
+    let lookMusic: { path: string; loopArgs: string[] } | null = null;
+    if (hasMusic && body.musicMediaId) {
+      lookMusic = await prepareLookMusicInput(
+        body.musicMediaId,
+        lookMusicStartAt,
+        jobDir
+      );
+    }
     const needsMix = hasMusic || sfxList.length > 0;
 
     if (!needsMix) {
@@ -1462,10 +1509,9 @@ export async function POST(req: NextRequest) {
 
       filterParts.push(`[0:a]volume=1,aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a0]`);
 
-      if (hasMusic && body.musicMediaId) {
-        const music = resolveMedia(body.musicMediaId);
+      if (hasMusic && lookMusic) {
         const vol = body.musicVolume ?? 0.35;
-        args.push("-stream_loop", "-1", "-i", music);
+        args.push(...lookMusic.loopArgs, "-i", lookMusic.path);
         const muteEnable = lookMuteWindows
           .filter((w) => w.end > w.start + 0.02)
           .map(
@@ -1538,8 +1584,8 @@ export async function POST(req: NextRequest) {
           `[1:a]atrim=0:3600,asetpts=PTS-STARTPTS,volume=0.001[a0]`,
         ];
         const mixes = ["[a0]"];
-        if (hasMusic && body.musicMediaId) {
-          silentArgs.push("-stream_loop", "-1", "-i", resolveMedia(body.musicMediaId));
+        if (hasMusic && lookMusic) {
+          silentArgs.push(...lookMusic.loopArgs, "-i", lookMusic.path);
           const muteEnable = lookMuteWindows
             .filter((w) => w.end > w.start + 0.02)
             .map(

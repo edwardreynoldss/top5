@@ -8,6 +8,7 @@ import {
   normalizeRanksLayout,
   normalizeSegments,
   normalizeTransitionSound,
+  clampMusicStartAt,
   createSegment,
   clampClipSpeed,
   clampClipGap,
@@ -113,6 +114,7 @@ export function loadLayoutDefault(): ProjectSettings | null {
         typeof parsed.musicVolume === "number" && Number.isFinite(parsed.musicVolume)
           ? Math.max(0, Math.min(1, parsed.musicVolume))
           : base.musicVolume,
+      musicStartAt: clampMusicStartAt(parsed.musicStartAt, base.musicStartAt),
       // Off unless explicitly saved as true
       musicAutoFromFolder: parsed.musicAutoFromFolder === true,
     };
@@ -309,6 +311,10 @@ export function normalizeProject(
         Number.isFinite(parsed.settings.musicVolume)
           ? Math.max(0, Math.min(1, parsed.settings.musicVolume))
           : fallback.settings.musicVolume,
+      musicStartAt: clampMusicStartAt(
+        parsed.settings?.musicStartAt,
+        fallback.settings.musicStartAt
+      ),
     },
   };
 }

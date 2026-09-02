@@ -308,6 +308,7 @@ export function TopBar({
           ),
           musicMediaId: settings.musicMediaId,
           musicVolume: settings.musicVolume,
+          musicStartAt: settings.musicStartAt ?? 0,
           // Per-clip volume already includes master × UI scale
           clipVolume: 1,
           width: settings.width,

@@ -566,6 +566,7 @@ export function builtInDefaultSettings(): ProjectSettings {
     musicMediaId: null,
     musicUrl: null,
     musicVolume: 0.35,
+    musicStartAt: 0,
     musicAutoFromFolder: false,
     clipVolume: 1,
   };
@@ -577,6 +578,24 @@ export function cloneSettings(settings: ProjectSettings): ProjectSettings {
 
 export function clampUnitOpacity(n: number, fallback = 1) {
   return Math.max(0, Math.min(1, Number.isFinite(n) ? n : fallback));
+}
+
+/** Seconds into the Look background track; never negative. */
+export function clampMusicStartAt(n: unknown, fallback = 0) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return fallback;
+  return Math.max(0, n);
+}
+
+/**
+ * FFmpeg input for looping Look BGM. When startAt > 0, pass a file already
+ * trimmed from that offset (or we fall back to `-ss` on the original).
+ */
+export function lookMusicLoopInputArgs(startAt: unknown, alreadyTrimmed = false): string[] {
+  const ss = clampMusicStartAt(startAt);
+  if (!alreadyTrimmed && ss > 0.01) {
+    return ["-ss", ss.toFixed(3), "-stream_loop", "-1"];
+  }
+  return ["-stream_loop", "-1"];
 }
 
 /** Merge partial/legacy ranks layout with defaults (incl. label dim fields). */

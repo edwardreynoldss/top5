@@ -21,9 +21,11 @@ import type {
 import {
   defaultSticker,
   defaultTransitionSound,
+  formatTime,
   rankListRanks,
   sortClipsForPlayback,
 } from "@/lib/defaults";
+import { getSavedMusicStartAt, saveMusicStartAt } from "@/lib/musicPrefs";
 
 type MusicFolderItem = {
   id: string;
@@ -47,11 +49,13 @@ export function SettingsPanel() {
   } = useEditor();
   const { settings } = project;
   const musicRef = useRef<HTMLInputElement>(null);
+  const musicPreviewRef = useRef<HTMLAudioElement>(null);
   const stickerRef = useRef<HTMLInputElement>(null);
   const [layoutFlash, setLayoutFlash] = useState(false);
   const [stickerBusy, setStickerBusy] = useState(false);
   const [musicFolder, setMusicFolder] = useState<MusicFolderItem[]>([]);
   const [musicFolderBusy, setMusicFolderBusy] = useState(false);
+  const [musicPreviewDur, setMusicPreviewDur] = useState(60);
   const sticker = settings.sticker ?? defaultSticker();
   const activeChannel =
     channelState.channels.find((c) => c.slug === channelState.activeSlug) ||
@@ -59,6 +63,14 @@ export function SettingsPanel() {
   const musicAuto = settings.musicAutoFromFolder === true;
   const orderedClips = sortClipsForPlayback(project.clips, settings);
   const screenRanks = rankListRanks(project.clips, settings);
+  const lookMusicDuration =
+    musicFolder.find((m) => m.mediaId === settings.musicMediaId)?.duration ||
+    musicPreviewDur;
+  const lookMusicStartMax = Math.max(0, lookMusicDuration - 0.5);
+  const lookMusicStart = Math.min(
+    Math.max(0, settings.musicStartAt ?? 0),
+    lookMusicStartMax
+  );
 
   function moveInOrder(clipId: string, delta: number) {
     const ids = orderedClips.map((c) => c.id);
@@ -83,6 +95,7 @@ export function SettingsPanel() {
         updateSettings({
           musicMediaId: pick.mediaId,
           musicUrl: pick.mediaUrl,
+          musicStartAt: getSavedMusicStartAt(pick.mediaId),
         });
       }
     } catch {
@@ -98,6 +111,16 @@ export function SettingsPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    setMusicPreviewDur(60);
+  }, [settings.musicUrl]);
+
+  function rememberCurrentMusicStart() {
+    if (settings.musicMediaId) {
+      saveMusicStartAt(settings.musicMediaId, settings.musicStartAt ?? 0);
+    }
+  }
+
   async function uploadMusic(file: File) {
     const fd = new FormData();
     fd.append("file", file);
@@ -107,18 +130,41 @@ export function SettingsPanel() {
       alert(data.error || "Music upload failed");
       return;
     }
+    rememberCurrentMusicStart();
     updateSettings({
       musicMediaId: data.mediaId,
       musicUrl: data.mediaUrl,
       musicAutoFromFolder: false,
+      musicStartAt: getSavedMusicStartAt(data.mediaId),
     });
   }
 
   function selectFolderBed(item: MusicFolderItem) {
+    if (settings.musicMediaId !== item.mediaId) {
+      rememberCurrentMusicStart();
+    }
     updateSettings({
       musicMediaId: item.mediaId,
       musicUrl: item.mediaUrl,
+      musicStartAt:
+        settings.musicMediaId === item.mediaId
+          ? settings.musicStartAt ?? 0
+          : getSavedMusicStartAt(item.mediaId),
     });
+  }
+
+  function setLookMusicStart(startAt: number) {
+    const next = Math.max(0, startAt);
+    updateSettings({ musicStartAt: next });
+    saveMusicStartAt(settings.musicMediaId, next);
+    const el = musicPreviewRef.current;
+    if (el && Number.isFinite(el.duration) && el.duration > 0) {
+      try {
+        el.currentTime = Math.min(next, Math.max(0, el.duration - 0.05));
+      } catch {
+        // ignore
+      }
+    }
   }
 
   async function uploadSticker(file: File) {
@@ -596,9 +642,10 @@ export function SettingsPanel() {
         </div>
         <p className="muted">
           Optional full-timeline bed from <code>music/</code> (loops under the whole video).
-          For music on a single clip, set it in <strong>Trim &amp; crop</strong>. To skip this
-          bed on a clip that already has music, check <strong>Skip look BGM</strong> on that
-          clip card.
+          Skip the intro with <strong>Start in song</strong> — that offset is remembered for
+          each track. For music on a single clip, set it in <strong>Trim &amp; crop</strong>.
+          To skip this bed on a clip that already has music, check{" "}
+          <strong>Skip look BGM</strong> on that clip card.
         </p>
 
         <div className="music-folder-head">
@@ -658,7 +705,41 @@ export function SettingsPanel() {
 
         {settings.musicUrl ? (
           <div className="music-ready">
-            <audio key={settings.musicUrl} src={settings.musicUrl} controls />
+            <audio
+              key={settings.musicUrl}
+              ref={musicPreviewRef}
+              src={settings.musicUrl}
+              controls
+              onLoadedMetadata={(e) => {
+                const el = e.currentTarget;
+                if (Number.isFinite(el.duration) && el.duration > 0) {
+                  setMusicPreviewDur(el.duration);
+                }
+                const start = Math.max(0, settings.musicStartAt ?? 0);
+                if (start > 0 && Number.isFinite(el.duration) && start < el.duration) {
+                  try {
+                    el.currentTime = start;
+                  } catch {
+                    // ignore
+                  }
+                }
+              }}
+            />
+            <label className="field">
+              <span>
+                Start in song ({formatTime(lookMusicStart)}) · loops from here
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={lookMusicStartMax}
+                step={0.1}
+                value={lookMusicStart}
+                onChange={(e) =>
+                  setLookMusicStart(Math.max(0, parseFloat(e.target.value) || 0))
+                }
+              />
+            </label>
             <label className="field">
               <span>Music volume ({Math.round((settings.musicVolume ?? 0.35) * 100)}%)</span>
               <input
@@ -681,13 +762,15 @@ export function SettingsPanel() {
               </button>
               <button
                 className="btn ghost small"
-                onClick={() =>
+                onClick={() => {
+                  rememberCurrentMusicStart();
                   updateSettings({
                     musicMediaId: null,
                     musicUrl: null,
+                    musicStartAt: 0,
                     musicAutoFromFolder: false,
-                  })
-                }
+                  });
+                }}
               >
                 Clear music
               </button>
