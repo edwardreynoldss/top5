@@ -13,11 +13,19 @@ import {
   ffmpegAtempoChain,
   buildOverlayAxisExpr,
   buildOverlayRotationExpr,
+  buildZoomChannelExpr,
+  normalizeZoomKeyframes,
   clipInDepthText,
   clipShortText,
   BUILTIN_TRANSITION_SOUND_ID,
 } from "@/lib/defaults";
-import type { AspectMode, OverlayMotionKeypoint, PlayOrder, TransitionType } from "@/lib/types";
+import type {
+  AspectMode,
+  OverlayMotionKeypoint,
+  PlayOrder,
+  TransitionType,
+  ZoomKeyframe,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
@@ -53,7 +61,16 @@ interface ExportClip {
   trimStart: number;
   trimEnd: number;
   segments?: { start: number; end: number; speed?: number }[];
-  crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number; cropLeft?: number; cropRight?: number };
+  crop?: {
+    zoom: number;
+    panX: number;
+    panY: number;
+    cropTop?: number;
+    cropBottom?: number;
+    cropLeft?: number;
+    cropRight?: number;
+    zoomKeyframes?: ZoomKeyframe[];
+  };
   /** Per-clip gain 0–2; multiplied by body.clipVolume */
   volume?: number;
   /** Playback rate 0.5–2 (1 = normal) */
@@ -483,7 +500,16 @@ async function renderClipSegment(opts: {
   stickerSourceSeek: number;
   fps: number;
   clipVolume: number;
-  crop?: { zoom: number; panX: number; panY: number; cropTop?: number; cropBottom?: number; cropLeft?: number; cropRight?: number };
+  crop?: {
+    zoom: number;
+    panX: number;
+    panY: number;
+    cropTop?: number;
+    cropBottom?: number;
+    cropLeft?: number;
+    cropRight?: number;
+    zoomKeyframes?: ZoomKeyframe[];
+  };
   titleOverlap?: boolean;
   titleBarHeight?: number;
   /** Optional bed file mixed under this clip only (capped by wallDuration) */
@@ -579,17 +605,44 @@ async function renderClipSegment(opts: {
   const panRoom = 0.45;
   const padTop =
     topPad > 0 ? `,pad=${width}:${height}:0:${topPad}:black` : "";
-  const framed =
-    `[0:v]fps=${fps},` +
-    speedFilter +
-    edgeCropFilter +
-    `scale=${width}:${contentH}:force_original_aspect_ratio=decrease,` +
-    `scale=iw*${zoom}:ih*${zoom}[czfg];` +
-    `color=c=black:s=${width}x${contentH}:r=${fps}:d=${wallDuration}[czbg];` +
-    `[czbg][czfg]overlay=` +
-    `x='(W-w)/2+(0.5-${panX})*max(w-W\\,W*${panRoom})':` +
-    `y='(H-h)/2+(0.5-${panY})*max(h-H\\,H*${panRoom})':` +
-    `shortest=1,setsar=1${padTop}`;
+  // Animated zoom/pan path (punch-in that pushes in and pans over time). When
+  // present it replaces the static zoom/pan. Progress = t / wallDuration, so a
+  // per-frame crop of the contain-fit base frame matches the modal preview
+  // (CSS transform-origin punch-in about the pan point).
+  const zoomKeyframes = normalizeZoomKeyframes(crop?.zoomKeyframes);
+  const animatedZoom = zoomKeyframes.length > 0;
+  const zExpr = animatedZoom
+    ? buildZoomChannelExpr(zoomKeyframes, wallDuration, "zoom")
+    : "1";
+  const pxExpr = animatedZoom
+    ? buildZoomChannelExpr(zoomKeyframes, wallDuration, "panX")
+    : "0.5";
+  const pyExpr = animatedZoom
+    ? buildZoomChannelExpr(zoomKeyframes, wallDuration, "panY")
+    : "0.5";
+  const framed = animatedZoom
+    ? // Base frame: contain-fit + black pad to the content area, then a per-frame
+      // punch-in crop (window = 1/zoom of the frame, positioned by pan), scaled
+      // back up. crop re-evaluates its expressions each frame (they use `t`).
+      `[0:v]fps=${fps},` +
+      speedFilter +
+      edgeCropFilter +
+      `scale=${width}:${contentH}:force_original_aspect_ratio=decrease,` +
+      `pad=${width}:${contentH}:(${width}-iw)/2:(${contentH}-ih)/2:black,setsar=1,` +
+      `crop=w='${width}/(${zExpr})':h='${contentH}/(${zExpr})':` +
+      `x='(${width}-${width}/(${zExpr}))*(${pxExpr})':` +
+      `y='(${contentH}-${contentH}/(${zExpr}))*(${pyExpr})':exact=1,` +
+      `scale=${width}:${contentH}:flags=lanczos,setsar=1${padTop}`
+    : `[0:v]fps=${fps},` +
+      speedFilter +
+      edgeCropFilter +
+      `scale=${width}:${contentH}:force_original_aspect_ratio=decrease,` +
+      `scale=iw*${zoom}:ih*${zoom}[czfg];` +
+      `color=c=black:s=${width}x${contentH}:r=${fps}:d=${wallDuration}[czbg];` +
+      `[czbg][czfg]overlay=` +
+      `x='(W-w)/2+(0.5-${panX})*max(w-W\\,W*${panRoom})':` +
+      `y='(H-h)/2+(0.5-${panY})*max(h-H\\,H*${panRoom})':` +
+      `shortest=1,setsar=1${padTop}`;
 
   // Input layout: 0=clip, 1=title, [ranks], [ranks fade], [sticker], [bed]
   let nextInput = 2;
@@ -1260,15 +1313,23 @@ export async function POST(req: NextRequest) {
             0,
             Math.min(2, (clip.volume ?? 1) * (body.clipVolume ?? 1))
           ),
-          crop: clip.crop || {
-            zoom: 1,
-            panX: 50,
-            panY: 50,
-            cropTop: 0,
-            cropBottom: 0,
-            cropLeft: 0,
-            cropRight: 0,
-          },
+          crop: (() => {
+            const baseCrop = clip.crop || {
+              zoom: 1,
+              panX: 50,
+              panY: 50,
+              cropTop: 0,
+              cropBottom: 0,
+              cropLeft: 0,
+              cropRight: 0,
+            };
+            // Animated zoom rides the main content only — the hook teaser uses
+            // the static base framing (no per-frame zoom path).
+            if (piece.tag === "hook") {
+              return { ...baseCrop, zoomKeyframes: undefined };
+            }
+            return baseCrop;
+          })(),
           titleOverlap: !titleEnabled ? true : body.titleOverlap !== false,
           titleBarHeight: barH,
           // Bed only under the main (or only) piece — not under the hook alone

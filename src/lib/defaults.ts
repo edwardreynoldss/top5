@@ -17,13 +17,17 @@ import type {
   TransitionSound,
   TitleWord,
   TrimSegment,
+  ZoomKeyframe,
 } from "./types";
 import {
   DEFAULT_CLIP_DURATION,
   MAX_CLIP_DURATION,
   MAX_CLIP_GAP,
   MAX_HOOK_DURATION,
+  MAX_KEYFRAME_ZOOM,
+  MAX_ZOOM_KEYFRAMES,
   MIN_HOOK_DURATION,
+  MIN_KEYFRAME_ZOOM,
   OUTPUT_HEIGHT,
   OUTPUT_WIDTH,
 } from "./types";
@@ -279,6 +283,101 @@ export function normalizeHorizontalCrop(cropLeft = 0, cropRight = 0) {
   return { left, right, visibleW: Math.max(MIN_VISIBLE_WIDTH, 1 - left - right) };
 }
 
+/** Clamp a zoom-keyframe punch-in factor into the animated range (1–4). */
+export function clampKeyframeZoom(zoom: number) {
+  return Math.max(
+    MIN_KEYFRAME_ZOOM,
+    Math.min(MAX_KEYFRAME_ZOOM, Number.isFinite(zoom) ? zoom : 1)
+  );
+}
+
+/**
+ * Clamp / sort / dedupe an animated zoom path. Points are ordered by time and
+ * nudged apart when they share a `t` so interpolation segments never collapse.
+ * Returns [] when there is nothing usable.
+ */
+export function normalizeZoomKeyframes(
+  raw?: Partial<ZoomKeyframe>[] | null
+): ZoomKeyframe[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const points = raw
+    .map((k) => {
+      if (!k || typeof k !== "object") return null;
+      const t = Math.max(0, Math.min(1, Number.isFinite(k.t) ? Number(k.t) : 0));
+      const point: ZoomKeyframe = {
+        id: typeof k.id === "string" && k.id ? k.id : uuidv4(),
+        t,
+        zoom: clampKeyframeZoom(Number(k.zoom)),
+        panX: clampCropPan(Number(k.panX)),
+        panY: clampCropPan(Number(k.panY)),
+      };
+      return point;
+    })
+    .filter(Boolean) as ZoomKeyframe[];
+  if (points.length === 0) return [];
+  points.sort((a, b) => a.t - b.t || a.id.localeCompare(b.id));
+  for (let i = 1; i < points.length; i++) {
+    if (points[i].t <= points[i - 1].t) {
+      points[i] = { ...points[i], t: Math.min(1, points[i - 1].t + 0.001) };
+    }
+  }
+  return points.slice(0, MAX_ZOOM_KEYFRAMES);
+}
+
+/** True when a clip crop carries an animated zoom path. */
+export function hasZoomKeyframes(crop?: Partial<ClipCrop> | null): boolean {
+  return normalizeZoomKeyframes(crop?.zoomKeyframes).length > 0;
+}
+
+/**
+ * Sample the animated zoom path at normalized progress 0–1 (linear between
+ * points, held flat before the first / after the last). Returns null when the
+ * path is empty so callers can fall back to the static crop.
+ */
+export function sampleZoomKeyframes(
+  keyframes: Partial<ZoomKeyframe>[] | null | undefined,
+  progress: number
+): { zoom: number; panX: number; panY: number } | null {
+  const path = normalizeZoomKeyframes(keyframes);
+  if (path.length === 0) return null;
+  const p = Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
+  if (path.length === 1 || p <= path[0].t) {
+    return { zoom: path[0].zoom, panX: path[0].panX, panY: path[0].panY };
+  }
+  const last = path[path.length - 1];
+  if (p >= last.t) return { zoom: last.zoom, panX: last.panX, panY: last.panY };
+  let i = 0;
+  while (i < path.length - 1 && path[i + 1].t < p) i++;
+  const a = path[i];
+  const b = path[i + 1];
+  const span = Math.max(1e-6, b.t - a.t);
+  const u = Math.max(0, Math.min(1, (p - a.t) / span));
+  return {
+    zoom: a.zoom + (b.zoom - a.zoom) * u,
+    panX: a.panX + (b.panX - a.panX) * u,
+    panY: a.panY + (b.panY - a.panY) * u,
+  };
+}
+
+/**
+ * Effective framing at a moment in the clip. When a zoom path exists, its
+ * sampled zoom/pan override the static punch-in (edge crop is kept). Otherwise
+ * the static crop is returned unchanged.
+ */
+export function cropAtProgress(
+  crop: ClipCrop,
+  progress: number
+): ClipCrop {
+  const sampled = sampleZoomKeyframes(crop.zoomKeyframes, progress);
+  if (!sampled) return crop;
+  return {
+    ...crop,
+    zoom: clampKeyframeZoom(sampled.zoom),
+    panX: clampCropPan(sampled.panX),
+    panY: clampCropPan(sampled.panY),
+  };
+}
+
 /** Merge partial/legacy crop with defaults and clamp all fields. */
 export function normalizeCrop(crop?: Partial<ClipCrop> | null): ClipCrop {
   const d = defaultCrop();
@@ -286,7 +385,8 @@ export function normalizeCrop(crop?: Partial<ClipCrop> | null): ClipCrop {
   const hEdges = normalizeHorizontalCrop(crop?.cropLeft ?? 0, crop?.cropRight ?? 0);
   const panX = typeof crop?.panX === "number" && Number.isFinite(crop.panX) ? crop.panX : d.panX;
   const panY = typeof crop?.panY === "number" && Number.isFinite(crop.panY) ? crop.panY : d.panY;
-  return {
+  const zoomKeyframes = normalizeZoomKeyframes(crop?.zoomKeyframes);
+  const next: ClipCrop = {
     zoom: clampCropZoom(crop?.zoom ?? d.zoom),
     panX: Math.max(0, Math.min(100, panX)),
     panY: Math.max(0, Math.min(100, panY)),
@@ -295,6 +395,44 @@ export function normalizeCrop(crop?: Partial<ClipCrop> | null): ClipCrop {
     cropLeft: hEdges.left,
     cropRight: hEdges.right,
   };
+  if (zoomKeyframes.length > 0) next.zoomKeyframes = zoomKeyframes;
+  return next;
+}
+
+/**
+ * Piecewise-linear ffmpeg expression (variable `t` = seconds into the segment)
+ * for one animated channel. Progress into the clip is `t/pieceWall`; keyframe
+ * times are normalized 0–1. Commas are escaped for filter_complex.
+ */
+export function buildZoomChannelExpr(
+  keyframes: ZoomKeyframe[],
+  pieceWall: number,
+  channel: "zoom" | "panX" | "panY"
+): string {
+  const path = normalizeZoomKeyframes(keyframes);
+  const dur = Math.max(0.05, pieceWall);
+  const valOf = (k: ZoomKeyframe) =>
+    channel === "zoom" ? k.zoom : (channel === "panX" ? k.panX : k.panY) / 100;
+  if (path.length === 0) return channel === "zoom" ? "1" : "0.5";
+  if (path.length === 1) return valOf(path[0]).toFixed(6);
+  // Build from the last segment backwards: if(lt(t,tEnd), lerp, hold-next)
+  let expr = valOf(path[path.length - 1]).toFixed(6);
+  for (let i = path.length - 2; i >= 0; i--) {
+    const a = path[i];
+    const b = path[i + 1];
+    const t0 = a.t * dur;
+    const t1 = b.t * dur;
+    const span = Math.max(1e-6, t1 - t0);
+    const v0 = valOf(a);
+    const v1 = valOf(b);
+    const seg = `${v0.toFixed(6)}+(${(v1 - v0).toFixed(6)})*(t-${t0.toFixed(4)})/${span.toFixed(6)}`;
+    expr = `if(lt(t\\,${t1.toFixed(4)})\\,${seg}\\,${expr})`;
+  }
+  // Hold the first value before its time.
+  const first = path[0];
+  const tFirst = first.t * dur;
+  expr = `if(lt(t\\,${tFirst.toFixed(4)})\\,${valOf(first).toFixed(6)}\\,${expr})`;
+  return expr;
 }
 
 export type CropEdge = "left" | "right" | "top" | "bottom";
@@ -360,6 +498,48 @@ export function normalizeSegments(
 
 export function segmentsDuration(segments: TrimSegment[]) {
   return normalizeSegments(segments).reduce((sum, s) => sum + (s.end - s.start), 0);
+}
+
+/**
+ * Normalized progress 0–1 across the concatenated main content for a point at
+ * `sourceTime` seconds inside part `partIndex`. Uses raw source seconds (speed
+ * independent) so it lines up with the export's per-piece progress.
+ */
+export function clipProgressFromSource(
+  segments: TrimSegment[],
+  partIndex: number,
+  sourceTime: number
+): number {
+  const segs = normalizeSegments(segments);
+  if (segs.length === 0) return 0;
+  const total = segs.reduce((sum, s) => sum + Math.max(0, s.end - s.start), 0);
+  if (total <= 1e-6) return 0;
+  const idx = Math.max(0, Math.min(segs.length - 1, partIndex));
+  let before = 0;
+  for (let i = 0; i < idx; i++) before += Math.max(0, segs[i].end - segs[i].start);
+  const seg = segs[idx];
+  const into = Math.max(0, Math.min(sourceTime, seg.end) - seg.start);
+  return Math.max(0, Math.min(1, (before + into) / total));
+}
+
+/** Inverse of {@link clipProgressFromSource}: which part + source time a progress lands on. */
+export function sourceFromClipProgress(
+  segments: TrimSegment[],
+  progress: number
+): { partIndex: number; sourceTime: number } {
+  const segs = normalizeSegments(segments);
+  if (segs.length === 0) return { partIndex: 0, sourceTime: 0 };
+  const total = segs.reduce((sum, s) => sum + Math.max(0, s.end - s.start), 0);
+  let remaining = Math.max(0, Math.min(1, progress)) * total;
+  for (let i = 0; i < segs.length; i++) {
+    const len = Math.max(0, segs[i].end - segs[i].start);
+    if (remaining <= len || i === segs.length - 1) {
+      return { partIndex: i, sourceTime: segs[i].start + Math.min(remaining, len) };
+    }
+    remaining -= len;
+  }
+  const last = segs[segs.length - 1];
+  return { partIndex: segs.length - 1, sourceTime: last.end };
 }
 
 /** Wall-clock length of segments after each part's speed. */

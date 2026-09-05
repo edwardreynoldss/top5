@@ -107,12 +107,18 @@ export function EdgeCropControls({
   onChange,
   videoAspect,
   frameAspect = 9 / 16,
+  showZoomPan = true,
 }: {
   crop: ClipCrop;
   onChange: (next: ClipCrop) => void;
   /** Source pixel aspect — used for “Fill frame” zoom. */
   videoAspect?: number;
   frameAspect?: number;
+  /**
+   * Hide the static Position (pan) + Zoom blocks. Used when the clip is driven
+   * by an animated zoom timeline instead, so those controls don't conflict.
+   */
+  showZoomPan?: boolean;
 }) {
   const n = normalizeCrop(crop);
   const patch = (partial: Partial<ClipCrop>) =>
@@ -124,6 +130,13 @@ export function EdgeCropControls({
 
   return (
     <div className="edge-crop-controls">
+      {!showZoomPan ? (
+        <p className="muted edge-crop-hint" style={{ margin: 0 }}>
+          Zoom &amp; pan are controlled by the zoom timeline under the preview.
+          Edge crop below still applies.
+        </p>
+      ) : null}
+      {showZoomPan ? (
       <div className="crop-pan-block">
         <div className="crop-pan-head">
           <span>Position</span>
@@ -154,6 +167,7 @@ export function EdgeCropControls({
           onChange={(panY) => patch({ panY })}
         />
       </div>
+      ) : null}
 
       <div className="edge-crop-grid">
         <p className="muted edge-crop-hint" style={{ gridColumn: "1 / -1", margin: 0 }}>
@@ -182,6 +196,7 @@ export function EdgeCropControls({
           onChange={(cropRight) => patch({ cropRight })}
         />
       </div>
+      {showZoomPan ? (
       <div className="edge-crop-zoom">
         <div className="edge-crop-zoom-meta">
           <span>Zoom</span>
@@ -230,6 +245,7 @@ export function EdgeCropControls({
           scroll to zoom.
         </p>
       </div>
+      ) : null}
       <button type="button" className="btn ghost small" onClick={() => onChange(defaultCrop())}>
         <RotateCcw size={14} /> Reset framing
       </button>

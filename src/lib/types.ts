@@ -24,6 +24,24 @@ export interface TrimSegment {
   speed?: number;
 }
 
+/**
+ * One point on a clip's animated zoom/pan path.
+ * `t` is normalized 0–1 across the clip's main trimmed content
+ * (0 = first main frame, 1 = last main frame). Two or more points make the
+ * zoom move over time; a single point holds a constant zoom for the whole clip.
+ */
+export interface ZoomKeyframe {
+  id: string;
+  /** Normalized progress 0–1 across the clip's main trimmed content. */
+  t: number;
+  /** Punch-in factor at this point (1 = full frame, up to 4). */
+  zoom: number;
+  /** 0–100 horizontal focus (0 = show left edge, 50 = center, 100 = right). */
+  panX: number;
+  /** 0–100 vertical focus (0 = show top, 50 = center, 100 = bottom). */
+  panY: number;
+}
+
 /** Zoom/pan framing for fit-to-screen crop, plus optional edge crop */
 export interface ClipCrop {
   /**
@@ -57,6 +75,13 @@ export interface ClipCrop {
    * Applied to the video before pan/zoom — the crop moves with the clip.
    */
   cropRight?: number;
+  /**
+   * Optional animated zoom/pan across the clip's main content. When present
+   * (and containing at least one point), it overrides the static {@link zoom} /
+   * {@link panX} / {@link panY} punch-in, letting the shot push in and pan to
+   * follow a moving subject. Edge crop still applies first.
+   */
+  zoomKeyframes?: ZoomKeyframe[];
 }
 
 /** Optional background bed for a single clip (from music/ folder). */
@@ -416,6 +441,11 @@ export const MAX_HOOK_DURATION = 3;
 export const MIN_HOOK_DURATION = 0.5;
 /** Max black hold between clips (seconds). */
 export const MAX_CLIP_GAP = 10;
+/** Punch-in zoom range for animated zoom keyframes (1 = full frame). */
+export const MIN_KEYFRAME_ZOOM = 1;
+export const MAX_KEYFRAME_ZOOM = 4;
+/** Hard cap on zoom keyframes per clip (keeps ffmpeg expressions sane). */
+export const MAX_ZOOM_KEYFRAMES = 12;
 
 export const TITLE_FONTS: {
   id: TitleFontId;

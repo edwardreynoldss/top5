@@ -2648,6 +2648,145 @@ a {
   z-index: 3;
 }
 
+/* Animated zoom timeline (under the trim preview) */
+.zoom-anim-layer {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+.zoom-timeline-block {
+  align-self: stretch;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.35rem 0.1rem 0.1rem;
+}
+
+.zoom-timeline-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.zoom-timeline-head .muted {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-rail {
+  position: relative;
+  height: 30px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+}
+
+.zoom-rail-track {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    rgba(57, 255, 20, 0.05),
+    rgba(57, 255, 20, 0.16)
+  );
+  pointer-events: none;
+}
+
+.zoom-kf {
+  position: absolute;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: grab;
+  z-index: 2;
+  touch-action: none;
+}
+
+.zoom-kf:active {
+  cursor: grabbing;
+}
+
+.zoom-kf-dot {
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 4px;
+  background: #eaeaea;
+  border: 2px solid #0b0b0b;
+  border-radius: 3px;
+  transform: rotate(45deg);
+  transition: background 0.1s ease, transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.zoom-kf.active .zoom-kf-dot {
+  background: #39ff14;
+  transform: rotate(45deg) scale(1.15);
+  box-shadow: 0 0 0 2px rgba(57, 255, 20, 0.3);
+}
+
+.zoom-rail-playhead {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.zoom-rail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.zoom-kf-editor {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.zoom-kf-row {
+  display: grid;
+  grid-template-columns: 3.2rem 1fr 2.8rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.zoom-kf-row input[type="range"] {
+  width: 100%;
+}
+
+.zoom-kf-row strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-kf-hint {
+  margin: 0;
+  font-size: 0.72rem;
+}
+
 /* Compact edge crop steppers */
 .edge-crop-controls {
   display: grid;

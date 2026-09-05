@@ -13,19 +13,30 @@ import {
   hookDuration,
   cropPreviewStyle,
   clampCropZoom,
+  clampCropPan,
   clampClipSpeed,
   cropEdgeFromWindowPoint,
+  normalizeZoomKeyframes,
+  clampKeyframeZoom,
+  sampleZoomKeyframes,
+  clipProgressFromSource,
+  sourceFromClipProgress,
   type CropEdge,
 } from "@/lib/defaults";
 import {
   MAX_CLIP_DURATION,
   MAX_HOOK_DURATION,
   MIN_HOOK_DURATION,
+  MIN_KEYFRAME_ZOOM,
+  MAX_KEYFRAME_ZOOM,
+  MAX_ZOOM_KEYFRAMES,
   type ClipBedMusic,
   type ClipCrop,
   type ClipHook,
   type TrimSegment,
+  type ZoomKeyframe,
 } from "@/lib/types";
+import { v4 as uuidv4 } from "uuid";
 import { nextPlaybackAction } from "@/lib/trimPreview";
 import { RangeRail } from "@/components/RangeRail";
 import { EdgeCropControls } from "@/components/EdgeCropControls";
@@ -115,11 +126,23 @@ export function TrimModal({
   const [videoAspect, setVideoAspect] = useState(9 / 16);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const dragRef = useRef<{
+    x: number;
+    y: number;
+    panX: number;
+    panY: number;
+    kfId?: string | null;
+  } | null>(null);
   const [dragging, setDragging] = useState(false);
   const edgeDragRef = useRef<{ edge: CropEdge; pointerId: number } | null>(null);
   const [edgeDragging, setEdgeDragging] = useState<CropEdge | null>(null);
   const cropWindowRef = useRef<HTMLDivElement>(null);
+  // Animated zoom timeline: independent scrub playhead (0–1) + selected point.
+  const [selectedKfId, setSelectedKfId] = useState<string | null>(null);
+  const [zoomProgress, setZoomProgress] = useState(0);
+  const zoomProgressRef = useRef(0);
+  const zoomRailRef = useRef<HTMLDivElement>(null);
+  const zoomDragRef = useRef<{ mode: "scrub" | "kf"; kfId?: string; pointerId: number } | null>(null);
   const segmentsRef = useRef(segments);
   const hookRef = useRef(hook);
   const playQueueRef = useRef<TrimSegment[]>(segments);
@@ -127,6 +150,7 @@ export function TrimModal({
   const activeIdxRef = useRef(activeIdx);
   const previewAllRef = useRef(previewAll);
   const previewingHookRef = useRef(false);
+  const selectedKfIdRef = useRef<string | null>(null);
   const playingRef = useRef(playing);
   const seekingRef = useRef(false);
   const seekClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -136,6 +160,7 @@ export function TrimModal({
   activeIdxRef.current = activeIdx;
   previewAllRef.current = previewAll;
   playingRef.current = playing;
+  selectedKfIdRef.current = selectedKfId;
 
   function applyPlaybackRate(v: HTMLVideoElement, speed: number) {
     v.playbackRate = clampClipSpeed(speed);
@@ -176,6 +201,15 @@ export function TrimModal({
   const active = segments[activeIdx] || segments[0];
   const activeSpeed = clampClipSpeed(
     typeof active?.speed === "number" ? active.speed : defaultSpeed
+  );
+  const zoomKeyframes = useMemo(
+    () => normalizeZoomKeyframes(crop.zoomKeyframes),
+    [crop.zoomKeyframes]
+  );
+  const hasKf = zoomKeyframes.length > 0;
+  const activeKf = useMemo(
+    () => zoomKeyframes.find((k) => k.id === selectedKfId) ?? null,
+    [zoomKeyframes, selectedKfId]
   );
   const totalSelected = useMemo(() => segmentsDuration(segments), [segments]);
   const totalPlay = useMemo(
@@ -239,6 +273,9 @@ export function TrimModal({
     setPreviewAll(false);
     setPreviewingHook(false);
     previewingHookRef.current = false;
+    setSelectedKfId(null);
+    setZoomProgress(0);
+    zoomProgressRef.current = 0;
     setCurrent(0);
     setDur(duration > 0 ? duration : 0);
     setPortrait(false);
@@ -451,6 +488,16 @@ export function TrimModal({
       if (seekingRef.current) return;
       const t = v.currentTime;
       setCurrent(t);
+      // Drive the zoom-timeline playhead so the animated framing plays live.
+      if (!previewingHookRef.current) {
+        const prog = clipProgressFromSource(
+          segmentsRef.current,
+          activeIdxRef.current,
+          t
+        );
+        zoomProgressRef.current = prog;
+        setZoomProgress(prog);
+      }
       if (!playingRef.current) return;
 
       // Hook-only preview: stop at hook end
@@ -554,7 +601,19 @@ export function TrimModal({
     const onWheel = (ev: WheelEvent) => {
       ev.preventDefault();
       const step = ev.deltaY > 0 ? -0.05 : 0.05;
-      setCrop((c) => ({ ...c, zoom: clampCropZoom(c.zoom + step) }));
+      const kfId = selectedKfIdRef.current;
+      setCrop((c) => {
+        const kfs = normalizeZoomKeyframes(c.zoomKeyframes);
+        if (kfs.length > 0) {
+          // With a zoom path, scroll adjusts the selected point (not base zoom).
+          if (!kfId || !kfs.some((k) => k.id === kfId)) return c;
+          const next = kfs.map((k) =>
+            k.id === kfId ? { ...k, zoom: clampKeyframeZoom(k.zoom + step) } : k
+          );
+          return { ...c, zoomKeyframes: normalizeZoomKeyframes(next) };
+        }
+        return { ...c, zoom: clampCropZoom(c.zoom + step) };
+      });
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -573,6 +632,136 @@ export function TrimModal({
       return next;
     });
   }
+
+  /** Update one zoom keyframe (re-normalizes so times stay sorted/unique). */
+  function updateKeyframe(id: string, patch: Partial<ZoomKeyframe>) {
+    setCrop((c) => {
+      const kfs = normalizeZoomKeyframes(c.zoomKeyframes).map((k) =>
+        k.id === id ? { ...k, ...patch } : k
+      );
+      return { ...c, zoomKeyframes: normalizeZoomKeyframes(kfs) };
+    });
+  }
+
+  /** Add a zoom point at the current scrub position, capturing the shown framing. */
+  function addKeyframeAtScrub() {
+    const existing = normalizeZoomKeyframes(crop.zoomKeyframes);
+    if (existing.length >= MAX_ZOOM_KEYFRAMES) return;
+    const t = Math.max(0, Math.min(1, zoomProgressRef.current));
+    const sampled = sampleZoomKeyframes(existing, t);
+    const kf: ZoomKeyframe = {
+      id: uuidv4(),
+      t,
+      zoom: clampKeyframeZoom(sampled?.zoom ?? (existing.length === 0 ? 1.4 : 1)),
+      panX: clampCropPan(sampled?.panX ?? 50),
+      panY: clampCropPan(sampled?.panY ?? 50),
+    };
+    setCrop((c) => ({
+      ...c,
+      zoomKeyframes: normalizeZoomKeyframes([
+        ...normalizeZoomKeyframes(c.zoomKeyframes),
+        kf,
+      ]),
+    }));
+    setSelectedKfId(kf.id);
+  }
+
+  function removeKeyframe(id: string) {
+    setCrop((c) => {
+      const kfs = normalizeZoomKeyframes(c.zoomKeyframes).filter((k) => k.id !== id);
+      const next = { ...c };
+      if (kfs.length > 0) next.zoomKeyframes = kfs;
+      else delete next.zoomKeyframes;
+      return next;
+    });
+    setSelectedKfId((cur) => (cur === id ? null : cur));
+  }
+
+  function clearKeyframes() {
+    setCrop((c) => {
+      const next = { ...c };
+      delete next.zoomKeyframes;
+      return next;
+    });
+    setSelectedKfId(null);
+  }
+
+  /** Move the zoom-timeline playhead: seek the preview and pause any playback. */
+  function scrubZoomTo(progress: number, opts?: { pause?: boolean }) {
+    const prog = Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
+    zoomProgressRef.current = prog;
+    setZoomProgress(prog);
+    if (opts?.pause !== false && playingRef.current) {
+      videoRef.current?.pause();
+      playingRef.current = false;
+      previewAllRef.current = false;
+      previewingHookRef.current = false;
+      setPlaying(false);
+      setPreviewAll(false);
+      setPreviewingHook(false);
+      endSeek();
+    }
+    const { partIndex, sourceTime } = sourceFromClipProgress(segmentsRef.current, prog);
+    activeIdxRef.current = partIndex;
+    setActiveIdx(partIndex);
+    const v = videoRef.current;
+    if (v) {
+      seekVideo(v, sourceTime);
+      setCurrent(sourceTime);
+    }
+  }
+
+  function railProgressFromClientX(clientX: number) {
+    const el = zoomRailRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1) return 0;
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }
+
+  const onZoomRailPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    zoomRailRef.current?.setPointerCapture?.(e.pointerId);
+    zoomDragRef.current = { mode: "scrub", pointerId: e.pointerId };
+    scrubZoomTo(railProgressFromClientX(e.clientX));
+  };
+
+  const onZoomRailPointerMove = (e: React.PointerEvent) => {
+    const d = zoomDragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    e.preventDefault();
+    const p = railProgressFromClientX(e.clientX);
+    if (d.mode === "kf" && d.kfId) {
+      updateKeyframe(d.kfId, { t: p });
+      scrubZoomTo(p, { pause: false });
+    } else {
+      scrubZoomTo(p);
+    }
+  };
+
+  const onZoomRailPointerUp = (e: React.PointerEvent) => {
+    const d = zoomDragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    zoomDragRef.current = null;
+    try {
+      zoomRailRef.current?.releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const onKeyframePointerDown = (id: string, e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedKfId(id);
+    selectedKfIdRef.current = id;
+    zoomRailRef.current?.setPointerCapture?.(e.pointerId);
+    zoomDragRef.current = { mode: "kf", kfId: id, pointerId: e.pointerId };
+    const kf = normalizeZoomKeyframes(crop.zoomKeyframes).find((k) => k.id === id);
+    if (kf) scrubZoomTo(kf.t, { pause: false });
+  };
 
   const playSegment = async (all: boolean, hookOnly = false) => {
     const v = videoRef.current;
@@ -637,6 +826,20 @@ export function TrimModal({
       setPreviewAll(false);
       setPreviewingHook(false);
       setActiveIdx(startIdx);
+    }
+
+    // Reset the zoom-timeline playhead to the start of what's about to play so
+    // the animated zoom replays from the beginning (hook stays static).
+    if (!hookOnly) {
+      const p0 = all
+        ? 0
+        : clipProgressFromSource(
+            segmentsRef.current,
+            activeIdxRef.current,
+            startAt
+          );
+      zoomProgressRef.current = p0;
+      setZoomProgress(p0);
     }
 
     try {
@@ -761,10 +964,30 @@ export function TrimModal({
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     if (edgeDragRef.current) return;
+    const kfs = normalizeZoomKeyframes(crop.zoomKeyframes);
+    let kfId: string | null = null;
+    let startPanX = crop.panX;
+    let startPanY = crop.panY;
+    if (kfs.length > 0) {
+      // With a zoom path, dragging pans the SELECTED point; ignore otherwise.
+      const kf = selectedKfIdRef.current
+        ? kfs.find((k) => k.id === selectedKfIdRef.current)
+        : null;
+      if (!kf) return;
+      kfId = kf.id;
+      startPanX = kf.panX;
+      startPanY = kf.panY;
+    }
     e.preventDefault();
     e.stopPropagation();
     stageRef.current?.setPointerCapture?.(e.pointerId);
-    dragRef.current = { x: e.clientX, y: e.clientY, panX: crop.panX, panY: crop.panY };
+    dragRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: startPanX,
+      panY: startPanY,
+      kfId,
+    };
     setDragging(true);
   };
 
@@ -777,11 +1000,14 @@ export function TrimModal({
     // Drag the video with the pointer — 1 frame-width ≈ full pan range
     const dx = ((e.clientX - dragRef.current.x) / rect.width) * 100;
     const dy = ((e.clientY - dragRef.current.y) / rect.height) * 100;
-    setCrop((c) => ({
-      ...c,
-      panX: Math.max(0, Math.min(100, dragRef.current!.panX - dx)),
-      panY: Math.max(0, Math.min(100, dragRef.current!.panY - dy)),
-    }));
+    const nextPanX = Math.max(0, Math.min(100, dragRef.current.panX - dx));
+    const nextPanY = Math.max(0, Math.min(100, dragRef.current.panY - dy));
+    const kfId = dragRef.current.kfId;
+    if (kfId) {
+      updateKeyframe(kfId, { panX: nextPanX, panY: nextPanY });
+    } else {
+      setCrop((c) => ({ ...c, panX: nextPanX, panY: nextPanY }));
+    }
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
@@ -849,7 +1075,27 @@ export function TrimModal({
   // Always preview in the final Short frame (9:16) so landscape sources
   // show cover-fit / zoom / edge crop the same way export will.
   const frameAspect = 9 / 16;
-  const cropLayout = cropPreviewStyle(crop, { frameAspect, videoAspect });
+  // With an animated zoom path, the base frame is drawn at zoom 1 (edge crop
+  // kept) and a CSS transform punches in about the pan point — this mirrors the
+  // export's per-frame crop so preview == export.
+  const displayCrop: ClipCrop = hasKf
+    ? { ...crop, zoom: 1, panX: 50, panY: 50 }
+    : crop;
+  const cropLayout = cropPreviewStyle(displayCrop, { frameAspect, videoAspect });
+  // The hook teaser renders on the static base frame (no per-frame punch-in),
+  // matching export — so don't animate zoom while previewing the hook.
+  const sampledZoom =
+    hasKf && !previewingHook
+      ? sampleZoomKeyframes(zoomKeyframes, zoomProgress)
+      : null;
+  const zoomAnimStyle: React.CSSProperties | undefined = sampledZoom
+    ? {
+        transformOrigin: `${sampledZoom.panX}% ${sampledZoom.panY}%`,
+        transform: `scale(${sampledZoom.zoom})`,
+      }
+    : undefined;
+  const shownZoom = sampledZoom ? sampledZoom.zoom : crop.zoom;
+  const scrubSource = sourceFromClipProgress(segments, zoomProgress);
   const edges = {
     left: crop.cropLeft || 0,
     right: crop.cropRight || 0,
@@ -894,20 +1140,22 @@ export function TrimModal({
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
             >
-              <div className="crop-content-window" style={cropLayout.windowStyle}>
-                <div className="crop-pad-content" style={cropLayout.contentStyle}>
-                  <video
-                    key={src}
-                    ref={videoRef}
-                    src={src}
-                    playsInline
-                    preload="auto"
-                    muted
-                    controls={false}
-                    draggable={false}
-                    className="trim-video"
-                    style={cropLayout.videoStyle}
-                  />
+              <div className="zoom-anim-layer" style={zoomAnimStyle}>
+                <div className="crop-content-window" style={cropLayout.windowStyle}>
+                  <div className="crop-pad-content" style={cropLayout.contentStyle}>
+                    <video
+                      key={src}
+                      ref={videoRef}
+                      src={src}
+                      playsInline
+                      preload="auto"
+                      muted
+                      controls={false}
+                      draggable={false}
+                      className="trim-video"
+                      style={cropLayout.videoStyle}
+                    />
+                  </div>
                 </div>
               </div>
               {/* Transparent hit target so drag always works over the video */}
@@ -1013,11 +1261,158 @@ export function TrimModal({
                 </div>
               )}
               <div className="crop-hint">
-                Drag sides to crop · drag center to pan · scroll to zoom ·{" "}
-                {crop.zoom.toFixed(2)}×
-                {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
+                {hasKf ? (
+                  <>
+                    {activeKf
+                      ? "Drag to pan this point · scroll to zoom it · "
+                      : "Scrub the zoom bar below · "}
+                    {shownZoom.toFixed(2)}×
+                    {shownZoom > 1.001 ? " in" : ""}
+                  </>
+                ) : (
+                  <>
+                    Drag sides to crop · drag center to pan · scroll to zoom ·{" "}
+                    {crop.zoom.toFixed(2)}×
+                    {crop.zoom < 1 ? " out" : crop.zoom > 1 ? " in" : ""}
+                  </>
+                )}
               </div>
             </div>
+            {ready && !loadError ? (
+              <div className="zoom-timeline-block">
+                <div className="zoom-timeline-head">
+                  <span>Zoom timeline</span>
+                  <span className="muted">
+                    scrub to preview · {formatTime(scrubSource.sourceTime)}
+                    {hasKf ? ` · ${shownZoom.toFixed(2)}×` : ""}
+                  </span>
+                </div>
+                <div
+                  ref={zoomRailRef}
+                  className="zoom-rail"
+                  onPointerDown={onZoomRailPointerDown}
+                  onPointerMove={onZoomRailPointerMove}
+                  onPointerUp={onZoomRailPointerUp}
+                  onPointerCancel={onZoomRailPointerUp}
+                >
+                  <div className="zoom-rail-track" />
+                  {zoomKeyframes.map((k) => (
+                    <button
+                      key={k.id}
+                      type="button"
+                      className={`zoom-kf ${k.id === selectedKfId ? "active" : ""}`}
+                      style={{ left: `${(k.t * 100).toFixed(3)}%` }}
+                      title={`${k.zoom.toFixed(2)}× · ${formatTime(
+                        sourceFromClipProgress(segments, k.t).sourceTime
+                      )}`}
+                      onPointerDown={(e) => onKeyframePointerDown(k.id, e)}
+                      aria-label="Zoom point"
+                    >
+                      <span className="zoom-kf-dot" />
+                    </button>
+                  ))}
+                  <div
+                    className="zoom-rail-playhead"
+                    style={{ left: `${(zoomProgress * 100).toFixed(3)}%` }}
+                  />
+                </div>
+                <div className="zoom-rail-actions">
+                  <button
+                    type="button"
+                    className="btn ghost small"
+                    onClick={addKeyframeAtScrub}
+                    disabled={zoomKeyframes.length >= MAX_ZOOM_KEYFRAMES}
+                  >
+                    <Plus size={14} /> Add zoom point
+                  </button>
+                  {activeKf ? (
+                    <button
+                      type="button"
+                      className="btn ghost small"
+                      onClick={() => removeKeyframe(activeKf.id)}
+                    >
+                      <Trash2 size={14} /> Delete point
+                    </button>
+                  ) : null}
+                  {hasKf ? (
+                    <button
+                      type="button"
+                      className="btn ghost small"
+                      onClick={clearKeyframes}
+                    >
+                      Clear zoom
+                    </button>
+                  ) : null}
+                </div>
+                {activeKf ? (
+                  <div className="zoom-kf-editor">
+                    <label className="zoom-kf-row">
+                      <span>Zoom</span>
+                      <input
+                        type="range"
+                        min={MIN_KEYFRAME_ZOOM}
+                        max={MAX_KEYFRAME_ZOOM}
+                        step={0.05}
+                        value={activeKf.zoom}
+                        onChange={(e) =>
+                          updateKeyframe(activeKf.id, {
+                            zoom: clampKeyframeZoom(parseFloat(e.target.value)),
+                          })
+                        }
+                      />
+                      <strong>{activeKf.zoom.toFixed(2)}×</strong>
+                    </label>
+                    <label className="zoom-kf-row">
+                      <span>Pan X</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={activeKf.panX}
+                        onChange={(e) =>
+                          updateKeyframe(activeKf.id, {
+                            panX: clampCropPan(parseFloat(e.target.value)),
+                          })
+                        }
+                      />
+                      <strong>{Math.round(activeKf.panX)}</strong>
+                    </label>
+                    <label className="zoom-kf-row">
+                      <span>Pan Y</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={activeKf.panY}
+                        onChange={(e) =>
+                          updateKeyframe(activeKf.id, {
+                            panY: clampCropPan(parseFloat(e.target.value)),
+                          })
+                        }
+                      />
+                      <strong>{Math.round(activeKf.panY)}</strong>
+                    </label>
+                    <p className="muted zoom-kf-hint">
+                      Drag on the preview to pan this point · scroll to zoom it.
+                      Add another point at a different time to make the zoom move.
+                    </p>
+                  </div>
+                ) : hasKf ? (
+                  <p className="muted zoom-kf-hint">
+                    Tap a point to edit its zoom &amp; pan. Drag the bar to preview
+                    any moment — playback resets to the start.
+                  </p>
+                ) : (
+                  <p className="muted zoom-kf-hint">
+                    Add zoom points to push in and pan across the clip (e.g. a
+                    start point at 1× and an end point at 2×, panning to follow
+                    the subject). The bar also scrubs the preview.
+                  </p>
+                )}
+              </div>
+            ) : null}
           </div>
 
           <div className="trim-options-col modal-scroll">
@@ -1151,6 +1546,7 @@ export function TrimModal({
               onChange={setCrop}
               videoAspect={videoAspect}
               frameAspect={frameAspect}
+              showZoomPan={!hasKf}
             />
           </div>
 
